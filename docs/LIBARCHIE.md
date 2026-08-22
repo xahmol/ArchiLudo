@@ -33,7 +33,10 @@ void  v_setBorderColour(u32 colour);
 ```
 
 ArchieSDK's own `examples/oslib/main.c` and `examples/hello-world/main.c`
-both use `v_setMode(13)` (mode 13, 16-colour 320x256) +
+both use `v_setMode(13)` (mode 13, **256**-colour 320x256, 4x4 OS-unit
+pixels -- confirmed against the RISC OS 3 PRM's sprite-modes table,
+`~/riscos-dev/prm-mirror/sprites.html`; an earlier draft of this doc
+mis-stated it as 16-colour) +
 `v_disableTextCursor()` + `v_enableVSync()`/`atexit(quit)` as the standard
 full-screen-game startup/teardown pattern. For a WIMP application this
 isn't used -- the Wimp owns the screen mode -- but it's the natural choice

@@ -12,9 +12,11 @@ See [`docs/`](docs/) for the full project documentation:
 [`BUILDCHAIN.md`](docs/BUILDCHAIN.md),
 [`GAME_LOGIC.md`](docs/GAME_LOGIC.md),
 [`OSLIB.md`](docs/OSLIB.md),
-[`LIBARCHIE.md`](docs/LIBARCHIE.md); plus
+[`LIBARCHIE.md`](docs/LIBARCHIE.md),
+[`GRAPHICS_TOOLING.md`](docs/GRAPHICS_TOOLING.md); plus
 [`riscos_wimp_reference.md`](riscos_wimp_reference.md) for the WIMP/SWI/
-message API reference.
+message API reference, and [`CREDITS.md`](CREDITS.md) for everything this
+project is built on or derived from.
 
 ## Building from source
 
@@ -25,6 +27,7 @@ message API reference.
 | [ArchieSDK](https://gitlab.com/_targz/archiesdk) | ARM2-targeting cross-compiler (GCC 8.5.0), bundled OSLib | `git clone https://gitlab.com/_targz/archiesdk.git ~/riscos-dev/archiesdk && cd ~/riscos-dev/archiesdk && ./build.sh` |
 | [Arculator](https://arculator.hep.org.uk/) | Acorn Archimedes emulator, for testing | already installed at `D:\Retro\Acorn\Arculator_V2.2_Windows` |
 | pandoc | optional: README.md -> README.pdf | `sudo apt install pandoc texlive-xetex` |
+| Python 3 + Pillow | `tools/riscos_sprite.py`, the PNG->Sprite converter | `pip install Pillow` |
 
 ### .env setup
 

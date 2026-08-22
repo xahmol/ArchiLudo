@@ -19,12 +19,24 @@ reference for this project, kept up to date as development progresses:
 | `docs/GAME_LOGIC.md` | Rules engine data model and API |
 | `docs/OSLIB.md` | How this project uses OSLib, where to look up anything it doesn't cover |
 | `docs/LIBARCHIE.md` | ArchieSDK's bundled helper library |
+| `docs/GRAPHICS_TOOLING.md` | The PNG->Sprite converter in `tools/`, RISC OS sprite file format |
 
 `riscos_wimp_reference.md` (project root) is the curated WIMP/SWI/message
 reference; `~/riscos-dev/prm-mirror/` and
 `~/riscos-dev/wimp-prog-mirror/wimp-prog/` are full local offline mirrors
 of the PRM and Steve Fryatt's `wimp-prog` guide for anything the curated
-reference doesn't cover in enough depth.
+reference doesn't cover in enough depth. `CREDITS.md` lists everything
+this project is built on, ported from, or otherwise sourced from —
+**every new external tool/library/reference used gets an entry there**,
+alongside an inline credit comment at the point of use (see the global
+CLAUDE.md's "Code Attribution" section).
+
+**Every library this project creates or wraps gets its own `docs/<NAME>.md`
+manual** (not just header docstrings) — e.g. `docs/QTM.md` once the QTM
+wrapper library exists. SWI-based APIs get wrapped in a dedicated C
+library (`lib/<name>.c`/`include/<name>.h`) rather than called via raw
+`_swi()`/`_swix()` inline — this project's preference, matching how OSLib
+and `libarchie` already work.
 
 **Keep all of the above updated with new insights while building** — a
 message-protocol detail, a compiler gotcha, a rule clarification, a new
