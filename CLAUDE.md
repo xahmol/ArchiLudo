@@ -17,6 +17,7 @@ reference for this project, kept up to date as development progresses:
 | `docs/ARCHITECTURE.md` | Layering (`game_logic.c` vs WIMP shell), directory structure, GeoLudo→Wimp porting map |
 | `docs/BUILDCHAIN.md` | ArchieSDK toolchain, Makefile targets, confirmed compiler defaults/gotchas |
 | `docs/GAME_LOGIC.md` | Rules engine data model and API |
+| `docs/BOARD_LAYOUT.md` | Board geometry (grid cells, ring/home-column/home-base mapping) |
 | `docs/OSLIB.md` | How this project uses OSLib, where to look up anything it doesn't cover |
 | `docs/LIBARCHIE.md` | ArchieSDK's bundled helper library |
 | `docs/GRAPHICS_TOOLING.md` | The PNG->Sprite converter in `tools/`, RISC OS sprite file format |
@@ -55,12 +56,19 @@ clean reimplementation rather than a literal port.
 
 ## Architecture (summary — see `docs/ARCHITECTURE.md` for detail)
 
-Two layers that never mix: `src/game_logic.c` (pure C rules engine, no
-OSLib/WIMP dependency, unit tested with `make test` using the host
-compiler) and `src/main.c` (the WIMP shell — raw OSLib `Wimp_Poll` event
-loop, no Toolbox, since RISC OS 3.10 doesn't ship it and it's not worth the
-RAM on a stock 1MB machine). Window/icon definitions are built directly in
-C as OSLib structures rather than a Wimp template file.
+Three layers that never mix: `src/game_logic.c` (pure C rules engine),
+`src/board_layout.c` (pure C board geometry, maps rules-engine state onto
+grid cells), and the WIMP shell (`src/main.c` task lifecycle/iconbar,
+`src/game_view.c` the game window/redraw/clicks — raw OSLib `Wimp_Poll`
+event loop, no Toolbox, since RISC OS 3.10 doesn't ship it and it's not
+worth the RAM on a stock 1MB machine). The first two layers have no
+OSLib/WIMP dependency and are unit tested with `make test` using the host
+compiler. Window/icon definitions are built directly in C as OSLib
+structures rather than a Wimp template file.
+
+**Current status**: Phase 1 (see `docs/ARCHITECTURE.md`'s Roadmap) — a
+playable core loop compiles and links cleanly under ArchieSDK, but has not
+yet been verified inside Arculator. That's the next thing to do.
 
 Porting source: `/home/xahmol/git/ludo`, specifically `GEOS/` — see
 `docs/ARCHITECTURE.md`'s GeoLudo→Wimp mapping table.

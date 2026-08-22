@@ -70,10 +70,10 @@ ELF      = build/$(APPNAME).elf
 TARGET   = build/$(APPNAME),ff8
 ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
 
-TEST_BIN = build/test_game_logic
+TEST_BINS = build/test_game_logic build/test_board_layout
 
 .SUFFIXES:
-.PHONY: all clean asm zip docs check-hostfs deploy test
+.PHONY: all clean asm zip docs check-hostfs deploy test assets
 
 all: $(TARGET)
 
@@ -103,15 +103,22 @@ check-hostfs:
 
 deploy: check-hostfs $(TARGET)
 	cp $(TARGET) "$(ARCULATOR_HOSTFS)/"
+	cp assets/Sprites "$(ARCULATOR_HOSTFS)/Sprites,ff9"
 
 zip: $(TARGET)
 	$(ARCHIEZIP) -r $(ZIPFILE) $(TARGET) README.md
 
-test: $(TEST_BIN)
-	./$(TEST_BIN)
+assets:
+	python3 assets/generate_placeholder_art.py
 
-$(TEST_BIN): tests/test_game_logic.c src/game_logic.c include/game_logic.h | build
+test: $(TEST_BINS)
+	@for t in $(TEST_BINS); do echo "=== $$t ==="; ./$$t || exit 1; done
+
+build/test_game_logic: tests/test_game_logic.c src/game_logic.c include/game_logic.h | build
 	$(HOSTCC) -Wall -Wextra -std=c99 -Iinclude -o $@ tests/test_game_logic.c src/game_logic.c
+
+build/test_board_layout: tests/test_board_layout.c src/board_layout.c src/game_logic.c include/board_layout.h include/game_logic.h | build
+	$(HOSTCC) -Wall -Wextra -std=c99 -Iinclude -o $@ tests/test_board_layout.c src/board_layout.c src/game_logic.c
 
 docs: README.pdf
 

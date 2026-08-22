@@ -36,11 +36,11 @@ that limitation.
 | Component | Status |
 |---|---|
 | `game_logic.c` | Complete rules engine (see [GAME_LOGIC.md](GAME_LOGIC.md)), fully unit tested |
-| `main.c` | Smoke-test WIMP shell only: iconbar icon, quits on click/`Message_Quit`. Not yet wired to `game_logic.c` |
-| Sprite/graphics tooling | `tools/riscos_sprite.py`, see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) -- built and self-verified, no assets made yet |
-| Board/dice/pawn rendering | Not started |
+| `board_layout.c` | Complete placeholder board geometry (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), fully unit tested |
+| Sprite/graphics tooling | `tools/riscos_sprite.py`, see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md); placeholder pawn art generated via `assets/generate_placeholder_art.py` |
+| `main.c` / `game_view.c` | Playable Phase 1 WIMP game: iconbar icon opens a game window with a Throw button and status line; board cells + pawns drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK -- **not yet verified visually in Arculator** (next step) |
 | Music/SFX (QTM) | Not started -- see "Roadmap" below |
-| Dialogue boxes, menus | Not started |
+| Dialogue boxes (name entry, AI count, save/load), AI opponents | Not started |
 
 ## Roadmap
 
@@ -50,17 +50,34 @@ decision below via an explicit choice):
 | Phase | Goal | Status |
 |---|---|---|
 | 0 | Build environment: ArchieSDK, Arculator profiles, `game_logic.c` + tests, docs set, PRM/wimp-prog mirrors | done |
-| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click, Game/File menu, name-entry/restart-confirm dialogues per the porting table below), drag-based save/load | not started |
-| 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) | done |
-| 2 | Real board/pawn/dice art via the tooling above | not started |
+| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop done, compiles clean, **needs manual Arculator verification**; name-entry/restart-confirm dialogues and drag-based save/load not yet done (deferred to polish alongside Phase 5) |
+| 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done |
+| 2 | Real board/pawn/dice art via the tooling above (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!) -- confirms the traditional 4-colour-pawn, private-home-run ("eindcirkel") structure the Phase 1 placeholder board already follows) | not started |
 | 3 | Audio: `lib/qtm.c`/`docs/QTM.md` wrapper (see [[archiludo-riscos-project]] memory / `CREDITS.md` for why QTM over archieklang), bundle `QTMModule`, background MOD + dice-roll/capture/win sound effects | not started |
 | 4 | Enhanced graphics: full-screen double-buffered gameplay view (see "Graphics architecture: hybrid" below), smooth pawn/dice animation | not started |
 | 5 | AI difficulty, credits/options dialogues, `!Sprites`/`!Boot`/`!Run` app-directory packaging | not started |
 | 6 | Release: versioned zip, README/screenshots, both Arculator profiles verified | not started |
+| 7 (future, unscheduled) | Expand beyond this one "Mens Erger Je Niet" variant to support multiple Pachisi/Ludo/Mens Erger Je Niet house-rule variants, selectable by the player | not started -- see note below |
 
 Phase 1 deliberately comes before any graphics/audio investment -- it
 validates the whole rules-engine-to-WIMP wiring while everything's still
 easy to change.
+
+### Future: multiple Pachisi/Ludo/Mens Erger Je Niet variants
+
+Not scheduled, but recorded so it shapes later design choices rather than
+being retrofitted: the user wants ArchiLudo to eventually offer several
+house-rule variants (Pachisi, standard Ludo, this Dutch "Mens Erger Je
+Niet" ruleset), selectable by the player, rather than only the one variant
+`game_logic.c` implements today. When that work starts, the rules that
+currently live as `#define`s and hardcoded behaviour in `game_logic.c`
+(ring/home-column length, whether a six mandatorily releases a home pawn,
+the three-tries-for-a-six rule, capture-on-landing, home-column blocking)
+will need to become a parameterised ruleset the engine is configured with,
+rather than the single fixed variant. Don't preemptively generalise
+`game_logic.c` for this now -- it's explicitly future/unscheduled work,
+and premature abstraction before a second variant is actually being built
+would just be guessing at what needs to vary.
 
 ### Graphics architecture: hybrid
 
@@ -90,9 +107,44 @@ contexts with tighter CPU control; not needed here. Per this project's
 SWI-wrapper convention, QTM will be wrapped as `lib/qtm.c`/`qtm.h` with
 its own `docs/QTM.md`, not called via raw `_swi()` inline.
 
-The next real implementation step is Phase 1: wiring `game_logic.c` into
-an actual game window -- see the porting table below for what that reuses
-from GeoLudo and what's new.
+### Phase 1 implementation notes
+
+`src/game_view.c` (see [include/game_view.h](../include/game_view.h) for
+the API) owns the one game window; `src/main.c` stays the thin
+task-lifecycle shell (`Wimp_Initialise`, the `Wimp_Poll` loop, the iconbar
+icon and its Quit menu, `Message_Quit`) and just dispatches
+redraw/click events whose window handle matches `game_view_window_handle()`.
+
+Window layout: a "Throw" button icon and an indirected-text status line
+icon at the top (both real `wimp_icon`s, so the Wimp redraws them for
+free), and a `BOARD_GRID_SIZE x BOARD_GRID_SIZE` board area below that's
+entirely custom-plotted in the `Redraw_Window_Request` handler --
+`board_layout.c` classifies every cell once at startup
+(`build_cell_kinds()`), then each redraw fills every non-empty cell with a
+flat `colourtrans_set_gcol`+`os_plot` rectangle and plots each pawn's
+sprite (`osspriteop_put_sprite_user_coords`, falling back to a plain
+coloured square if `assets/Sprites` fails to load) at its
+`board_pawn_cell()` position. Clicking the board area converts the click's
+screen coordinates to a board cell via the standard `box.x0 - xscroll` /
+`box.y1 - yscroll` redraw-origin arithmetic (see the RISC OS 3 PRM's
+`Wimp_RedrawWindow` entry, `~/riscos-dev/prm-mirror/wimp.html`) and moves
+whichever of the current player's movable pawns (per
+`ludo_movable_pawns()`) sits on that cell.
+
+`assets/Sprites` is currently loaded via a bare relative filename
+("Sprites"), which only works if it's sitting next to the running
+`ArchiLudo,ff8` -- fine for `make deploy`'s flat hostfs layout, but will
+need a real `!ArchiLudo` application-directory path once Phase 5 packaging
+happens.
+
+**This compiles and links cleanly under `arm-archie-gcc` with no warnings,
+but has not yet been run inside Arculator** -- per this project's testing
+philosophy (see the top of this file), anything touching OSLib/WIMP can
+only be verified by hand. Next session should boot
+`ArchiLudo-ARM3-4MB.cfg`, confirm the iconbar icon appears, the window
+opens with a visible board/Throw button/status line, dice rolling and
+pawn-clicking work, and fix whatever the redraw-origin/click-coordinate
+arithmetic above got wrong on first contact with a real Wimp.
 
 ## Directory layout
 
@@ -100,21 +152,31 @@ from GeoLudo and what's new.
 ArchiLudo/
   src/
     game_logic.c     -- rules engine (portable)
-    main.c           -- WIMP shell (ArchieSDK/OSLib only)
+    board_layout.c    -- board geometry (portable)
+    game_view.c        -- the game window: creation, redraw, clicks
+    main.c               -- WIMP shell (task lifecycle, iconbar, dispatch)
   include/
     game_logic.h      -- rules engine API + full rules writeup
-    archiludo.h        -- WIMP shell shared declarations
+    board_layout.h     -- board geometry API
+    game_view.h          -- game window API
+    archiludo.h            -- WIMP shell shared declarations
   tests/
-    test_game_logic.c -- host-side automated test suite (`make test`)
+    test_game_logic.c   -- host-side automated test suite (`make test`)
+    test_board_layout.c  -- ditto, for board_layout.c
   tools/
     riscos_sprite.py  -- PNG <-> RISC OS Sprite converter (host-side, Python)
+  assets/
+    generate_placeholder_art.py -- procedural Phase 1 pawn art (reproducible)
+    pawn0.png .. pawn3.png        -- generated source images
+    Sprites                       -- packed sprite file the game loads
   docs/
     ARCHITECTURE.md    -- this file
     BUILDCHAIN.md       -- ArchieSDK/Makefile/toolchain manual
     GAME_LOGIC.md        -- rules engine manual
-    OSLIB.md              -- how this project uses OSLib
-    LIBARCHIE.md           -- ArchieSDK's bundled helper library
-    GRAPHICS_TOOLING.md    -- the sprite converter and RISC OS sprite format
+    BOARD_LAYOUT.md       -- board geometry manual
+    OSLIB.md                -- how this project uses OSLib
+    LIBARCHIE.md             -- ArchieSDK's bundled helper library
+    GRAPHICS_TOOLING.md      -- the sprite converter and RISC OS sprite format
   riscos_wimp_reference.md -- WIMP/SWI/message reference (curated from the PRM + Pinknoise archive + Fryatt's guide)
   CREDITS.md -- everything this project is built on/ported from
   Makefile

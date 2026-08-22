@@ -11,6 +11,7 @@ See [`docs/`](docs/) for the full project documentation:
 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 [`BUILDCHAIN.md`](docs/BUILDCHAIN.md),
 [`GAME_LOGIC.md`](docs/GAME_LOGIC.md),
+[`BOARD_LAYOUT.md`](docs/BOARD_LAYOUT.md),
 [`OSLIB.md`](docs/OSLIB.md),
 [`LIBARCHIE.md`](docs/LIBARCHIE.md),
 [`GRAPHICS_TOOLING.md`](docs/GRAPHICS_TOOLING.md); plus
@@ -55,4 +56,9 @@ ARCULATOR_HOSTFS = /mnt/d/Retro/Acorn/Arculator_V2.2_Windows/hostfs
 Testing: boot `configs/ArchiLudo-ARM3-4MB.cfg` (matches real ARM3/4MB
 hardware) or `configs/ArchiLudo-ARM2-1MB.cfg` (stock ARM2/1MB compatibility
 check) in Arculator with the RISC OS 3.10 ROM, then run `ArchiLudo` from
-HostFS via the Filer.
+HostFS via the Filer. `make deploy` also copies `assets/Sprites` alongside
+it, needed for the pawn artwork.
+
+**Status**: Phase 1 (see `docs/ARCHITECTURE.md`'s Roadmap) -- a playable
+core loop (iconbar icon, game window, dice, pawn movement) compiles and
+links cleanly, but hasn't been visually verified in Arculator yet.
