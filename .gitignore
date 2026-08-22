@@ -53,3 +53,13 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# ArchiLudo / ArchieSDK build environment
+build/
+.env
+
+# RISC OS filetype-suffixed build artifacts (,xxx hex filetype convention)
+*,ff8
+*,ff9
+*,fff
+*,feb
