@@ -123,6 +123,8 @@ static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
 static char name_text[NAME_TEXT_LEN] = "";
 static char status_text[STATUS_TEXT_LEN] = "";
+static char throw_text[8] = "Throw";
+static char throw_validation[4] = "R1";
 
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
@@ -444,12 +446,22 @@ void game_view_initialise(const char *argv0)
 	icon->extent.y1 = THROW_Y1;
 	icon->extent.y0 = THROW_Y1 - THROW_HEIGHT;
 	icon->extent.x1 = PANEL_X0 + THROW_WIDTH;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
-	              wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	/* Indirected (not a plain 12-byte inline string) so its validation
+	 * string -- which is what controls the Bo(R)der 3D bevel type -- is a
+	 * buffer this code can mutate at runtime for click feedback. R1
+	 * ("slab out", a raised button look) at rest, briefly switched to R2
+	 * ("slab in", sunken/pressed) on click then back -- per explicit user
+	 * request and the RISC OS 3 PRM's Wimp chapter Bo(R)der command
+	 * (~/riscos-dev/prm-mirror/wimp.html): "type 1 slab out / 2 slab in".
+	 * See flash_throw_button(). */
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
 	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
 	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
 	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	strncpy(icon->data.text, "Throw", 12);
+	icon->data.indirected_text.text = throw_text;
+	icon->data.indirected_text.validation = throw_validation;
+	icon->data.indirected_text.size = sizeof(throw_text);
 
 	window_handle = wimp_create_window((wimp_window *) &def);
 
@@ -780,6 +792,38 @@ static void try_move_pawn(int col, int row)
 	debug_log("  no match -- no pawn moved\n");
 }
 
+/*
+ * Function: flash_throw_button
+ * Summary: Briefly switch the Throw icon's border from R1 ("slab out", a
+ *          raised button look, its resting state) to R2 ("slab in",
+ *          sunken/pressed) and back, giving genuine RISC OS click
+ *          feedback -- per explicit user request. The icon's validation
+ *          string (throw_validation) is a buffer this code owns and can
+ *          mutate directly; wimp_set_icon_state() with no actual flag
+ *          change (0, 0) is the standard way to make the Wimp re-read and
+ *          redraw an icon's indirected data after changing it in place
+ *          (the same pattern refresh_status() already uses for the
+ *          status/name text). The delay is a short, deliberate busy-wait
+ *          (~0.1s) so the pressed look is actually visible -- there's no
+ *          separate down/up event to synchronise against in this
+ *          project's plain Mouse_Click handling, so this is timed rather
+ *          than tied to the physical button release.
+ */
+static void flash_throw_button(void)
+{
+	os_t start;
+
+	strncpy(throw_validation, "R2", sizeof(throw_validation));
+	wimp_set_icon_state(window_handle, ICON_THROW, 0, 0);
+
+	start = os_read_monotonic_time();
+	while (os_read_monotonic_time() - start < 10)
+		; /* ~10 centiseconds */
+
+	strncpy(throw_validation, "R1", sizeof(throw_validation));
+	wimp_set_icon_state(window_handle, ICON_THROW, 0, 0);
+}
+
 void game_view_click(wimp_pointer *pointer)
 {
 	/* Unconditional entry log -- the user reports clicks on the board not
@@ -797,6 +841,8 @@ void game_view_click(wimp_pointer *pointer)
 	          ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
 
 	if (pointer->i == ICON_THROW) {
+		flash_throw_button();
+
 		if (game.winner != -1) {
 			game_view_new_game();
 		} else {

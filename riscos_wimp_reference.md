@@ -169,7 +169,17 @@ Validation string grammar (RISC OS 3.10 feature set):
 - `P<sprite>,x,y` — custom pointer shape while over the icon.
 - `R<type>,<highlight>` — border style: `0` plain, `1` slab-out, `2`
   slab-in, `3` ridge, `4` channel, `5`/`6` action button (highlights on
-  select, `6` = default action), `7` editable field.
+  select, `6` = default action), `7` editable field. **Changing this at
+  runtime** (e.g. a manual "pressed" flash on a button icon, R1↔R2, as
+  opposed to letting R5/R6 handle press/release automatically): the icon
+  must be indirected with the validation string in a buffer the app owns
+  — mutate that buffer's contents directly (e.g. `strncpy` "R1" over
+  "R2"), then call `Wimp_SetIconState`/`wimp_set_icon_state(w, i, 0, 0)`
+  (an actual-no-op flags EOR/clear) purely to make the Wimp re-read and
+  redraw the icon's indirected data — the same pattern used to refresh
+  indirected *text* after changing it (ArchiLudo's `refresh_status()`).
+  Confirmed working this way in ArchiLudo's Throw button (see
+  `src/game_view.c`'s `flash_throw_button()`).
 
 Sprite+text icon positioning is controlled by the H/V/R flag bits (bits 4,
 5, 9) — see the table in the full Pinknoise page if a non-default layout is

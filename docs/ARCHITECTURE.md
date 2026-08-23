@@ -488,6 +488,27 @@ surfaced several rules/UX issues:
   computed box each redraw, to check against the window's actual state
   next round rather than guess further.
 
+**Round 6.6**: Throw button given genuine RISC OS press feedback -- the
+user pointed at the classic R0-R7 icon border-style reference image and
+asked specifically for R1 ("slab out", a raised 3D button look) at rest,
+briefly switching to R2 ("slab in", sunken) on click, then back. Since
+this needs the icon's *validation string* (the `R` command controls
+border type, see `riscos_wimp_reference.md`'s Icons section) mutated at
+runtime, `ICON_THROW` was converted from a plain 12-byte inline string to
+an indirected icon with its own `throw_text`/`throw_validation` buffers;
+a new `flash_throw_button()` rewrites `throw_validation` between "R1" and
+"R2" around a short (~0.1s) deliberate busy-wait via
+`os_read_monotonic_time()`, calling `wimp_set_icon_state(w, i, 0, 0)`
+(a no-op flag change, purely to make the Wimp re-read and redraw the
+icon's indirected data) after each change -- the same technique
+`refresh_status()` already uses to refresh indirected *text*. This is a
+timed flash rather than tied to the actual physical mouse-button release
+(there's no separate down/up event in this project's plain `Mouse_Click`
+handling) -- R5/R6 ("action button" types) would give a natively
+press/release-synchronised highlight with zero app code, but colour-swap
+highlighting rather than the specific slab-out/slab-in bevel switch that
+was asked for, so weren't used here.
+
 ### Board layout: ported from the GEOS edition, not invented
 
 The Phase 1 board shape now comes directly from
