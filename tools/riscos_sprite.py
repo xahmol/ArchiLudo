@@ -43,25 +43,25 @@ except ImportError:
 # Old-style RISC OS screen/sprite mode numbers, by bits-per-pixel.
 #
 # Picked from Volume 4 Chapter 95 "Table B: Modes" (local mirror:
-# ~/riscos-dev/prm-mirror/modes.html), all four at 320x256 pixels / 1280x1024
-# OS units -- i.e. 4x4 OS units per pixel, SQUARE. This matters: modes 0/8/
-# 12/15 (640x256 pixels, same 1280x1024 OS units) are 2x4 -- pixels twice as
-# TALL as wide -- so a sprite built from ordinary square-pixel source art
-# (e.g. a PNG circle) displays visibly squashed/stretched under one of
-# those modes even though sprite mode and screen mode agree with each
-# other on bpp. This was discovered the hard way: ArchiLudo's pawn
-# placeholder art (round-cornered circles) rendered as tall thin "bottle"
-# shapes in Arculator under mode 15, and CLAUDE.md/docs previously told the
-# user to `*Configure Mode 15` for 256 colours -- that guidance was wrong
-# for square-pixel art and has been corrected to mode 13 (see
-# docs/GRAPHICS_TOOLING.md and CLAUDE.md's Testing section). Every sprite
-# this project generates must use the mode matching its bpp below, and the
-# live screen mode must be 13, or this distortion comes right back.
+# ~/riscos-dev/prm-mirror/modes.html): all four are 640x256 pixels at
+# 1280x1024 OS units -- 2x4 OS units per pixel, i.e. pixels twice as TALL
+# as wide, non-square. ArchiLudo targets mode 15 (this project's chosen
+# 256-colour screen mode -- it's the normal RISC OS desktop mode, and mode
+# 13's square pixels turned out not to be worth chasing: it wasn't even
+# selectable under the user's Arculator monitor-type setup). Sprites are
+# tagged with the mode matching mode 15's own aspect for their bpp, so
+# there's no sprite/screen mode mismatch -- the non-square-pixel distortion
+# this caused for ArchiLudo's pawn art (round circles rendering as tall
+# thin "bottle" shapes) is instead compensated for in the SOURCE art itself
+# (see assets/generate_placeholder_art.py's MODE15_OS_UNITS_PER_PIXEL,
+# which pre-squishes the drawing canvas by the inverse ratio so mode 15's
+# stretch brings it back to the intended shape). See
+# docs/GRAPHICS_TOOLING.md's "Round 6 correction" for the full writeup.
 MODES_BY_BPP = {
-    1: 4,   # 2 colours,   4x4 OS units (square)
-    2: 1,   # 4 colours,   4x4 OS units (square)
-    4: 9,   # 16 colours,  4x4 OS units (square)
-    8: 13,  # 256 colours, 4x4 OS units (square)
+    1: 0,   # 2 colours,   2x4 OS units
+    2: 8,   # 4 colours,   2x4 OS units
+    4: 12,  # 16 colours,  2x4 OS units
+    8: 15,  # 256 colours, 2x4 OS units
 }
 
 SPRITE_CB_FIXED_SIZE = 44  # bytes: next_offset, name(12), 6 more u32 fields

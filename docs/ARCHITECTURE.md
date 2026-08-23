@@ -38,7 +38,7 @@ that limitation.
 | `game_logic.c` | Complete rules engine (see [GAME_LOGIC.md](GAME_LOGIC.md)), fully unit tested |
 | `board_layout.c` | The real Mens Erger Je Niet board (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), ported from the GEOS edition's coordinate tables, not invented -- fully unit tested |
 | Sprite/graphics tooling | `tools/riscos_sprite.py`, see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md); placeholder pawn art generated via `assets/generate_placeholder_art.py` |
-| `main.c` / `game_view.c` | Playable Phase 1 WIMP game: iconbar icon opens a game window with a Throw button and status line; board cells + pawns drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK. **First round of Arculator feedback applied** (see "Phase 1 implementation notes" below) -- **needs another round of manual verification** |
+| `main.c` / `game_view.c` | Playable Phase 1 WIMP game, laid out to match GeoLudo's own screen arrangement (board left, status/controls panel right -- see "Phase 1 implementation notes" below, "Round 6"): iconbar icon opens a game window with a player-name line, action-status line, and Throw button; board cells (circles, matching GEOS) + pawns (reused/recoloured GeoLudo art) drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK. **Six rounds of Arculator feedback applied** (see "Phase 1 implementation notes" below) -- **needs another round of manual verification, in particular the pawn-click/movement path** |
 | Music/SFX (QTM) | Not started -- see "Roadmap" below |
 | Dialogue boxes (name entry, AI count, save/load), AI opponents | Not started |
 
@@ -333,17 +333,54 @@ screenshot, resolved:
   dimension derives from `CELL` via the existing macros, so the whole
   board area roughly doubles without needing per-dimension changes.
 
+**Round 6**: mode 13 turned out not to be selectable under the user's
+actual Arculator monitor-type setup (`*Configure Mode 13` did nothing) --
+confirmed mode 15 is simply the normal RISC OS desktop mode and reverted
+the screen-mode target back to it, moving the non-square-pixel
+compensation into the *source art* instead (see
+`docs/GRAPHICS_TOOLING.md`'s "Round 6 correction" -- `tools/riscos_sprite.py`'s
+`MODES_BY_BPP` is back to 0/8/12/15, and
+`assets/generate_placeholder_art.py` draws its canvas pre-squished by
+mode 15's own 2x4 OS-unit-per-pixel ratio). This also explained round 5's
+"too high"/oversized pawns as a side effect: the round-5 sprites were
+tagged mode 9 (4x4 OS units/pixel) at 40x40 raw pixels -- since a
+sprite's on-screen OS-unit footprint is `raw_pixels x its own declared
+OS-units-per-pixel`, that's a 160x160 OS-unit sprite, four times the
+intended 40x40, regardless of the live screen mode. Fixed by the same
+mode-15/pre-squish rework (40x40 OS units is now correctly 20x10 raw
+pixels tagged mode 12).
+
+**Also this round, per explicit user request**: reused GeoLudo's own pawn
+and board-entry-marker artwork instead of hand-drawn placeholder shapes
+(see `docs/GRAPHICS_TOOLING.md`'s "Round 6: reusing GeoLudo's own art"),
+and redesigned the whole window layout to match GeoLudo's own screen
+arrangement (board on the left, a status/controls panel on the right,
+Throw positioned lower in the panel rather than ArchiLudo's earlier
+invented top-header layout) -- resized for mode 15's OS units rather than
+pixel-exact, since RISC OS's fixed-width system font needs more room per
+character than GEOS's own font did. Board cells changed from solid
+squares to circles (`os_plot`'s native `os_PLOT_CIRCLE`/
+`os_PLOT_CIRCLE_OUTLINE`, mode-independent like the rectangle fills they
+replaced) to match GEOS's actual look: hollow outline when an empty ring
+cell, filled in the owning player's full colour for home-column "lane"
+markers (shown at full saturation regardless of occupancy -- confirmed
+against the reference screenshot, not a paler background tint as
+ArchiLudo's own earlier design assumed) and for on-track pawns. Home base
+cells no longer draw any background at all, matching GEOS -- just the
+pawns sitting directly on the window background.
+
 **Still not fully verified** -- these are all high-confidence fixes for
 concretely-identified bugs (a real screenshot each round, not a
-guess-and-hope pass), but the redraw origin/click-coordinate arithmetic in
-particular, and now the mode-13 switch itself, can still only be truly
-confirmed by looking at it running again in Arculator. **The Arculator
-profiles' CMOS still has mode 15 configured from earlier rounds** -- the
-user needs to run `*Configure Mode 13` again on each profile before
-re-testing, the same one-time-per-profile step as before just with a
-different mode number. The "pawns don't move" / pawn-click report from
-round 3 is still open -- round 4's click-side logging never got exercised
-since the round-4 screenshot didn't include a click attempt; still needed.
+guess-and-hope pass) and a from-a-reference-screenshot layout redesign,
+but can still only be truly confirmed by looking at it running again in
+Arculator. The "pawns don't move" / pawn-click report from round 3 is
+still open -- the click-side debug logging has been in place since round
+3 but no screenshot/log has yet shown a click actually being attempted;
+still needed. The Throw-button flicker fix and six-release wording from
+round 4 haven't been re-confirmed against this round's rewritten
+`refresh_status()`/`game_view_click()` (behaviour preserved, believed
+still correct, but not yet re-verified visually since the whole
+layout changed underneath them).
 
 ### Board layout: ported from the GEOS edition, not invented
 
@@ -379,8 +416,10 @@ ArchiLudo/
   tools/
     riscos_sprite.py  -- PNG <-> RISC OS Sprite converter (host-side, Python)
   assets/
-    generate_placeholder_art.py -- procedural Phase 1 pawn art (reproducible)
-    pawn0.png .. pawn3.png        -- generated source images
+    geos_source/                  -- local copies of the GeoLudo .gbm bitmaps reused below
+    generate_placeholder_art.py -- recolours/resizes them into Phase 1 art (reproducible)
+    pawn0.png .. pawn3.png        -- generated source images (home base pawn)
+    start0.png .. start3.png      -- generated source images (ring entry marker)
     Sprites                       -- packed sprite file the game loads
   docs/
     ARCHITECTURE.md    -- this file

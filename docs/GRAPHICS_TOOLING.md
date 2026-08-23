@@ -45,8 +45,9 @@ tools/riscos_sprite.py pack <output-spritefile> <input-spritefile>...
   bit depth, and writes a single-sprite RISC OS sprite file. The alpha
   channel becomes the sprite's transparency mask (`--mask-alpha-threshold`,
   default 128; pass a negative number to omit the mask). `--bpp`
-  defaults to 4 (16 colours, RISC OS mode 9 -- square-pixel game art depth,
-  see below); pass `--bpp 8` for 256-colour full-screen game assets (mode 13).
+  defaults to 4 (16 colours, RISC OS mode 12 -- the conventional WIMP icon
+  depth, and this project's game art depth too, see below); pass `--bpp 8`
+  for 256-colour full-screen game assets (mode 15).
 - `pack`: concatenates several single-sprite files (as `from-png`
   produces) into one multi-sprite sprite area/file, matching how a real
   `!Sprites` file holds many named icons together.
@@ -105,31 +106,104 @@ Chapter 95 "Table B: Modes", `~/riscos-dev/prm-mirror/modes.html`):
 
 | bpp | Colours | Mode | OS units/pixel |
 |---|---|---|---|
-| 1 | 2   | 4  | 4x4 (square) |
-| 2 | 4   | 1  | 4x4 (square) |
-| 4 | 16  | 9  | 4x4 (square) |
-| 8 | 256 | 13 | 4x4 (square) |
+| 1 | 2   | 0  | 2x4 (pixels twice as tall as wide) |
+| 2 | 4   | 8  | 2x4 |
+| 4 | 16  | 12 | 2x4 |
+| 8 | 256 | 15 | 2x4 |
 
-**Round 5 correction**: this table originally used modes 0/8/12/15
-(640x256 pixels, 2x4 OS units/pixel -- pixels *twice as tall as wide*),
-reasoning that mode 12 is the conventional WIMP-icon depth and mode 15 the
-natural 256-colour full-screen choice. Both are true, but 2x4 pixels mean
-ordinary square-pixel source art (any PNG drawn with normal square pixels)
-renders visibly squashed regardless of what mode the *sprite itself* is
-tagged with -- the distortion comes from the *screen* mode's own pixel
-geometry, not a sprite/screen mode mismatch. Confirmed the hard way: pawn
-placeholder sprites (circles in the source PNG) rendered as tall thin
-"bottle" shapes in Arculator under mode 15. Modes 1/4/9/13 are the
-320x256-pixel counterparts at the same four bit depths, sharing mode
-12/15's 1280x1024 OS-unit desktop resolution but with genuinely square 4x4
-OS-unit pixels -- switched to these throughout, and to `*Configure Mode
-13` instead of 15 for the live screen mode (see `CLAUDE.md`'s Testing
-section). Mode 12 remains correct for real WIMP icon sprites specifically
-(confirmed against a real file, see below) since *icon* sprites are meant
-to render 1:1 with the WIMP's own screen mode-relative scaling, not as
-free-standing full-screen game art -- this project doesn't currently
-generate any icon sprites, only board/pawn art, so mode 12 isn't actually
-used by anything here despite being confirmed correct as a fact.
+Mode 12 is what real WIMP icon sprites use (confirmed against a real
+file, see below); mode 15 is ArchiLudo's target screen mode -- both share
+the same non-square 2x4 OS-unit-per-pixel geometry, so a sprite tagged
+with the mode matching its bpp always agrees with the live screen mode.
+
+**Round 5 attempt (reverted in round 6)**: briefly switched this whole
+table to modes 1/4/9/13 (320x256 pixels at the same 1280x1024 OS units,
+but genuinely square 4x4 OS-unit pixels) plus a `*Configure Mode 13`
+screen-mode change, reasoning that square pixels would sidestep the
+distortion entirely. Mode 13 turned out not to be selectable under the
+user's actual Arculator monitor-type setup, and mode 15 is simply the
+normal RISC OS desktop mode regardless -- so this was reverted back to
+mode 15/12 with the pixel-aspect compensation moved to the **source art**
+instead (see "Round 6 correction" below), which is the approach this
+project actually uses now.
+
+**Round 6 correction**: mode 15 (and mode 12, the conventional icon depth)
+being 2x4 OS units/pixel means ordinary square-pixel source art (any PNG
+drawn with normal square pixels) renders visibly squashed regardless of
+what mode the *sprite itself* is tagged with -- confirmed the hard way:
+ArchiLudo's pawn placeholder sprites (circles in the source PNG) rendered
+as tall thin "bottle" shapes in Arculator. Since window/icon layout and
+all custom `os_plot` drawing (board cell fills, etc.) already work in OS
+units directly -- mode-independent by construction -- only **sprites**
+need compensating, because they store raw pixel data. Fixed at the source:
+`assets/generate_placeholder_art.py`'s `MODE15_OS_UNITS_PER_PIXEL = (2, 4)`
+drives the drawing canvas size, pre-squished by the *inverse* of that
+ratio (half as many rows as columns) so mode 15's own 2x/4x stretch brings
+the final on-screen shape back to the intended square/circle. A 40x40
+OS-unit pawn is therefore drawn as a 20x10-raw-pixel PNG, not 40x40 --
+confirmed correct by round-tripping the packed sprite back to PNG and
+resizing it 2x horizontally / 4x vertically to simulate the on-screen
+result before ever loading it into Arculator.
+
+## Round 6: reusing GeoLudo's own art
+
+Rather than keep hand-drawing placeholder shapes, Phase 1's round 6
+switched to reusing this game's own prior GEOS port's artwork -- the
+user's explicit call, and a better placeholder source anyway: GeoLudo's
+pawn and board-entry-marker bitmaps are actual game art (a recognisable
+chess-pawn silhouette, direction-arrow entry markers), not generic
+programmer shapes.
+
+**Source format**: `/home/xahmol/git/ludo/GEOS/assets/*.gbm` files are
+XML (`<GeosBitmap>`, `<Width>` in bytes, `<Height>` in lines, `<Data>`
+base64-encoded 1-bit-per-pixel raster, MSB = leftmost pixel, bit=1 =
+"ink") -- a different bitmap editor's export format from this project's
+own old-style Sprite format, decoded by
+`assets/generate_placeholder_art.py`'s `decode_gbm()`. Confirmed correct
+by rendering `bm_pawn.gbm` this way and comparing it against the actual
+in-game pawn shape visible in
+`/home/xahmol/git/ludo/GEOS/screenshots/ludo-game-c64.png` -- a clear
+chess-pawn silhouette in both.
+
+**What was reused, and how it's actually drawn in GEOS** (established by
+reading `GEOS/src/main.c`'s `drawfield()`/`pawnprint()`/`pawnplace()` and
+cropping the reference screenshot, not by guessing from the bitmap names
+alone):
+
+- `bm_pawn.gbm` -- the detailed pawn silhouette. In GEOS this is only
+  ever shown recoloured via `ColorRectangle` (no separate outline
+  colour), and turns out to be used **only for the home base display** --
+  confirmed by cropping a track dot from the reference screenshot: it's a
+  plain filled circle, not the pawn shape. `game_view.c`'s `plot_pawn()`
+  mirrors this exactly: the detailed sprite for a pawn still `!in_play`
+  (home base), a plain `os_plot` filled circle in the player's full
+  colour once released.
+- `bm_gstart.gbm`/`bm_rstart.gbm`/`bm_bstart.gbm`/`bm_ystart.gbm` -- the
+  four players' board-entry direction-arrow markers (named for the player
+  colour whose entry point they mark, matching this project's player
+  order exactly). Reused for `CELL_RING_ENTRY` cells in
+  `game_view.c`'s `build_cell_kinds()`/`plot_start_marker()`.
+- **Not reused this round** (deliberately, to bound scope): `dice1..6.gbm`
+  (individual die-face icons -- ArchiLudo's Throw button stays plain
+  text for now) and `iconThrow.gbm`/`icobNext.gbm` (GEOS button graphics
+  with baked-in bitmap text -- unnecessary since RISC OS Wimp icons
+  render real system-font text natively, more cleanly than a baked-in
+  bitmap would). Worth reconsidering for Phase 2's real art pass.
+
+**Local copies, not a live path into the sibling repo**: the specific
+`.gbm` files used are copied into `assets/geos_source/` (git-tracked) so
+`generate_placeholder_art.py` doesn't depend on `/home/xahmol/git/ludo`
+remaining checked out at generation time -- consistent with how
+`board_layout.c`'s `fieldcoords`/`homedestcoords` conversion is a
+one-time port, not a live reference.
+
+**Recolouring + resizing**: `decode_gbm()` gives a 16x16 monochrome mask;
+`recolour_and_squish()` resizes it (Pillow LANCZOS, for reasonably smooth
+edges before the sprite format's binary mask threshold) directly to the
+mode-15-pre-squished target canvas (see the "Round 6 correction" section
+above) and flood-fills the masked shape with the player's flat RGB colour
+-- one resize does both the "make it the right on-screen size" and "make
+it round-trip mode 15's non-square pixels correctly" jobs at once.
 
 ## How the format was verified
 

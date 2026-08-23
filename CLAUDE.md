@@ -104,25 +104,29 @@ autotype/socket/remote-control interface; its only CLI hook is
 `configs/ArchiLudo-ARM3-4MB.cfg` (matches the maintainer's real hardware)
 or `configs/ArchiLudo-ARM2-1MB.cfg` (stock ARM2/1MB compatibility check) in
 the Arculator install at `D:\Retro\Acorn\Arculator_V2.2_Windows`. On first
-boot of a profile, run `*Configure Mode 13` once from a command line (F12)
-to switch the desktop to 256-colour mode 13 — RISC OS saves this to CMOS
+boot of a profile, run `*Configure Mode 15` once from a command line (F12)
+to switch the desktop to 256-colour mode 15 — RISC OS saves this to CMOS
 itself, so it only needs doing once per profile (not something to set via
 Arculator's own `.cfg` file — its `display_mode` key is an Arculator
 rendering option, unrelated to the RISC OS screen mode; confirmed by
-reading Arculator's own source). **Mode 13, not mode 15**: both are
-256-colour, but per the RISC OS 3 PRM's mode table
-(`~/riscos-dev/prm-mirror/modes.html`) mode 15 is 640x256 pixels at 1280x1024
-OS units -- 2x4 OS units per pixel, i.e. pixels twice as TALL as wide --
-while mode 13 is 320x256 pixels at the same 1280x1024 OS units, 4x4 OS
-units per pixel, genuinely square. Square-pixel source art (any ordinary
-PNG) renders visibly squashed under mode 15 regardless of what mode the
-sprite itself is tagged with, since the distortion is inherent to the
-*screen* mode's own pixel geometry -- discovered when ArchiLudo's pawn
-sprites rendered as tall thin "bottle" shapes in Arculator. See
-`docs/GRAPHICS_TOOLING.md` for the full writeup and
-`tools/riscos_sprite.py`'s `MODES_BY_BPP` for the matching square-pixel
-old-style mode numbers to tag sprites with (1bpp=4, 2bpp=1, 4bpp=9, 8bpp=13
--- all 320x256/4x4-OS-units, matching mode 13). Debugging
+reading Arculator's own source). **Mode 15 has non-square pixels** — per
+the RISC OS 3 PRM's mode table (`~/riscos-dev/prm-mirror/modes.html`) it's
+640x256 pixels at 1280x1024 OS units, i.e. 2x4 OS units per pixel (pixels
+twice as TALL as wide). Mode 13 is the square-pixel (4x4 OS units)
+256-colour alternative and was tried instead of 15 for one round, but
+wasn't even selectable under the user's Arculator monitor-type setup, and
+mode 15 is simply the normal RISC OS desktop mode anyway — so ArchiLudo
+targets mode 15 and compensates for the non-square pixels in its **sprite
+art** instead of the screen mode: window/icon layout and all custom
+`os_plot` drawing (board cell fills, etc.) already use OS units directly,
+which are mode-independent, so only sprites (which store raw pixel data)
+need the compensation — `assets/generate_placeholder_art.py` draws its
+source art on a canvas pre-squished by the inverse of mode 15's pixel
+aspect (half as many rows as columns) so the mode's own stretch brings it
+back to the intended shape. See `docs/GRAPHICS_TOOLING.md`'s "Round 6
+correction" for the full writeup and `tools/riscos_sprite.py`'s
+`MODES_BY_BPP` for the mode-15-matching old-style sprite mode per bpp
+(1bpp=0, 2bpp=8, 4bpp=12, 8bpp=15). Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory
 view, disassembly) is the primary tool, since nothing like the Reporter
 module is assumed present on stock RISC OS 3.10; file-based logging via

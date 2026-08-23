@@ -16,51 +16,80 @@
 #include "game_logic.h"
 #include "board_layout.h"
 
-/* Round 5: doubled from 32 -- the board read as too small on screen (user
- * feedback: "why is window that small, can't we do it twice in height and
- * width?"). PAWN_SIZE grew to match (see assets/generate_placeholder_art.py,
- * kept in sync manually since one's Python and one's C). */
+/* Round 6: redesigned to match GeoLudo's own screen layout (board on the
+ * left, a status/controls panel on the right -- see
+ * /home/xahmol/git/ludo/GEOS/screenshots/ludo-game-c64.png, the reference
+ * this was resized from) instead of ArchiLudo's earlier invented
+ * top-header layout, per explicit user request. CELL doubled from the
+ * original 32 in round 5 (board read as too small), kept here. */
 #define CELL          64
-#define PAWN_SIZE     40
-#define MARGIN         8
-#define THROW_HEIGHT  32
-#define THROW_WIDTH  100
-#define STATUS_HEIGHT 28
-#define HEADER_GAP     4
-#define HEADER_HEIGHT (THROW_HEIGHT + HEADER_GAP + STATUS_HEIGHT)
 #define BOARD_PIXELS  (BOARD_GRID_SIZE * CELL)
-/* The system font is a fixed 16 OS units per character (see
- * riscos_wimp_reference.md's Text section), and the longest status
- * message is ~28 characters -- so the window has to be wide enough for
- * that text, not just for the board. MIN_CONTENT_WIDTH is that floor;
- * the board is then centred within whichever of the two ends up wider. */
-#define MIN_CONTENT_WIDTH 528
-#define WINDOW_WIDTH  (MARGIN + (BOARD_PIXELS > (MIN_CONTENT_WIDTH - 2 * MARGIN) ? BOARD_PIXELS : (MIN_CONTENT_WIDTH - 2 * MARGIN)) + MARGIN)
-#define BOARD_ORIGIN_X ((WINDOW_WIDTH - BOARD_PIXELS) / 2)
-#define BOARD_ORIGIN_Y (-(MARGIN + HEADER_HEIGHT + MARGIN))
-#define WINDOW_HEIGHT (MARGIN + HEADER_HEIGHT + MARGIN + BOARD_PIXELS + MARGIN)
+#define MARGIN         8
 
-#define ICON_THROW  0
-#define ICON_STATUS 1
-#define WINDOW_ICON_COUNT 2
+/* Board cell marker circles (ring/home-column backgrounds, and on-track
+ * pawns -- see game_view_redraw()/plot_pawn()) share this radius, giving
+ * the gapped, round-dot look of the GEOS reference screenshot rather than
+ * ArchiLudo's earlier solid square grid. */
+#define MARKER_RADIUS 22
 
-#define STATUS_TEXT_LEN 80
+/* On-screen sizes in OS units (square) for the two reused-GEOS-art
+ * sprites -- must match assets/generate_placeholder_art.py's PAWN_SIZE/
+ * START_SIZE (kept in sync manually, one's Python and one's C). */
+#define PAWN_SIZE     40
+#define START_SIZE    32
+
+/* Side panel: player name, action status, and the Throw button -- laid
+ * out top-to-bottom on the right of the board, Throw positioned lower
+ * rather than at the very top, again matching the GEOS reference. */
+#define PANEL_GAP     16
+#define PANEL_WIDTH  260
+#define NAME_HEIGHT   40
+#define STATUS_GAP     8
+#define STATUS_HEIGHT 40
+#define THROW_WIDTH  160
+#define THROW_HEIGHT  48
+
+#define BOARD_ORIGIN_X MARGIN
+#define BOARD_ORIGIN_Y (-MARGIN)
+#define PANEL_X0      (MARGIN + BOARD_PIXELS + PANEL_GAP)
+#define WINDOW_WIDTH  (PANEL_X0 + PANEL_WIDTH + MARGIN)
+#define WINDOW_HEIGHT (MARGIN + BOARD_PIXELS + MARGIN)
+/* Throw sits at roughly the same proportion down the panel as GEOS's own
+ * button (see the reference screenshot) -- not pixel-exact, since the
+ * panel's overall proportions differ (RISC OS's fixed-width system font
+ * needs more room per character than GEOS's own font did), but the same
+ * "name/status near the top, Throw lower down" shape. */
+#define THROW_Y1      (-(WINDOW_HEIGHT * 6 / 10))
+
+#define ICON_NAME    0
+#define ICON_STATUS  1
+#define ICON_THROW   2
+#define WINDOW_ICON_COUNT 3
+
+#define STATUS_TEXT_LEN 40
+#define NAME_TEXT_LEN   20
 #define SPRITE_AREA_SIZE 8192
 
 /* Cell background categories, precomputed once from board_layout.c's
  * forward mapping (see build_cell_kinds()) so the redraw handler doesn't
- * need its own copy of the geometry rules. */
+ * need its own copy of the geometry rules. CELL_RING_ENTRY is the one
+ * ring cell per player (steps==0 for that player) where GEOS shows a
+ * coloured direction-arrow icon instead of a plain track marker -- see
+ * assets/generate_placeholder_art.py's start0..start3 sprites. Home base
+ * cells aren't tracked here at all: GEOS draws no background there,
+ * just the pawns themselves directly on the window background (see the
+ * reference screenshot), so build_cell_kinds() simply never marks them. */
 typedef enum {
 	CELL_EMPTY,
 	CELL_RING,
+	CELL_RING_ENTRY,
 	CELL_HOME_COLUMN,
-	CELL_HOME_BASE,
 	CELL_CENTRE
 } cell_kind;
 
 /* Player order/colours match /home/xahmol/git/ludo/GEOS/src/main.c's
  * startfieldgraphics comments exactly (see docs/BOARD_LAYOUT.md) -- must
- * also match assets/generate_placeholder_art.py's PLAYER_COLOURS. */
+ * also match PLAYER_COLOURS in assets/generate_placeholder_art.py. */
 static const int player_rgb[LUDO_PLAYERS][3] = {
 	{ 30, 160, 60 },   /* 0: green */
 	{ 220, 30, 30 },   /* 1: red */
@@ -71,7 +100,8 @@ static const char *player_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLOW
 
 static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
-static char status_text[STATUS_TEXT_LEN] = "Click Throw to begin.";
+static char name_text[NAME_TEXT_LEN] = "";
+static char status_text[STATUS_TEXT_LEN] = "";
 
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
@@ -88,15 +118,12 @@ static char app_dir[APP_DIR_LEN] = "";
  * Summary: Derive this program's own directory from argv[0] (the full
  *          RISC OS pathname it was invoked as, e.g. "HostFS:$.ArchiLudo"
  *          -- see game_view_initialise()'s doc comment) by truncating at
- *          the last "." path separator. Round 3's diagnostic logging
- *          never actually landed anywhere the user could find it, and
- *          round 4's screenshot showed pawns rendering as flat squares
- *          (the sprite-missing fallback) rather than the loaded
- *          placeholder art -- both point at the same root cause: a bare
- *          relative filename ("Sprites", "Log") doesn't reliably resolve
- *          against this program's own directory the way it would need to.
- *          Building absolute paths from argv[0] instead is the standard
- *          RISC OS convention for a program to find its own resources.
+ *          the last "." path separator. A bare relative filename
+ *          ("Sprites", "Log") doesn't reliably resolve against this
+ *          program's own directory the way it would need to when run
+ *          this way. Building absolute paths from argv[0] instead is the
+ *          standard RISC OS convention for a program to find its own
+ *          resources.
  */
 static void set_app_dir(const char *argv0)
 {
@@ -133,13 +160,10 @@ static void resource_path(char *out, size_t out_size, const char *leaf)
 /*
  * Function: debug_log
  * Summary: Append one line to a plain text file "Log" in this program's
- *          own directory (see resource_path()). TEMPORARY diagnostic
- *          added while chasing a partial-board-render bug reported from
- *          Arculator screenshots that couldn't be explained by static
- *          code review alone -- see docs/ARCHITECTURE.md's Phase 1
- *          implementation notes and CLAUDE.md's documented file-logging
- *          fallback for non-interactive WIMP tracing. Remove once that
- *          bug is confirmed fixed.
+ *          own directory (see resource_path()). Diagnostic left in place
+ *          (kept lean -- just sprite-load status and pawn-click tracing)
+ *          since Arculator has no other non-interactive tracing option;
+ *          see CLAUDE.md's Testing section.
  */
 static void debug_log(const char *fmt, ...)
 {
@@ -162,13 +186,14 @@ static void debug_log(const char *fmt, ...)
  * Function: build_cell_kinds
  * Summary: Precompute, once, which board_layout.c grid cell holds which
  *          kind of board feature (and which player owns it, for the
- *          home column/home base cells), by walking board_layout.c's
+ *          home column / ring entry cells), by walking board_layout.c's
  *          forward mappings. Done once at startup rather than every
  *          redraw since the geometry never changes.
  */
 static void build_cell_kinds(void)
 {
 	int c, r, i, player;
+	const int ring_step = LUDO_RING_LENGTH / LUDO_PLAYERS;
 
 	for (r = 0; r < BOARD_GRID_SIZE; r++)
 		for (c = 0; c < BOARD_GRID_SIZE; c++)
@@ -176,7 +201,13 @@ static void build_cell_kinds(void)
 
 	for (i = 0; i < LUDO_RING_LENGTH; i++) {
 		board_cell cell = board_ring_cell(i);
-		cell_kinds[cell.col][cell.row] = CELL_RING;
+
+		if (i % ring_step == 0) {
+			cell_kinds[cell.col][cell.row] = CELL_RING_ENTRY;
+			cell_owner[cell.col][cell.row] = i / ring_step;
+		} else {
+			cell_kinds[cell.col][cell.row] = CELL_RING;
+		}
 	}
 
 	for (player = 0; player < LUDO_PLAYERS; player++) {
@@ -185,46 +216,12 @@ static void build_cell_kinds(void)
 			cell_kinds[cell.col][cell.row] = CELL_HOME_COLUMN;
 			cell_owner[cell.col][cell.row] = player;
 		}
-		for (i = 0; i < LUDO_PAWNS; i++) {
-			board_cell cell = board_home_base_cell(player, i);
-			cell_kinds[cell.col][cell.row] = CELL_HOME_BASE;
-			cell_owner[cell.col][cell.row] = player;
-		}
 	}
 
 	{
 		board_cell centre = board_finished_cell();
 		cell_kinds[centre.col][centre.row] = CELL_CENTRE;
 	}
-
-	{
-		int n_ring = 0, n_col = 0, n_base = 0, n_centre = 0;
-
-		for (r = 0; r < BOARD_GRID_SIZE; r++)
-			for (c = 0; c < BOARD_GRID_SIZE; c++)
-				switch (cell_kinds[c][r]) {
-				case CELL_RING:        n_ring++;  break;
-				case CELL_HOME_COLUMN: n_col++;   break;
-				case CELL_HOME_BASE:   n_base++;  break;
-				case CELL_CENTRE:      n_centre++; break;
-				default: break;
-				}
-
-		debug_log("build_cell_kinds: ring=%d home_column=%d home_base=%d centre=%d "
-		          "(expect 40/16/16/1)\n", n_ring, n_col, n_base, n_centre);
-	}
-
-	/* Round 4: green/blue's home columns (row=5, the horizontal cross bar)
-	 * rendered as plain ring grey instead of their tint, while red/yellow's
-	 * (col=5, the vertical bar) rendered correctly -- data (this file's
-	 * tables) and this function's code were both re-checked and found
-	 * consistent, so dump the actual runtime classification of every cell
-	 * on both bars directly rather than keep guessing from source. */
-	debug_log("cross-bar cell_kinds (0=empty,1=ring,2=home_column,3=home_base,4=centre):\n");
-	for (c = 0; c < BOARD_GRID_SIZE; c++)
-		debug_log("  row5 col%d: kind=%d owner=%d\n", c, (int) cell_kinds[c][5], cell_owner[c][5]);
-	for (r = 0; r < BOARD_GRID_SIZE; r++)
-		debug_log("  col5 row%d: kind=%d owner=%d\n", r, (int) cell_kinds[5][r], cell_owner[5][r]);
 }
 
 /*
@@ -232,17 +229,7 @@ static void build_cell_kinds(void)
  * Summary: Set the current graphics foreground colour for os_plot(), from
  *          plain RGB values (0..255 each).
  */
-/*
- * Function: set_gcol
- * Summary: Set the current graphics foreground colour for os_plot(), from
- *          plain RGB values (0..255 each). Returns the actually-matched
- *          GCOL palette entry (not just the requested RGB) -- see the
- *          call sites in game_view_redraw() that log it for the cross-bar
- *          cells, chasing a bug where two different requested tints
- *          weren't visually distinguishable (docs/ARCHITECTURE.md's Phase
- *          1 notes, "Round 5").
- */
-static os_gcol set_gcol(int r, int g, int b)
+static void set_gcol(int r, int g, int b)
 {
 	/* Cast each component to unsigned before shifting -- r/g/b can be up
 	 * to 255, and shifting a *signed* 255 left by 24 sets the sign bit,
@@ -250,10 +237,8 @@ static os_gcol set_gcol(int r, int g, int b)
 	 * though every compiler this project uses happens to wrap it as
 	 * expected. Avoid relying on that. */
 	os_colour colour = ((os_colour) b << 24) | ((os_colour) g << 16) | ((os_colour) r << 8);
-	os_gcol gcol_out = 0;
 
-	xcolourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, &gcol_out, 0);
-	return gcol_out;
+	colourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, 0);
 }
 
 /*
@@ -269,43 +254,72 @@ static void fill_rect(int x0, int y0, int x1, int y1)
 }
 
 /*
+ * Function: fill_circle / outline_circle
+ * Summary: Plot a filled or outline circle in the current foreground
+ *          colour, centred at (cx, cy) with the given radius, all in OS
+ *          units -- mode-independent, unlike sprite plotting (see
+ *          docs/GRAPHICS_TOOLING.md's "Round 6 correction"). Per the RISC
+ *          OS 3 PRM's os_plot summary (~/riscos-dev/prm-mirror/vdu.html):
+ *          "Move to centre. Plot circle to point on the circumference."
+ */
+static void fill_circle(int cx, int cy, int radius)
+{
+	os_plot(os_MOVE_TO, cx, cy);
+	os_plot(os_PLOT_CIRCLE + os_PLOT_TO, cx + radius, cy);
+}
+
+static void outline_circle(int cx, int cy, int radius)
+{
+	os_plot(os_MOVE_TO, cx, cy);
+	os_plot(os_PLOT_CIRCLE_OUTLINE + os_PLOT_TO, cx + radius, cy);
+}
+
+/*
  * Function: refresh_status
- * Summary: Rebuild the status line text from the current game state and
- *          ask the Wimp to redraw that one icon.
+ * Summary: Rebuild the player-name and action-status text from the
+ *          current game state and ask the Wimp to redraw those icons.
+ *          Split into two short lines (rather than one long sentence)
+ *          both because it matches GEOS's own layout (see the reference
+ *          screenshot) and because it keeps each line comfortably within
+ *          PANEL_WIDTH at the system font's fixed 16-OS-units/character
+ *          width.
  */
 static void refresh_status(void)
 {
 	if (game.winner != -1) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s wins!", player_name[game.winner]);
-	} else if (game.last_roll == 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s: click Throw", player_name[game.current_player]);
-	} else if (ludo_movable_pawns(&game) != 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: pick a pawn",
-		         player_name[game.current_player], game.last_roll);
-	} else if (game.just_released) {
-		/* A six with a home pawn available is a mandatory release, not a
-		 * move -- the roll that released the pawn has nothing left to pick,
-		 * and the player throws again next. Distinct wording from the
-		 * generic "Throw again" below so this doesn't read as the same
-		 * no-op repeating (see docs/ARCHITECTURE.md's Phase 1 notes on the
-		 * "endless reroll" confusion this was reported as). Kept within the
-		 * same ~32-char budget as the other status strings (see
-		 * MIN_CONTENT_WIDTH above). */
-		snprintf(status_text, STATUS_TEXT_LEN, "%s: pawn out, Throw again",
-		         player_name[game.current_player]);
+		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_name[game.winner]);
+		snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
 	} else {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: Throw again",
-		         player_name[game.current_player], game.last_roll);
+		snprintf(name_text, NAME_TEXT_LEN, "%s", player_name[game.current_player]);
+
+		if (game.last_roll == 0) {
+			snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
+		} else if (ludo_movable_pawns(&game) != 0) {
+			snprintf(status_text, STATUS_TEXT_LEN, "Pick a pawn");
+		} else if (game.just_released) {
+			/* A six with a home pawn available is a mandatory release, not
+			 * a move -- the roll that released the pawn has nothing left
+			 * to pick, and the player throws again next. Distinct wording
+			 * from "Throw again" below so this doesn't read as the same
+			 * no-op repeating (see docs/ARCHITECTURE.md's Phase 1 notes on
+			 * the "endless reroll" confusion this was originally reported
+			 * as). */
+			snprintf(status_text, STATUS_TEXT_LEN, "Pawn released!");
+		} else {
+			snprintf(status_text, STATUS_TEXT_LEN, "Throw again");
+		}
 	}
 
-	if (window_handle != (wimp_w) -1)
+	if (window_handle != (wimp_w) -1) {
+		wimp_set_icon_state(window_handle, ICON_NAME, 0, 0);
 		wimp_set_icon_state(window_handle, ICON_STATUS, 0, 0);
+	}
 }
 
 void game_view_new_game(void)
 {
 	ludo_init(&game);
-	snprintf(status_text, STATUS_TEXT_LEN, "%s: click Throw", player_name[0]);
+	refresh_status();
 	if (window_handle != (wimp_w) -1)
 		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 }
@@ -319,20 +333,18 @@ void game_view_initialise(const char *argv0)
 	build_cell_kinds();
 	ludo_init(&game);
 
-	def.visible.x0 = 200;
-	def.visible.y0 = 150;
-	def.visible.x1 = 200 + WINDOW_WIDTH;
-	def.visible.y1 = 150 + WINDOW_HEIGHT;
+	def.visible.x0 = 100;
+	def.visible.y0 = 100;
+	def.visible.x1 = 100 + WINDOW_WIDTH;
+	def.visible.y1 = 100 + WINDOW_HEIGHT;
 	def.xscroll = 0;
 	def.yscroll = 0;
 	def.next = wimp_TOP;
-	/* NOTE: deliberately NOT wimp_WINDOW_AUTO_REDRAW. It was tried (to
-	 * address a "feels slow" report) and caused a worse regression: the
-	 * board stopped drawing at all, while the window's own icons (which
-	 * the Wimp redraws itself regardless of this flag) kept appearing --
-	 * i.e. Redraw_Window_Request stopped reaching this app's custom
-	 * drawing code for a freshly-opened window. Revisit performance a
-	 * different way (fewer plot calls per redraw) rather than this flag. */
+	/* NOTE: deliberately NOT wimp_WINDOW_AUTO_REDRAW -- see git history for
+	 * why (caused the board to stop drawing entirely on a freshly-opened
+	 * window). Performance is instead addressed by keeping the redraw
+	 * loop cheap (os_plot circles instead of sprites for most of the
+	 * board) rather than this flag. */
 	def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
 	            wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
 	            wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON |
@@ -362,23 +374,24 @@ void game_view_initialise(const char *argv0)
 	strncpy(def.title_data.text, "ArchiLudo", 12);
 	def.icon_count = WINDOW_ICON_COUNT;
 
-	icon = &def.icons[ICON_THROW];
-	icon->extent.x0 = MARGIN;
-	icon->extent.y0 = -(MARGIN + THROW_HEIGHT);
-	icon->extent.x1 = MARGIN + THROW_WIDTH;
+	icon = &def.icons[ICON_NAME];
+	icon->extent.x0 = PANEL_X0;
 	icon->extent.y1 = -MARGIN;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
-	              wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	icon->extent.y0 = -(MARGIN + NAME_HEIGHT);
+	icon->extent.x1 = PANEL_X0 + PANEL_WIDTH;
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_VCENTRED |
 	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
 	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	strncpy(icon->data.text, "Throw", 12);
+	              (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
+	icon->data.indirected_text.text = name_text;
+	icon->data.indirected_text.validation = "";
+	icon->data.indirected_text.size = NAME_TEXT_LEN;
 
 	icon = &def.icons[ICON_STATUS];
-	icon->extent.x0 = MARGIN;
-	icon->extent.y0 = -(MARGIN + THROW_HEIGHT + HEADER_GAP + STATUS_HEIGHT);
-	icon->extent.x1 = WINDOW_WIDTH - MARGIN;
-	icon->extent.y1 = -(MARGIN + THROW_HEIGHT + HEADER_GAP);
+	icon->extent.x0 = PANEL_X0;
+	icon->extent.y1 = -(MARGIN + NAME_HEIGHT + STATUS_GAP);
+	icon->extent.y0 = icon->extent.y1 - STATUS_HEIGHT;
+	icon->extent.x1 = PANEL_X0 + PANEL_WIDTH;
 	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_VCENTRED |
 	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
 	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
@@ -386,6 +399,18 @@ void game_view_initialise(const char *argv0)
 	icon->data.indirected_text.text = status_text;
 	icon->data.indirected_text.validation = "";
 	icon->data.indirected_text.size = STATUS_TEXT_LEN;
+
+	icon = &def.icons[ICON_THROW];
+	icon->extent.x0 = PANEL_X0;
+	icon->extent.y1 = THROW_Y1;
+	icon->extent.y0 = THROW_Y1 - THROW_HEIGHT;
+	icon->extent.x1 = PANEL_X0 + THROW_WIDTH;
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
+	              wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+	strncpy(icon->data.text, "Throw", 12);
 
 	window_handle = wimp_create_window((wimp_window *) &def);
 
@@ -423,111 +448,132 @@ wimp_w game_view_window_handle(void)
 }
 
 /*
+ * Function: cell_centre
+ * Summary: The centre point, in the current redraw's absolute screen
+ *          coordinates, of a board grid cell -- shared by the cell-kind
+ *          loop and plot_pawn() so marker circles and pawns line up
+ *          exactly.
+ */
+static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, int *cy)
+{
+	*cx = origin_x + BOARD_ORIGIN_X + col * CELL + CELL / 2;
+	*cy = origin_y + BOARD_ORIGIN_Y - row * CELL - CELL / 2;
+}
+
+/*
  * Function: plot_pawn
- * Summary: Draw one pawn, either as its loaded placeholder sprite or (if
- *          the sprite file failed to load) a plain filled circle-ish
- *          square in the player's colour, so the game stays playable
- *          even without assets/Sprites present.
+ * Summary: Draw one pawn. A pawn still waiting in its home base is drawn
+ *          with the detailed recoloured GEOS pawn sprite (see
+ *          assets/generate_placeholder_art.py); once released onto the
+ *          ring, home column, or finished pile, it's drawn as a plain
+ *          filled circle in the player's full colour -- matching GEOS's
+ *          own approach (its pawnprint()/drawfield() functions both use
+ *          simple coloured circle markers for on-track pawns, reserving
+ *          the detailed pawn bitmap for the home base -- confirmed by
+ *          cropping a real in-game screenshot, see
+ *          docs/GRAPHICS_TOOLING.md's "Round 6" section). Falls back to
+ *          plain shapes (no sprite lookup at all) if assets/Sprites
+ *          failed to load, so the game stays playable regardless.
  */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
+	const ludo_pawn *p = &game.players[player].pawns[pawn_index];
 	board_cell cell = board_pawn_cell(&game, player, pawn_index);
-	int x = origin_x + BOARD_ORIGIN_X + cell.col * CELL + (CELL - PAWN_SIZE) / 2;
-	int y = origin_y + BOARD_ORIGIN_Y - (cell.row + 1) * CELL + (CELL - PAWN_SIZE) / 2;
+	int cx, cy;
 
+	cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+
+	if (!p->in_play) {
+		int x = cx - PAWN_SIZE / 2;
+		int y = cy - PAWN_SIZE / 2;
+
+		if (sprites_loaded) {
+			char name[13];
+
+			snprintf(name, sizeof(name), "pawn%d", player);
+			xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
+			                                    (osspriteop_id) name, x, y,
+			                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
+		} else {
+			set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+			fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
+		}
+	} else {
+		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+		fill_circle(cx, cy, MARKER_RADIUS);
+	}
+}
+
+/*
+ * Function: plot_start_marker
+ * Summary: Draw one player's board-entry marker (the direction-arrow
+ *          sprite reused from GEOS, see assets/generate_placeholder_art.py)
+ *          at a CELL_RING_ENTRY cell. Falls back to a plain outline
+ *          circle (as if it were an ordinary empty ring cell) if
+ *          assets/Sprites failed to load.
+ */
+static void plot_start_marker(int player, int cx, int cy)
+{
 	if (sprites_loaded) {
 		char name[13];
+		int x = cx - START_SIZE / 2;
+		int y = cy - START_SIZE / 2;
 
-		snprintf(name, sizeof(name), "pawn%d", player);
+		snprintf(name, sizeof(name), "start%d", player);
 		xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
 		                                    (osspriteop_id) name, x, y,
 		                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
 	} else {
-		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-		fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
+		outline_circle(cx, cy, MARKER_RADIUS);
 	}
 }
 
 void game_view_redraw(wimp_draw *redraw)
 {
 	osbool more;
-	int rect_index = 0;
-	int drawn_ring = 0, drawn_col = 0, drawn_base = 0, drawn_centre = 0;
 
 	more = wimp_redraw_window(redraw);
-	debug_log("redraw: window box=(%d,%d,%d,%d) work_bg=%d sprites_loaded=%d\n",
-	          redraw->box.x0, redraw->box.y0, redraw->box.x1, redraw->box.y1,
-	          (int) wimp_COLOUR_VERY_LIGHT_GREY, sprites_loaded);
-
 	while (more) {
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 		int col, row, player, pawn;
 
-		debug_log("  rect[%d]: clip=(%d,%d,%d,%d) origin=(%d,%d)\n",
-		          rect_index++, redraw->clip.x0, redraw->clip.y0,
-		          redraw->clip.x1, redraw->clip.y1, origin_x, origin_y);
-
 		for (row = 0; row < BOARD_GRID_SIZE; row++) {
 			for (col = 0; col < BOARD_GRID_SIZE; col++) {
 				cell_kind kind = cell_kinds[col][row];
-				int x0, y1;
+				int cx, cy, owner;
 
 				if (kind == CELL_EMPTY)
 					continue;
 
-				x0 = origin_x + BOARD_ORIGIN_X + col * CELL;
-				y1 = origin_y + BOARD_ORIGIN_Y - row * CELL;
+				cell_centre(col, row, origin_x, origin_y, &cx, &cy);
 
-				{
-					os_gcol gcol = 0;
-
-					switch (kind) {
-					case CELL_RING:
-						gcol = set_gcol(150, 150, 150);
-						drawn_ring++;
-						break;
-					case CELL_HOME_COLUMN:
-						player = cell_owner[col][row];
-						/* Round 5: was a 25%-player/75%-white blend
-						 * ((rgb+255*3)/4) -- pale enough that
-						 * colourtrans_set_gcol's nearest-palette-entry
-						 * approximation may be collapsing green's/blue's
-						 * tint onto (or very near) the same palette entry
-						 * as the ring's grey in whatever screen mode is
-						 * active, even though red's/yellow's tints stayed
-						 * distinguishable (see round 4's log: all 16 cells
-						 * were classified and drawn correctly, so this is
-						 * a colour-matching issue, not a geometry one).
-						 * A 50% blend is both more clearly a distinct hue
-						 * regardless of palette, and simply reads better
-						 * as board art -- see docs/ARCHITECTURE.md's Phase
-						 * 1 notes, "Round 5". */
-						gcol = set_gcol((player_rgb[player][0] + 255) / 2,
-						                 (player_rgb[player][1] + 255) / 2,
-						                 (player_rgb[player][2] + 255) / 2);
-						drawn_col++;
-						break;
-					case CELL_HOME_BASE:
-						player = cell_owner[col][row];
-						gcol = set_gcol(player_rgb[player][0] * 3 / 4,
-						                 player_rgb[player][1] * 3 / 4,
-						                 player_rgb[player][2] * 3 / 4);
-						drawn_base++;
-						break;
-					case CELL_CENTRE:
-					default:
-						gcol = set_gcol(255, 215, 0);
-						drawn_centre++;
-						break;
-					}
-
-					if (col == 5 || row == 5)
-						debug_log("  cross-bar cell (%d,%d) kind=%d -> gcol=0x%x\n",
-						          col, row, (int) kind, (unsigned) gcol);
+				switch (kind) {
+				case CELL_RING:
+					set_gcol(96, 96, 96);
+					outline_circle(cx, cy, MARKER_RADIUS);
+					break;
+				case CELL_RING_ENTRY:
+					plot_start_marker(cell_owner[col][row], cx, cy);
+					break;
+				case CELL_HOME_COLUMN:
+					/* Always the owning player's full colour, whether or
+					 * not a pawn currently sits there -- GEOS shows these
+					 * as permanent "this lane belongs to X" markers, not
+					 * an occupancy indicator (confirmed against the
+					 * reference screenshot: the visible home-column dots
+					 * are full-saturation player colour, not a paler
+					 * background tint). */
+					owner = cell_owner[col][row];
+					set_gcol(player_rgb[owner][0], player_rgb[owner][1], player_rgb[owner][2]);
+					fill_circle(cx, cy, MARKER_RADIUS);
+					break;
+				case CELL_CENTRE:
+				default:
+					set_gcol(255, 215, 0);
+					fill_circle(cx, cy, MARKER_RADIUS);
+					break;
 				}
-
-				fill_rect(x0, y1 - CELL + 2, x0 + CELL - 2, y1);
 			}
 		}
 
@@ -537,11 +583,6 @@ void game_view_redraw(wimp_draw *redraw)
 
 		more = wimp_get_rectangle(redraw);
 	}
-
-	debug_log("redraw done: %d rect(s), cells drawn ring=%d home_column=%d "
-	          "home_base=%d centre=%d (expect 40/16/16/1 if 1 rect covered "
-	          "the whole window)\n", rect_index, drawn_ring, drawn_col,
-	          drawn_base, drawn_centre);
 }
 
 /*
@@ -563,7 +604,6 @@ static void try_move_pawn(int col, int row)
 		if (!(movable & (1u << pawn)))
 			continue;
 		cell = board_pawn_cell(&game, game.current_player, pawn);
-		debug_log("  candidate pawn %d at (%d,%d)\n", pawn, cell.col, cell.row);
 		if (cell.col == col && cell.row == row) {
 			ludo_move_pawn(&game, pawn);
 			debug_log("  MOVED pawn %d\n", pawn);
@@ -588,9 +628,8 @@ void game_view_click(wimp_pointer *pointer)
 			 * ordinary roll only changes the status text, which
 			 * refresh_status() below already redraws via
 			 * wimp_set_icon_state(). Forcing a full-window redraw on every
-			 * single throw (the old behaviour) caused a visible flash each
-			 * time for no visual benefit -- see docs/ARCHITECTURE.md's
-			 * Phase 1 implementation notes, "Round 4". */
+			 * single throw caused a visible flash each time for no visual
+			 * benefit. */
 			if (game.just_released)
 				wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 		}
@@ -610,13 +649,7 @@ void game_view_click(wimp_pointer *pointer)
 		col = (work_x - BOARD_ORIGIN_X) / CELL;
 		row = (BOARD_ORIGIN_Y - work_y) / CELL;
 
-		debug_log("click: pos=(%d,%d) visible.x0=%d visible.y1=%d work=(%d,%d) "
-		          "cell=(%d,%d)\n", pointer->pos.x, pointer->pos.y,
-		          state.visible.x0, state.visible.y1, work_x, work_y, col, row);
-
 		if (col >= 0 && col < BOARD_GRID_SIZE && row >= 0 && row < BOARD_GRID_SIZE)
 			try_move_pawn(col, row);
-		else
-			debug_log("  click outside board grid range\n");
 	}
 }
