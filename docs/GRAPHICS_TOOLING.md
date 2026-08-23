@@ -235,6 +235,41 @@ real Phase 2 art pass wants to revisit reusing them (e.g. as a proper
 bitmap once the sprite question is actually understood, or as a visual
 reference for hand-drawn Phase 2 art).
 
+## Round 6.2: on-track pawns also use the detailed sprite
+
+Round 6's `plot_pawn()` drew the detailed pawn sprite only for a pawn
+still in its home base, falling back to a plain filled circle once
+released onto the ring/home column -- based on cropping a dot out of
+`ludo-game-c64.png` and concluding GEOS represents on-track pawns as
+plain circles. That conclusion was wrong: the cropped dot was actually an
+*empty* home-column lane marker (which **is** correctly a plain filled
+circle, permanently, whether or not a pawn sits there -- that part of the
+round-6 design stands), not an on-track pawn. `ludo-playerwon.png` (a
+later-game screenshot, with real pawns visible on the ring and stacked in
+home columns) makes it unambiguous: GEOS shows the detailed pawn
+silhouette everywhere a pawn actually is, home base included. Fixed by
+having `plot_pawn()` always draw the sprite, regardless of `in_play` --
+simpler code than the round-6 version too, since the special-casing was
+removed rather than added to.
+
+**Pending, not yet implemented (2026-08-23, noted for later)**: the user
+pointed out GEOS's colour-mode pawns have no black outline (confirmed --
+this project's flat single-colour recolour already matches, since
+`bm_pawn.gbm` is a single-region silhouette with nothing to outline), but
+also has a **monochrome/high-contrast mode** with black-outlined,
+pattern-filled pawns for 1-bit-per-pixel displays --
+`GEOS/src/main.c`'s `pawngraphics[1..3]` ("Pattern 10"/"Pattern 2"/
+"Pattern 9", used when `monochromeflag` is set, differentiating players
+by dither pattern instead of colour since there's no colour available).
+Worth adding as an ArchiLudo option for low-colour-mode/accessibility use
+(relevant for a stock ARM2 machine that might run a 16-colour or
+monochrome mode rather than 256-colour mode 15) -- would need a mode
+toggle (menu item or auto-detect from the current screen mode's colour
+count) plus decoding the pattern bitmaps the same way `bm_pawn.gbm` is
+decoded now. Not implemented yet -- scope deferred rather than folded
+into this round's fixes; revisit alongside Phase 2's real art pass or
+Phase 5's menu/dialogue work.
+
 ## How the format was verified
 
 Rather than trust the PRM's prose alone for the trickier parts (the

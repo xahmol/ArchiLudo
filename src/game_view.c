@@ -477,45 +477,40 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
 
 /*
  * Function: plot_pawn
- * Summary: Draw one pawn. A pawn still waiting in its home base is drawn
+ * Summary: Draw one pawn -- home base, ring, home column, or finished --
  *          with the detailed recoloured GEOS pawn sprite (see
- *          assets/generate_placeholder_art.py); once released onto the
- *          ring, home column, or finished pile, it's drawn as a plain
- *          filled circle in the player's full colour -- matching GEOS's
- *          own approach (its pawnprint()/drawfield() functions both use
- *          simple coloured circle markers for on-track pawns, reserving
- *          the detailed pawn bitmap for the home base -- confirmed by
- *          cropping a real in-game screenshot, see
- *          docs/GRAPHICS_TOOLING.md's "Round 6" section). Falls back to
- *          plain shapes (no sprite lookup at all) if assets/Sprites
- *          failed to load, so the game stays playable regardless.
+ *          assets/generate_placeholder_art.py), wherever board_pawn_cell()
+ *          says it currently is. Round 6 had this only for the home base,
+ *          with on-track pawns drawn as a plain filled circle instead --
+ *          based on a screenshot crop that turned out to be showing an
+ *          empty home-column lane marker, not an actual on-track pawn;
+ *          `ludo-playerwon.png` (a later state, with real pawns visible
+ *          on the ring and in home columns) makes clear GEOS shows the
+ *          detailed pawn shape everywhere a pawn actually is, not just
+ *          the home base -- see docs/GRAPHICS_TOOLING.md's "Round 6.2"
+ *          correction. Falls back to a plain filled square (no sprite
+ *          lookup at all) if assets/Sprites failed to load, so the game
+ *          stays playable regardless.
  */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
-	const ludo_pawn *p = &game.players[player].pawns[pawn_index];
 	board_cell cell = board_pawn_cell(&game, player, pawn_index);
-	int cx, cy;
+	int cx, cy, x, y;
 
 	cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+	x = cx - PAWN_SIZE / 2;
+	y = cy - PAWN_SIZE / 2;
 
-	if (!p->in_play) {
-		int x = cx - PAWN_SIZE / 2;
-		int y = cy - PAWN_SIZE / 2;
+	if (sprites_loaded) {
+		char name[13];
 
-		if (sprites_loaded) {
-			char name[13];
-
-			snprintf(name, sizeof(name), "pawn%d", player);
-			xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
-			                                    (osspriteop_id) name, x, y,
-			                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
-		} else {
-			set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-			fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
-		}
+		snprintf(name, sizeof(name), "pawn%d", player);
+		xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
+		                                    (osspriteop_id) name, x, y,
+		                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
 	} else {
 		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-		fill_circle(cx, cy, MARKER_RADIUS);
+		fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
 	}
 }
 
@@ -649,6 +644,7 @@ static void try_move_pawn(int col, int row)
 		if (!(movable & (1u << pawn)))
 			continue;
 		cell = board_pawn_cell(&game, game.current_player, pawn);
+		debug_log("  candidate pawn %d at (%d,%d)\n", pawn, cell.col, cell.row);
 		if (cell.col == col && cell.row == row) {
 			ludo_move_pawn(&game, pawn);
 			debug_log("  MOVED pawn %d\n", pawn);
@@ -694,7 +690,13 @@ void game_view_click(wimp_pointer *pointer)
 		col = (work_x - BOARD_ORIGIN_X) / CELL;
 		row = (BOARD_ORIGIN_Y - work_y) / CELL;
 
+		debug_log("click: pos=(%d,%d) visible.x0=%d visible.y1=%d work=(%d,%d) "
+		          "cell=(%d,%d)\n", pointer->pos.x, pointer->pos.y,
+		          state.visible.x0, state.visible.y1, work_x, work_y, col, row);
+
 		if (col >= 0 && col < BOARD_GRID_SIZE && row >= 0 && row < BOARD_GRID_SIZE)
 			try_move_pawn(col, row);
+		else
+			debug_log("  click outside board grid range\n");
 	}
 }
