@@ -406,6 +406,39 @@ instead is an open design question raised by the round-6 user report
 ("Pawn placement does not place a pawn, but just color fills the
 circle") -- not yet resolved either way.
 
+**Round 6.2 correction**: the "plain filled circle" conclusion above was
+itself wrong -- a different reference screenshot
+(`GEOS/screenshots/ludo-playerwon.png`, a later-game state with real
+pawns visible on the ring and in home columns, as opposed to round 6's
+early-game crop) makes it unambiguous that GEOS shows the detailed pawn
+shape everywhere a pawn actually is. `plot_pawn()` now always draws it,
+regardless of `in_play`.
+
+**Round 6.3-6.4**: `plot_pawn()`'s sprite and a new `plot_dice()`
+(GEOS's die-face icons, addressing a repeated "no dice shown" request)
+both hit the same unexplained small-sprite rendering problem as round
+6.1's board-entry markers -- see `docs/GRAPHICS_TOOLING.md`'s "Round 6.3"
+and "Round 6.4" for the full investigation. Standardised on `os_plot`
+primitives for all board/panel art; `game_view.c` no longer plots any
+sprites at all.
+
+**Round 6.4 -- the actual pawn-click bug, found**: the "pawns don't
+move" report from round 3 turned out to be a real, simple bug, not a
+coordinate-math error (which had been checked and re-checked across four
+rounds without success). A debug log showing *every single click*
+landing on the Throw icon, and *never* on the board no matter where the
+user clicked, led to checking `wimp_window`'s `work_flags` field against
+the RISC OS 3 PRM: *"A window definition uses the button type bits to
+determine its work area's button type"* -- exactly like an icon's own
+button type. This project's window was created with
+`work_flags = wimp_BUTTON_NEVER`, meaning a click anywhere on the board
+(which is custom-plotted directly onto the work area background, not
+made of icons) never generated a `Mouse_Click` event at all. Changed to
+`wimp_BUTTON_CLICK`, matching `ICON_THROW`'s own button type. This is
+the single highest-value fix of the whole Phase 1 effort so far --
+pawn movement was never going to work no matter how correct the
+click-coordinate math was underneath it.
+
 ### Board layout: ported from the GEOS edition, not invented
 
 The Phase 1 board shape now comes directly from

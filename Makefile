@@ -103,7 +103,11 @@ check-hostfs:
 
 deploy: check-hostfs $(TARGET)
 	cp $(TARGET) "$(ARCULATOR_HOSTFS)/"
-	cp assets/Sprites "$(ARCULATOR_HOSTFS)/Sprites,ff9"
+	# Round 6.3 dropped sprite plotting entirely (see src/game_view.c's
+	# plot_pawn() doc comment) -- remove any stale Sprites,ff9 left over
+	# from an earlier deploy so it can't be mistaken for something the
+	# running game still reads.
+	rm -f "$(ARCULATOR_HOSTFS)/Sprites,ff9"
 
 zip: $(TARGET)
 	$(ARCHIEZIP) -r $(ZIPFILE) $(TARGET) README.md

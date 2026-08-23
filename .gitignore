@@ -57,6 +57,7 @@ dkms.conf
 # ArchiLudo / ArchieSDK build environment
 build/
 .env
+__pycache__/
 
 # RISC OS filetype-suffixed build artifacts (,xxx hex filetype convention)
 *,ff8

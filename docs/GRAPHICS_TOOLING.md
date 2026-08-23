@@ -303,6 +303,53 @@ nothing before the first throw of a turn, and nothing at all if
 number any more since round 6 -- this is a cosmetic-only fallback, Throw
 remains fully usable regardless).
 
+## Round 6.4: sprite plotting abandoned entirely, primitives everywhere
+
+Despite the round 6.3 colour fix verifying correctly offline (palette
+entry 0 confirmed the right RGB, all pixel indices confirmed 0, checked
+directly against the actual packed sprite file via
+`tools/riscos_sprite.py`'s own `build_palette()`), the next Arculator
+screenshot showed pawns as solid black regardless of player, and the die
+face's top row visibly cropped. This is the **third** small sprite in a
+row (after round 6.1's board-entry markers) to render wrong in Arculator
+in a way that never reproduced in any offline check -- the packed
+sprite's metadata, palette, and pixel data were all independently
+verified correct every time, with no diagnosable common cause found (mode
+mismatch, palette translation, and mask thresholding were all considered
+and none fit the actual symptoms cleanly).
+
+Given `os_plot` primitives (circles, rectangles, triangles) have been
+100% reliable across every single round of this whole Phase 1 effort,
+with zero unexplained failures, the decision was made to stop chasing
+this and standardise on primitives for **all** of ArchiLudo's Phase 1
+board/panel art:
+
+- `plot_pawn()`: two overlapping filled circles (a wider body below a
+  narrower head), replacing the GEOS pawn sprite.
+- `plot_dice()`: a white square with a black border and the standard pip
+  layout, replacing the GEOS die-face sprites.
+- (`plot_start_marker()` already did this from round 6.1.)
+
+`src/game_view.c` no longer calls any `osspriteop`/`xosspriteop_*`
+function or loads `assets/Sprites` at all -- `#include "oslib/osspriteop.h"`
+was removed (`wimpspriteop.h` stays, just for the `wimpspriteop_AREA`
+constant `def.sprite_area` is conventionally set to). `make deploy` no
+longer copies `assets/Sprites` to hostfs, and actively deletes any stale
+copy from an earlier deploy so it can't be mistaken for something the
+running game still reads.
+
+**Not deleted**: `tools/riscos_sprite.py` (the sprite format tool itself
+-- still correct and useful, e.g. for `info`/`to-png` on real files, and
+for whatever Phase 2's actual board/pawn art pipeline turns out to be),
+`assets/geos_source/*.gbm` (the local GEOS bitmap copies), and
+`assets/generate_placeholder_art.py` (still runs and still produces a
+correct, verified `assets/Sprites` -- it's just not consumed by the game
+any more). All of this stays available for Phase 2 to pick back up once
+there's time to actually debug why small sprites plot wrong in this
+project's specific Arculator/ArchieSDK/OSLib combination -- worth
+revisiting with a cleaner test harness (e.g. a minimal single-sprite
+smoke-test program) rather than debugging it inside the full game.
+
 ## How the format was verified
 
 Rather than trust the PRM's prose alone for the trickier parts (the

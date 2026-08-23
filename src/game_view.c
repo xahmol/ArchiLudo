@@ -9,8 +9,9 @@
 
 #include "oslib/wimp.h"
 #include "oslib/colourtrans.h"
-#include "oslib/osspriteop.h"
-#include "oslib/wimpspriteop.h"
+#include "oslib/wimpspriteop.h" /* wimpspriteop_AREA, for def.sprite_area only --
+                                  * round 6.3 dropped sprite plotting itself, see
+                                  * plot_pawn()'s doc comment */
 
 #include "game_view.h"
 #include "game_logic.h"
@@ -32,11 +33,11 @@
  * ArchiLudo's earlier solid square grid. */
 #define MARKER_RADIUS 22
 
-/* On-screen size in OS units (square) for the reused-GEOS-art home base
- * pawn sprite -- must match assets/generate_placeholder_art.py's
- * PAWN_SIZE (kept in sync manually, one's Python and one's C). Board
- * entry markers (round 6.1) are drawn programmatically instead of from a
- * sprite -- see plot_start_marker(). */
+/* Pawn's on-screen size in OS units (square) -- see plot_pawn(). Round
+ * 6.3 dropped sprite-based pawn art (see that function's doc comment)
+ * for a programmatically-drawn shape, same as board entry markers
+ * (round 6.1, see plot_start_marker()) and dice (round 6.3, see
+ * plot_dice()) -- this project no longer plots any sprites at all. */
 #define PAWN_SIZE     48
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
@@ -80,7 +81,6 @@
 
 #define STATUS_TEXT_LEN 40
 #define NAME_TEXT_LEN   20
-#define SPRITE_AREA_SIZE 8192
 
 /* Cell background categories, precomputed once from board_layout.c's
  * forward mapping (see build_cell_kinds()) so the redraw handler doesn't
@@ -118,10 +118,6 @@ static char status_text[STATUS_TEXT_LEN] = "";
 
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
-
-static char sprite_area_buffer[SPRITE_AREA_SIZE];
-static osspriteop_area *sprite_area = (osspriteop_area *) sprite_area_buffer;
-static int sprites_loaded = 0;
 
 #define APP_DIR_LEN 200
 static char app_dir[APP_DIR_LEN] = "";
@@ -385,7 +381,20 @@ void game_view_initialise(const char *argv0)
 	def.extent.y1 = 0;
 	def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
 	                   wimp_ICON_VCENTRED | wimp_ICON_FILLED;
-	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
+	/* THE pawn-click bug, finally found: a window definition's work_flags
+	 * sets the work area's own button type, exactly like an icon's button
+	 * type bits -- confirmed against the RISC OS 3 PRM
+	 * (~/riscos-dev/prm-mirror/wimp.html: "A window definition uses the
+	 * button type bits to determine its work area's button type"). This
+	 * was wimp_BUTTON_NEVER, meaning a click anywhere on the board (which
+	 * is custom-plotted directly onto the work area background, not made
+	 * of icons) never generated a Mouse_Click event at all -- confirmed by
+	 * a debug log showing every single click landing on the Throw icon
+	 * and *never* on wimp_ICON_WINDOW, no matter where on the board the
+	 * user actually clicked. wimp_BUTTON_CLICK matches ICON_THROW's own
+	 * button type and is the standard choice for a work area that needs
+	 * ordinary Select/Adjust click reporting. */
+	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
 	def.sprite_area = wimpspriteop_AREA;
 	/* Allow shrinking to about half size -- content beyond the visible
 	 * area is simply clipped (no scrollbars yet), but the size icon needs
@@ -436,21 +445,6 @@ void game_view_initialise(const char *argv0)
 
 	window_handle = wimp_create_window((wimp_window *) &def);
 
-	sprite_area->size = SPRITE_AREA_SIZE;
-	{
-		char sprites_path[APP_DIR_LEN + 8];
-		os_error *error;
-
-		resource_path(sprites_path, sizeof(sprites_path), "Sprites");
-		error = xosspriteop_clear_sprites(osspriteop_USER_AREA, sprite_area);
-		if (error == NULL)
-			error = xosspriteop_load_sprite_file(osspriteop_USER_AREA, sprite_area, sprites_path);
-		sprites_loaded = (error == NULL);
-		debug_log("game_view_initialise: app_dir=\"%s\" sprites_path=\"%s\" "
-		          "sprites_loaded=%d%s%s\n", app_dir, sprites_path, sprites_loaded,
-		          error ? " error=" : "", error ? error->errmess : "");
-	}
-
 	refresh_status();
 }
 
@@ -485,40 +479,43 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
 /*
  * Function: plot_pawn
  * Summary: Draw one pawn -- home base, ring, home column, or finished --
- *          with the detailed recoloured GEOS pawn sprite (see
- *          assets/generate_placeholder_art.py), wherever board_pawn_cell()
- *          says it currently is. Round 6 had this only for the home base,
- *          with on-track pawns drawn as a plain filled circle instead --
- *          based on a screenshot crop that turned out to be showing an
- *          empty home-column lane marker, not an actual on-track pawn;
- *          `ludo-playerwon.png` (a later state, with real pawns visible
- *          on the ring and in home columns) makes clear GEOS shows the
- *          detailed pawn shape everywhere a pawn actually is, not just
- *          the home base -- see docs/GRAPHICS_TOOLING.md's "Round 6.2"
- *          correction. Falls back to a plain filled square (no sprite
- *          lookup at all) if assets/Sprites failed to load, so the game
- *          stays playable regardless.
+ *          wherever board_pawn_cell() says it currently is: two
+ *          overlapping filled circles (a wider "body" below a narrower
+ *          "head"), giving a simple pawn-like silhouette.
+ *
+ *          Round 6.3: this used to plot the recoloured GEOS pawn sprite
+ *          (see assets/generate_placeholder_art.py) via
+ *          xosspriteop_put_sprite_user_coords(). Three separate small
+ *          sprites in a row rendered wrong in Arculator in ways that
+ *          never reproduced in any offline check (the packed sprite's
+ *          own metadata, and a locally-simulated 2x/4x stretch, both
+ *          looked correct every time): round 6.1's board-entry markers
+ *          (too narrow), round 6.3's dice (cropped), and this pawn sprite
+ *          itself (rendering solid black regardless of player, despite
+ *          the packed sprite file's palette and pixel data both verified
+ *          correct offline -- see docs/GRAPHICS_TOOLING.md's "Round
+ *          6.4"). Given `os_plot` primitives (circles, rectangles,
+ *          triangles) have been reliable in every single round so far
+ *          with zero unexplained failures, standardised on them for both
+ *          pawns and dice rather than keep chasing a sprite-rendering
+ *          bug with no diagnosable cause -- correctness over the
+ *          authentic GEOS silhouette shape for this Phase 1 placeholder
+ *          pass. Revisit real sprite art in Phase 2 with more time to
+ *          debug properly (or a different underlying mechanism, e.g. an
+ *          explicit ColourTrans_GenerateTable translation table).
  */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
 	board_cell cell = board_pawn_cell(&game, player, pawn_index);
-	int cx, cy, x, y;
+	int cx, cy;
+	int body_radius = PAWN_SIZE * 5 / 16;
+	int head_radius = PAWN_SIZE * 3 / 16;
 
 	cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
-	x = cx - PAWN_SIZE / 2;
-	y = cy - PAWN_SIZE / 2;
 
-	if (sprites_loaded) {
-		char name[13];
-
-		snprintf(name, sizeof(name), "pawn%d", player);
-		xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
-		                                    (osspriteop_id) name, x, y,
-		                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
-	} else {
-		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-		fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
-	}
+	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+	fill_circle(cx, cy - body_radius * 2 / 5, body_radius);
+	fill_circle(cx, cy + body_radius * 4 / 5, head_radius);
 }
 
 /*
@@ -568,36 +565,67 @@ static void plot_start_marker(int player, int cx, int cy)
 
 /*
  * Function: plot_dice
- * Summary: Draw the die face matching the current roll (GEOS's own
- *          dice1..6 icons, see assets/generate_placeholder_art.py) in
- *          the panel gap between the status line and the Throw button --
- *          added in round 6.3 since nothing previously showed the roll's
- *          actual outcome anywhere on screen (per repeated user report:
- *          "no dice are shown still, nor outcome of the dice throw").
- *          Draws nothing before the first throw of a turn
- *          (`game.last_roll == 0`). Falls back to nothing at all (rather
- *          than a placeholder shape) if assets/Sprites failed to load --
- *          the status text already states the roll in words in that
- *          case is not true any more (round 6 dropped the roll number
- *          from the status text once this was drawn instead), so a
- *          missing die face there is a purely cosmetic degradation, not
- *          a loss of information the player needs -- Throw remains fully
- *          usable either way.
+ * Summary: Draw a die face for the current roll -- a white square with a
+ *          thin black border and the standard pip layout -- in the panel
+ *          gap between the status line and the Throw button. Added in
+ *          round 6.3 since nothing previously showed the roll's actual
+ *          outcome anywhere on screen (per repeated user report: "no dice
+ *          are shown still, nor outcome of the dice throw"). Draws
+ *          nothing before the first throw of a turn (`game.last_roll ==
+ *          0`).
+ *
+ *          Round 6.3 first tried this via GEOS's own dice1..6.gbm
+ *          sprites (see assets/generate_placeholder_art.py); like the
+ *          pawn sprite (see plot_pawn()'s doc comment), it rendered
+ *          wrong in Arculator (cropped) for reasons that never
+ *          reproduced offline. Drawn with `os_plot` primitives instead,
+ *          for the same reliability reason.
  */
 static void plot_dice(int origin_x, int origin_y)
 {
-	char name[13];
-	int x, y;
+	/* Pip positions per face, as (col,row) on a 3x3 grid (0,0)=top-left
+	 * .. (2,2)=bottom-right, standard die layout. {-1,-1} marks unused
+	 * slots for faces with fewer than 6 pips. */
+	static const signed char pips[6][6][2] = {
+		{ {1, 1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 2},   {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {1, 1},   {2, 2},   {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 0},   {0, 2},   {2, 2},   {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 0},   {1, 1},   {0, 2},   {2, 2},   {-1, -1} },
+		{ {0, 0}, {2, 0},   {0, 1},   {2, 1},   {0, 2},   {2, 2} },
+	};
+	int face = game.last_roll;
+	int cx, cy, x0, y0, x1, y1, i;
+	int border = DICE_SIZE / 16;
+	int pip_radius = DICE_SIZE / 10;
+	int step = DICE_SIZE / 4;
 
-	if (game.last_roll == 0 || !sprites_loaded)
+	if (face == 0)
 		return;
 
-	x = origin_x + DICE_CENTRE_X - DICE_SIZE / 2;
-	y = origin_y + DICE_CENTRE_Y - DICE_SIZE / 2;
-	snprintf(name, sizeof(name), "dice%d", game.last_roll);
-	xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
-	                                    (osspriteop_id) name, x, y,
-	                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
+	cx = origin_x + DICE_CENTRE_X;
+	cy = origin_y + DICE_CENTRE_Y;
+	x0 = cx - DICE_SIZE / 2;
+	y0 = cy - DICE_SIZE / 2;
+	x1 = cx + DICE_SIZE / 2;
+	y1 = cy + DICE_SIZE / 2;
+
+	set_gcol(0, 0, 0);
+	fill_rect(x0, y0, x1, y1);
+	set_gcol(255, 255, 255);
+	fill_rect(x0 + border, y0 + border, x1 - border, y1 - border);
+
+	set_gcol(0, 0, 0);
+	for (i = 0; i < 6; i++) {
+		int col = pips[face - 1][i][0];
+		int row = pips[face - 1][i][1];
+
+		if (col < 0)
+			break;
+		fill_circle(x0 + DICE_SIZE / 2 + (col - 1) * step,
+		            y0 + DICE_SIZE / 2 - (row - 1) * step,
+		            pip_radius);
+	}
 }
 
 void game_view_redraw(wimp_draw *redraw)
@@ -711,9 +739,10 @@ void game_view_click(wimp_pointer *pointer)
 	 * background click. This line fires for literally every click in the
 	 * window regardless of which icon (or none) it lands on, to settle
 	 * that question definitively. */
-	debug_log("game_view_click: entered, pointer->i=%d (ICON_THROW=%d "
-	          "ICON_NAME=%d ICON_STATUS=%d wimp_ICON_WINDOW=%d)\n",
-	          pointer->i, ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
+	debug_log("game_view_click: entered, pos=(%d,%d) buttons=0x%x pointer->i=%d "
+	          "(ICON_THROW=%d ICON_NAME=%d ICON_STATUS=%d wimp_ICON_WINDOW=%d)\n",
+	          pointer->pos.x, pointer->pos.y, (unsigned) pointer->buttons, pointer->i,
+	          ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
 
 	if (pointer->i == ICON_THROW) {
 		if (game.winner != -1) {
