@@ -59,8 +59,16 @@
 #define DICE_SIZE     56
 #define DICE_CENTRE_X (PANEL_X0 + PANEL_WIDTH / 2)
 #define DICE_CENTRE_Y (-260)
-#define THROW_WIDTH  160
-#define THROW_HEIGHT  48
+/* Sized like a genuine RISC OS dialogue button (Steve Fryatt's
+ * introducing-icons tutorial and its reference screenshot,
+ * https://www.stevefryatt.org.uk/risc-os/wimp-prog/introducing-icons --
+ * real OK/Cancel/Close buttons there are compact, not oversized) rather
+ * than the original guess -- "Throw" is 5 characters (80 OS units at the
+ * system font's fixed 16 units/char), so 120 gives ~20 units padding
+ * each side, and 40 tall matches the system font's own 32-unit height
+ * plus a modest margin, the same proportions those buttons use. */
+#define THROW_WIDTH  120
+#define THROW_HEIGHT  40
 
 #define BOARD_ORIGIN_X MARGIN
 #define BOARD_ORIGIN_Y (-MARGIN)
@@ -510,12 +518,26 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 	int cx, cy;
 	int body_radius = PAWN_SIZE * 5 / 16;
 	int head_radius = PAWN_SIZE * 3 / 16;
+	/* Outline thickness -- drawn as a slightly larger black circle behind
+	 * each fill circle rather than an os_PLOT_CIRCLE_OUTLINE stroke, so its
+	 * width is controllable (the outline plot code draws a fixed 1-pixel
+	 * line). Needed so a pawn sitting on a same-coloured background marker
+	 * (its own home column lane, or its own ring entry marker) is still
+	 * visible against it -- per explicit user request. */
+	int outline = PAWN_SIZE / 12;
+	int body_y, head_y;
 
 	cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+	body_y = cy - body_radius * 2 / 5;
+	head_y = cy + body_radius * 4 / 5;
+
+	set_gcol(0, 0, 0);
+	fill_circle(cx, body_y, body_radius + outline);
+	fill_circle(cx, head_y, head_radius + outline);
 
 	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-	fill_circle(cx, cy - body_radius * 2 / 5, body_radius);
-	fill_circle(cx, cy + body_radius * 4 / 5, head_radius);
+	fill_circle(cx, body_y, body_radius);
+	fill_circle(cx, head_y, head_radius);
 }
 
 /*
@@ -610,6 +632,14 @@ static void plot_dice(int origin_x, int origin_y)
 	x1 = cx + DICE_SIZE / 2;
 	y1 = cy + DICE_SIZE / 2;
 
+	/* Diagnostic for a reported "last line of die does not show" -- no
+	 * code bug found by re-reading this geometry (it's a plain square,
+	 * DICE_SIZE in both dimensions), so log the actual box each redraw
+	 * computes to check against WINDOW_HEIGHT/the window's current state
+	 * next round rather than guess further. */
+	debug_log("plot_dice: face=%d box=(%d,%d,%d,%d) WINDOW_HEIGHT=%d\n",
+	          face, x0, y0, x1, y1, WINDOW_HEIGHT);
+
 	set_gcol(0, 0, 0);
 	fill_rect(x0, y0, x1, y1);
 	set_gcol(255, 255, 255);
@@ -697,6 +727,28 @@ void game_view_redraw(wimp_draw *redraw)
 }
 
 /*
+ * Function: single_movable_pawn
+ * Summary: If exactly one bit is set in a ludo_movable_pawns() mask,
+ *          return that pawn's index; otherwise (none, or more than one)
+ *          return -1. Used so the player is only ever asked to pick a
+ *          pawn when there's an actual choice to make -- see
+ *          game_view_click()'s ICON_THROW handler.
+ */
+static int single_movable_pawn(unsigned mask)
+{
+	int pawn, found = -1;
+
+	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+		if (!(mask & (1u << pawn)))
+			continue;
+		if (found != -1)
+			return -1;
+		found = pawn;
+	}
+	return found;
+}
+
+/*
  * Function: try_move_pawn
  * Summary: If (col, row) matches one of the current player's currently
  *          movable pawns, move it and refresh the display.
@@ -751,16 +803,28 @@ void game_view_click(wimp_pointer *pointer)
 			ludo_roll(&game, 0);
 			/* A six that releases a home pawn changes the board itself
 			 * (the released pawn appears on the ring), so needs a full
-			 * redraw; every roll changes the die face (round 6.3's
-			 * plot_dice(), part of the custom-drawn panel, not a plain
-			 * WIMP icon refresh_status() can redraw on its own) but not
-			 * the board, so redraw just the panel -- forcing a full-window
-			 * redraw on every single throw regardless caused a visible
-			 * flash each time for no visual benefit. */
-			if (game.just_released)
+			 * redraw. Otherwise, if exactly one pawn can legally move
+			 * (including the forced-pawn case, which is always exactly
+			 * one), move it immediately rather than making the player
+			 * click it -- per explicit user request ("if there is only
+			 * one possible pawn that moves, don't ask which pawn should
+			 * move"): the board changes either way, needing a full
+			 * redraw. Only when nothing changed (no release, no
+			 * auto-move -- just the status/die) is a panel-only redraw
+			 * enough; forcing a full-window redraw on every single throw
+			 * regardless caused a visible flash for no visual benefit. */
+			if (game.just_released) {
 				wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-			else
-				wimp_force_redraw(window_handle, PANEL_X0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+			} else {
+				int auto_pawn = single_movable_pawn(ludo_movable_pawns(&game));
+
+				if (auto_pawn != -1) {
+					ludo_move_pawn(&game, auto_pawn);
+					wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+				} else {
+					wimp_force_redraw(window_handle, PANEL_X0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+				}
+			}
 		}
 		refresh_status();
 		return;

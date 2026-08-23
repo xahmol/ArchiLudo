@@ -65,18 +65,30 @@ static int ring_square(int player, int steps)
 
 /*
  * Function: capture_at (internal)
- * Summary: Send home any opponent pawn occupying the ring square that
- *          "player" has just landed a pawn on. Pawns in a home column are
- *          never eligible for capture, since each player's home column is
- *          private to them.
- * Syntax:  static int capture_at(ludo_game *g, int player, int steps);
- * Input:   g      - the game in progress.
- *          player - the moving player (whose pawn just landed).
- *          steps  - the landing pawn's steps travelled; capture only
- *                   applies if this is still on the shared ring.
- * Output:  1 if an opponent pawn was captured (and sent home), 0 otherwise.
+ * Summary: Send home any *other* pawn occupying the ring square that
+ *          "player" has just landed a pawn on -- opponents' pawns
+ *          (a normal capture) and, per this project's house rule, the
+ *          player's *own* other pawns too (if one of your own pawns is
+ *          already sitting on the square another of your own pawns just
+ *          landed on -- e.g. a forced pawn released by a six landing back
+ *          on the square an earlier release is still parked on -- the
+ *          earlier one gets sent home rather than the two just stacking
+ *          on one square). `pawn_index` identifies the pawn that just
+ *          moved so it never sends itself home (its own `steps` was
+ *          already updated to match `square` by the caller before this
+ *          runs). Pawns in a home column are never eligible, since each
+ *          player's home column is private to them.
+ * Syntax:  static int capture_at(ludo_game *g, int player, int pawn_index,
+ *                                int steps);
+ * Input:   g          - the game in progress.
+ *          player     - the moving player (whose pawn just landed).
+ *          pawn_index - index of the pawn that just landed (excluded from
+ *                       the scan, so it can't send itself home).
+ *          steps      - the landing pawn's steps travelled; capture only
+ *                       applies if this is still on the shared ring.
+ * Output:  1 if another pawn was sent home, 0 otherwise.
  */
-static int capture_at(ludo_game *g, int player, int steps)
+static int capture_at(ludo_game *g, int player, int pawn_index, int steps)
 {
 	int square, p, i, captured = 0;
 
@@ -86,10 +98,11 @@ static int capture_at(ludo_game *g, int player, int steps)
 	square = ring_square(player, steps);
 
 	for (p = 0; p < LUDO_PLAYERS; p++) {
-		if (p == player)
-			continue;
 		for (i = 0; i < LUDO_PAWNS; i++) {
 			ludo_pawn *op = &g->players[p].pawns[i];
+
+			if (p == player && i == pawn_index)
+				continue; /* the pawn that just landed here, not a collision */
 
 			if (op->in_play && !op->finished && op->steps < LUDO_RING_LENGTH
 			 && ring_square(p, op->steps) == square) {
@@ -212,7 +225,7 @@ int ludo_roll(ludo_game *g, int forced_roll)
 
 			p->in_play = 1;
 			p->steps = 0;
-			capture_at(g, g->current_player, 0);
+			capture_at(g, g->current_player, home_pawn, 0);
 
 			/* Placement itself is this roll's action; the obligation to
 			 * move this same pawn applies to the *next* roll (the bonus
@@ -253,7 +266,7 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 		p->steps = LUDO_TOTAL_STEPS;
 		p->finished = 1;
 	} else if (p->steps < LUDO_RING_LENGTH) {
-		captured = capture_at(g, player, p->steps);
+		captured = capture_at(g, player, pawn_index, p->steps);
 	}
 
 	g->forced_pawn = -1; /* this roll's obligation, if any, is now fulfilled */
@@ -263,7 +276,15 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 
 	if (roll == 6 && g->winner == -1) {
 		/* Extra roll for the same player -- current_player is left
-		 * unchanged; the caller simply calls ludo_roll() again. */
+		 * unchanged; the caller simply calls ludo_roll() again. Reset
+		 * last_roll (ludo_end_turn() does this for the turn-ending case
+		 * below, but this branch skipped it entirely) -- otherwise
+		 * ludo_movable_pawns()/compute_movable_pawns() would keep
+		 * evaluating movability against this six for a second pawn before
+		 * the player has actually thrown again, since last_roll==0 is
+		 * what ludo_roll() and refresh_status() use to recognise "no
+		 * fresh roll yet". */
+		g->last_roll = 0;
 	} else {
 		ludo_end_turn(g);
 	}

@@ -439,6 +439,55 @@ the single highest-value fix of the whole Phase 1 effort so far --
 pawn movement was never going to work no matter how correct the
 click-coordinate math was underneath it.
 
+**Round 6.5**: with clicking finally working, a round of real gameplay
+surfaced several rules/UX issues:
+
+- **Pawns invisible on same-coloured backgrounds** (own home column lane,
+  own ring entry marker) -- fixed with a black outline on every pawn
+  (`plot_pawn()`: each fill circle is now preceded by a slightly larger
+  black one, since `os_PLOT_CIRCLE_OUTLINE` only draws a fixed 1-pixel
+  stroke, not an adjustable width).
+- **"Pick a pawn" asked even when only one pawn could legally move**,
+  including the already-narrowed forced-pawn case. Per explicit request
+  ("if there is only one possible pawn that moves, don't ask which pawn
+  should move. Only ask if more than one pawn can move"), added
+  `single_movable_pawn()` and auto-move in `game_view_click()`'s
+  `ICON_THROW` handler whenever `ludo_movable_pawns()` has exactly one
+  bit set.
+- **A forced pawn landing on another of the same player's own pawns left
+  both standing there** instead of sending the earlier one home. Root
+  cause in `game_logic.c`'s `capture_at()`: it explicitly skipped
+  same-player pawns (`if (p == player) continue`), so only opponent
+  pawns were ever eligible to be sent home. Per explicit house rule
+  clarification, fixed to only exclude the pawn that just moved itself
+  (added a `pawn_index` parameter so it can't send itself home), letting
+  any *other* pawn -- same player or not -- on the landing square go home.
+  New test: `test_own_pawn_sent_home_on_ring_collision`.
+- **Found while implementing the above** (not user-reported, but a real
+  latent bug): `ludo_move_pawn()` never reset `last_roll` when a six
+  granted a bonus roll without ending the turn (only `ludo_end_turn()`
+  did, for the turn-ending case) -- so `ludo_movable_pawns()` kept
+  evaluating movability against the *previous* roll before the player had
+  actually thrown again. Harmless as long as nothing acted on it, but the
+  new auto-move logic depends on this being accurate, so fixed: that
+  branch now also resets `last_roll = 0`.
+- **Throw button "doesn't look right"**: compared against a real RISC OS
+  reference (Steve Fryatt's `introducing-icons` tutorial screenshot,
+  `~/riscos-dev/...` isn't local for this one, fetched directly) -- the
+  icon *flags* already matched genuine dialogue-button convention
+  (`wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_FILLED | HCENTRED |
+  VCENTRED`), but real RISC OS buttons in the reference are compact, not
+  oversized -- `THROW_WIDTH`/`THROW_HEIGHT` reduced 160x48 -> 120x40 to
+  match that proportion (120 gives ~20 units padding either side of
+  "Throw"'s 80-unit text width at the system font's fixed 16
+  units/character; 40 tall is the system font's own 32-unit height plus
+  a modest margin).
+- **"Last line of die does not show"** -- not yet explained; re-reading
+  `plot_dice()`'s geometry found nothing wrong (a plain DICE_SIZE-square
+  box, no asymmetry between top/bottom). Added a debug log of the exact
+  computed box each redraw, to check against the window's actual state
+  next round rather than guess further.
+
 ### Board layout: ported from the GEOS edition, not invented
 
 The Phase 1 board shape now comes directly from

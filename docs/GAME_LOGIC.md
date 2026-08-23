@@ -22,8 +22,14 @@ that exercises every rule described here.
    the home column with no legal move, the player gets up to three
    consecutive rolls looking for the six needed to free a pawn. If none
    of the three is a six, the turn passes with no move made.
-6. Landing exactly on a square occupied by an opponent's pawn sends that
-   pawn back to its owner's home base.
+6. Landing exactly on a square occupied by another pawn sends that pawn
+   back to its owner's home base -- an opponent's pawn (a normal
+   capture) or, per this project's house rule, one of the *same*
+   player's own other pawns too (e.g. a forced pawn released by a six
+   landing back on the square an earlier release is still parked on: the
+   earlier one goes home rather than the two just stacking on one
+   square). Only applies on the shared ring -- see rule 7 for the
+   separate (stricter) home column rule.
 7. A player's own pawns cannot pass, or land on, another of their own
    pawns already in their home column (a single-file final stretch) --
    the blocking pawn must be moved out of the way first.

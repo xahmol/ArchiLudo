@@ -151,6 +151,32 @@ static void test_capture_sends_pawn_home(void)
 	CHECK(g.players[1].pawns[0].steps == 0);
 }
 
+/* Landing on a square already occupied by one of the SAME player's own
+ * pawns (on the shared ring, not the home column) sends that earlier
+ * pawn home rather than letting both stack on one square -- this
+ * project's house rule, distinct from the home column's own blocking
+ * rule below (which prevents landing there at all rather than bumping). */
+static void test_own_pawn_sent_home_on_ring_collision(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 5; /* ring square 5, sitting there already */
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 2; /* ring square 2 */
+
+	ludo_roll(&g, 3); /* pawn 1: 2 + 3 = 5, lands on pawn 0's square */
+	CHECK(ludo_move_pawn(&g, 1) == 1); /* reported same as an opponent capture */
+
+	CHECK(g.players[0].pawns[0].in_play == 0);
+	CHECK(g.players[0].pawns[0].steps == 0);
+	CHECK(g.players[0].pawns[1].in_play == 1);
+	CHECK(g.players[0].pawns[1].steps == 5);
+}
+
 /* A pawn cannot pass, or land on, one of its own player's pawns that is
  * already further along in the home column. */
 static void test_home_column_blocking(void)
@@ -267,6 +293,7 @@ int main(void)
 	RUN(test_six_releases_home_pawn);
 	RUN(test_forced_pawn_next_roll);
 	RUN(test_capture_sends_pawn_home);
+	RUN(test_own_pawn_sent_home_on_ring_collision);
 	RUN(test_home_column_blocking);
 	RUN(test_overshoot_not_movable);
 	RUN(test_pawn_finishes_exactly);
