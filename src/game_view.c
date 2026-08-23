@@ -56,7 +56,10 @@
 #define SWATCH_Y1     (-(MARGIN + (NAME_HEIGHT - SWATCH_SIZE) / 2))
 #define STATUS_GAP     8
 #define STATUS_HEIGHT 40
-#define DICE_SIZE     56
+/* Round 6.7: bumped from 56 -- reported pip crowding on face 6 (two
+ * columns of 3) with the old pip_radius/step ratio at that size; a
+ * bigger die gives more room per pip regardless of the exact ratio. */
+#define DICE_SIZE     72
 #define DICE_CENTRE_X (PANEL_X0 + PANEL_WIDTH / 2)
 #define DICE_CENTRE_Y (-260)
 /* Sized like a genuine RISC OS dialogue button (Steve Fryatt's
@@ -631,7 +634,11 @@ static void plot_dice(int origin_x, int origin_y)
 	int face = game.last_roll;
 	int cx, cy, x0, y0, x1, y1, i;
 	int border = DICE_SIZE / 16;
-	int pip_radius = DICE_SIZE / 10;
+	/* Smaller relative to `step` than a naive size/10 would give --
+	 * reported pip crowding on face 6 (two columns of 3) at the old
+	 * ratio, where adjacent same-column pips had very little gap between
+	 * their edges. */
+	int pip_radius = DICE_SIZE / 13;
 	int step = DICE_SIZE / 4;
 
 	if (face == 0)

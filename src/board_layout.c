@@ -50,26 +50,29 @@ board_cell board_home_base_cell(int player, int slot)
 	return home_base_cells[player][slot];
 }
 
-board_cell board_finished_cell(void)
-{
-	board_cell c;
-
-	c.col = 5;
-	c.row = 5;
-	return c;
-}
-
 board_cell board_pawn_cell(const ludo_game *g, int player, int pawn_index)
 {
 	const ludo_pawn *p = &g->players[player].pawns[pawn_index];
 
 	if (!p->in_play)
 		return board_home_base_cell(player, pawn_index);
-	if (p->finished)
-		return board_finished_cell();
-	if (p->steps < LUDO_RING_LENGTH) {
+	if (p->steps < LUDO_RING_LENGTH)  {
 		int entry = player * (LUDO_RING_LENGTH / LUDO_PLAYERS);
 		return board_ring_cell((entry + p->steps) % LUDO_RING_LENGTH);
 	}
-	return board_home_column_cell(player, p->steps - LUDO_RING_LENGTH);
+	/* A finished pawn (p->finished) has steps pinned at LUDO_TOTAL_STEPS
+	 * by ludo_move_pawn(), which is LUDO_HOME_COLUMN_LENGTH past the ring
+	 * -- one past the last real home column index -- so clamp back to
+	 * that last index rather than reading past the table. This also
+	 * covers the finished case correctly on its own: a finished pawn
+	 * simply stays on its home column's last square, matching GEOS's own
+	 * homedestcoords[player][0..7] (no separate "finished" slot exists
+	 * there at all -- see docs/BOARD_LAYOUT.md's "Round 6.7 correction"). */
+	{
+		int column_index = p->steps - LUDO_RING_LENGTH;
+
+		if (column_index >= LUDO_HOME_COLUMN_LENGTH)
+			column_index = LUDO_HOME_COLUMN_LENGTH - 1;
+		return board_home_column_cell(player, column_index);
+	}
 }

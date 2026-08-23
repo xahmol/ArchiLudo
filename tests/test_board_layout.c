@@ -35,13 +35,16 @@ static int cells_equal(board_cell a, board_cell b)
 }
 
 /* Every cell used anywhere on the board (ring, all 4 home columns, all 4
- * home bases, the centre) must be within the grid and must not collide
- * with any other cell used for a different purpose -- otherwise two
- * different board positions would draw on top of each other. */
+ * home bases) must be within the grid and must not collide with any
+ * other cell used for a different purpose -- otherwise two different
+ * board positions would draw on top of each other. No separate "centre"
+ * cell any more (see board_layout.h's "Round 6.7 correction") -- a
+ * finished pawn resolves to its home column's own last cell, already
+ * covered by the home column loop below. */
 static void test_all_used_cells_are_in_range_and_distinct(void)
 {
 	board_cell cells[LUDO_RING_LENGTH + LUDO_PLAYERS * LUDO_HOME_COLUMN_LENGTH
-	                  + LUDO_PLAYERS * LUDO_PAWNS + 1];
+	                  + LUDO_PLAYERS * LUDO_PAWNS];
 	int n = 0, i, j, duplicates = 0;
 	int player;
 
@@ -53,7 +56,6 @@ static void test_all_used_cells_are_in_range_and_distinct(void)
 	for (player = 0; player < LUDO_PLAYERS; player++)
 		for (i = 0; i < LUDO_PAWNS; i++)
 			cells[n++] = board_home_base_cell(player, i);
-	cells[n++] = board_finished_cell();
 
 	for (i = 0; i < n; i++) {
 		CHECK(cells[i].col >= 0 && cells[i].col < BOARD_GRID_SIZE);
@@ -121,11 +123,13 @@ static void test_pawn_cell_dispatch(void)
 	g.players[2].pawns[1].steps = LUDO_RING_LENGTH + 2;
 	CHECK(cells_equal(board_pawn_cell(&g, 2, 1), board_home_column_cell(2, 2)));
 
-	/* A finished pawn -> the centre cell. */
+	/* A finished pawn -> its own home column's last cell (not a shared
+	 * cell -- see board_layout.h's "Round 6.7 correction"). */
 	g.players[3].pawns[3].in_play = 1;
 	g.players[3].pawns[3].finished = 1;
 	g.players[3].pawns[3].steps = LUDO_TOTAL_STEPS;
-	CHECK(cells_equal(board_pawn_cell(&g, 3, 3), board_finished_cell()));
+	CHECK(cells_equal(board_pawn_cell(&g, 3, 3),
+	                   board_home_column_cell(3, LUDO_HOME_COLUMN_LENGTH - 1)));
 }
 
 int main(void)

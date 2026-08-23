@@ -40,9 +40,15 @@
  *   centre -- see `board_home_column_cell()`.
  * - Home base: 4 slots per player, a 2x2 block in one of the four outer
  *   corners -- see `board_home_base_cell()`.
- * - Finished pawns are drawn stacked at the centre cell (5,5), the point
- *   all four home columns converge on but that none of them actually
- *   uses as one of their 4 stored cells -- see `board_finished_cell()`.
+ * - Finished pawns stay on their own home column's last square (index
+ *   `LUDO_HOME_COLUMN_LENGTH - 1`) -- there is no separate shared "finish"
+ *   cell. An earlier version of this module invented one at the board's
+ *   centre (5,5), which turned out not to match the GEOS source at all:
+ *   `homedestcoords[player][0..7]` there has exactly 8 slots per player
+ *   (0-3 home base, 4-7 home column) and nothing beyond index 7 -- a
+ *   finished pawn simply occupies that last slot, staying put rather than
+ *   moving anywhere new. Fixed in `board_pawn_cell()` -- see
+ *   docs/BOARD_LAYOUT.md's "Round 6.7 correction".
  */
 
 #define BOARD_GRID_SIZE 11
@@ -95,22 +101,13 @@ board_cell board_home_column_cell(int player, int index);
 board_cell board_home_base_cell(int player, int slot);
 
 /*
- * Function: board_finished_cell
- * Summary: Grid cell where finished pawns are drawn (stacked together at
- *          the centre of the board).
- * Syntax:  board_cell board_finished_cell(void);
- * Input:   none.
- * Output:  the centre cell's (col, row).
- */
-board_cell board_finished_cell(void);
-
-/*
  * Function: board_pawn_cell
  * Summary: Grid cell for one specific pawn, given the game's current
  *          state -- dispatches to board_home_base_cell(),
- *          board_ring_cell(), board_home_column_cell(), or
- *          board_finished_cell() as appropriate. This is the one function
- *          src/game_view.c actually needs to call per pawn each redraw.
+ *          board_ring_cell(), or board_home_column_cell() as appropriate
+ *          (a finished pawn resolves to its home column's last cell, not
+ *          a separate case). This is the one function src/game_view.c
+ *          actually needs to call per pawn each redraw.
  * Syntax:  board_cell board_pawn_cell(const ludo_game *g, int player, int pawn_index);
  * Input:   g          - the game in progress.
  *          player     - 0..LUDO_PLAYERS-1.
