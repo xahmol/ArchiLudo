@@ -25,11 +25,16 @@
  * Function: game_view_initialise
  * Summary: Create the game window (closed) and load the pawn sprites
  *          used to draw it. Call once during application startup.
- * Syntax:  void game_view_initialise(void);
- * Input:   none.
+ * Syntax:  void game_view_initialise(const char *argv0);
+ * Input:   argv0 - main()'s argv[0], the full RISC OS pathname the
+ *                  program was invoked as (e.g. "HostFS:$.ArchiLudo").
+ *                  Used to build absolute paths for "Sprites" and the
+ *                  debug log, since the current selected directory at
+ *                  launch isn't reliable -- see docs/ARCHITECTURE.md's
+ *                  Phase 1 implementation notes, "Round 4".
  * Output:  none.
  */
-void game_view_initialise(void);
+void game_view_initialise(const char *argv0);
 
 /*
  * Function: game_view_open

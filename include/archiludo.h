@@ -7,7 +7,7 @@
 
 extern wimp_t task_handle;
 
-void archiludo_initialise(void);
+void archiludo_initialise(const char *argv0);
 void archiludo_poll_loop(void);
 
 #endif

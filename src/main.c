@@ -62,14 +62,14 @@ static void build_iconbar_menu(void)
 	strncpy(iconbar_menu.entries[ICONBAR_MENU_QUIT].data.text, "Quit", 12);
 }
 
-void archiludo_initialise(void)
+void archiludo_initialise(const char *argv0)
 {
 	wimp_version_no version_out;
 
 	task_handle = wimp_initialise(wimp_VERSION_RO30, APP_NAME, NULL, &version_out);
 	create_iconbar_icon();
 	build_iconbar_menu();
-	game_view_initialise();
+	game_view_initialise(argv0);
 }
 
 /*
@@ -145,9 +145,17 @@ void archiludo_poll_loop(void)
 	}
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
-	archiludo_initialise();
+	/* argv[0] is how a RISC OS program finds its own directory -- OS_GetEnv
+	 * (see ArchieSDK's crt0.s) hands back the full pathname the program was
+	 * invoked as (e.g. "HostFS:$.ArchiLudo"), unlike Unix where a bare
+	 * relative command name is common. game_view_initialise() uses this to
+	 * build absolute paths for "Sprites" and its debug log, rather than
+	 * relying on the current selected directory (CSD) at launch time, which
+	 * turned out not to be reliable here -- see docs/ARCHITECTURE.md's
+	 * Phase 1 implementation notes, "Round 4". */
+	archiludo_initialise(argc > 0 ? argv[0] : "");
 	archiludo_poll_loop();
 
 	wimp_close_down(task_handle);

@@ -75,23 +75,75 @@ static char sprite_area_buffer[SPRITE_AREA_SIZE];
 static osspriteop_area *sprite_area = (osspriteop_area *) sprite_area_buffer;
 static int sprites_loaded = 0;
 
+#define APP_DIR_LEN 200
+static char app_dir[APP_DIR_LEN] = "";
+
+/*
+ * Function: set_app_dir
+ * Summary: Derive this program's own directory from argv[0] (the full
+ *          RISC OS pathname it was invoked as, e.g. "HostFS:$.ArchiLudo"
+ *          -- see game_view_initialise()'s doc comment) by truncating at
+ *          the last "." path separator. Round 3's diagnostic logging
+ *          never actually landed anywhere the user could find it, and
+ *          round 4's screenshot showed pawns rendering as flat squares
+ *          (the sprite-missing fallback) rather than the loaded
+ *          placeholder art -- both point at the same root cause: a bare
+ *          relative filename ("Sprites", "Log") doesn't reliably resolve
+ *          against this program's own directory the way it would need to.
+ *          Building absolute paths from argv[0] instead is the standard
+ *          RISC OS convention for a program to find its own resources.
+ */
+static void set_app_dir(const char *argv0)
+{
+	const char *last_dot = NULL;
+	const char *p;
+	size_t len;
+
+	for (p = argv0; *p; p++)
+		if (*p == '.')
+			last_dot = p;
+
+	len = last_dot ? (size_t) (last_dot - argv0) : 0;
+	if (len >= APP_DIR_LEN)
+		len = APP_DIR_LEN - 1;
+
+	memcpy(app_dir, argv0, len);
+	app_dir[len] = '\0';
+}
+
+/*
+ * Function: resource_path
+ * Summary: Build an absolute path to a file named `leaf` in this
+ *          program's own directory (see set_app_dir()). Falls back to
+ *          the bare leafname if argv[0] didn't yield a usable directory.
+ */
+static void resource_path(char *out, size_t out_size, const char *leaf)
+{
+	if (app_dir[0] != '\0')
+		snprintf(out, out_size, "%s.%s", app_dir, leaf);
+	else
+		snprintf(out, out_size, "%s", leaf);
+}
+
 /*
  * Function: debug_log
- * Summary: Append one line to a plain text file "Log" in the app's current
- *          selected directory (same relative-path resolution already
- *          confirmed working for "Sprites" -- see game_view_initialise()).
- *          TEMPORARY diagnostic added while chasing a partial-board-render
- *          bug reported from Arculator screenshots that couldn't be
- *          explained by static code review alone -- see
- *          docs/ARCHITECTURE.md's Phase 1 implementation notes and
- *          CLAUDE.md's documented file-logging fallback for non-interactive
- *          WIMP tracing. Remove once that bug is confirmed fixed.
+ * Summary: Append one line to a plain text file "Log" in this program's
+ *          own directory (see resource_path()). TEMPORARY diagnostic
+ *          added while chasing a partial-board-render bug reported from
+ *          Arculator screenshots that couldn't be explained by static
+ *          code review alone -- see docs/ARCHITECTURE.md's Phase 1
+ *          implementation notes and CLAUDE.md's documented file-logging
+ *          fallback for non-interactive WIMP tracing. Remove once that
+ *          bug is confirmed fixed.
  */
 static void debug_log(const char *fmt, ...)
 {
-	FILE *f = fopen("Log", "a");
+	char path[APP_DIR_LEN + 8];
+	FILE *f;
 	va_list args;
 
+	resource_path(path, sizeof(path), "Log");
+	f = fopen(path, "a");
 	if (f == NULL)
 		return;
 
@@ -156,6 +208,18 @@ static void build_cell_kinds(void)
 		debug_log("build_cell_kinds: ring=%d home_column=%d home_base=%d centre=%d "
 		          "(expect 40/16/16/1)\n", n_ring, n_col, n_base, n_centre);
 	}
+
+	/* Round 4: green/blue's home columns (row=5, the horizontal cross bar)
+	 * rendered as plain ring grey instead of their tint, while red/yellow's
+	 * (col=5, the vertical bar) rendered correctly -- data (this file's
+	 * tables) and this function's code were both re-checked and found
+	 * consistent, so dump the actual runtime classification of every cell
+	 * on both bars directly rather than keep guessing from source. */
+	debug_log("cross-bar cell_kinds (0=empty,1=ring,2=home_column,3=home_base,4=centre):\n");
+	for (c = 0; c < BOARD_GRID_SIZE; c++)
+		debug_log("  row5 col%d: kind=%d owner=%d\n", c, (int) cell_kinds[c][5], cell_owner[c][5]);
+	for (r = 0; r < BOARD_GRID_SIZE; r++)
+		debug_log("  col5 row%d: kind=%d owner=%d\n", r, (int) cell_kinds[5][r], cell_owner[5][r]);
 }
 
 /*
@@ -229,11 +293,12 @@ void game_view_new_game(void)
 		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 }
 
-void game_view_initialise(void)
+void game_view_initialise(const char *argv0)
 {
 	wimp_WINDOW(WINDOW_ICON_COUNT) def;
 	wimp_icon *icon;
 
+	set_app_dir(argv0);
 	build_cell_kinds();
 	ludo_init(&game);
 
@@ -309,12 +374,17 @@ void game_view_initialise(void)
 
 	sprite_area->size = SPRITE_AREA_SIZE;
 	{
+		char sprites_path[APP_DIR_LEN + 8];
 		os_error *error;
 
+		resource_path(sprites_path, sizeof(sprites_path), "Sprites");
 		error = xosspriteop_clear_sprites(osspriteop_USER_AREA, sprite_area);
 		if (error == NULL)
-			error = xosspriteop_load_sprite_file(osspriteop_USER_AREA, sprite_area, "Sprites");
+			error = xosspriteop_load_sprite_file(osspriteop_USER_AREA, sprite_area, sprites_path);
 		sprites_loaded = (error == NULL);
+		debug_log("game_view_initialise: app_dir=\"%s\" sprites_path=\"%s\" "
+		          "sprites_loaded=%d%s%s\n", app_dir, sprites_path, sprites_loaded,
+		          error ? " error=" : "", error ? error->errmess : "");
 	}
 
 	refresh_status();
@@ -470,12 +540,22 @@ static void try_move_pawn(int col, int row)
 void game_view_click(wimp_pointer *pointer)
 {
 	if (pointer->i == ICON_THROW) {
-		if (game.winner != -1)
+		if (game.winner != -1) {
 			game_view_new_game();
-		else
+		} else {
 			ludo_roll(&game, 0);
+			/* Only a six that releases a home pawn changes anything on the
+			 * board itself (the released pawn appears on the ring) -- an
+			 * ordinary roll only changes the status text, which
+			 * refresh_status() below already redraws via
+			 * wimp_set_icon_state(). Forcing a full-window redraw on every
+			 * single throw (the old behaviour) caused a visible flash each
+			 * time for no visual benefit -- see docs/ARCHITECTURE.md's
+			 * Phase 1 implementation notes, "Round 4". */
+			if (game.just_released)
+				wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+		}
 		refresh_status();
-		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 		return;
 	}
 

@@ -248,13 +248,57 @@ Two independent, high-confidence fixes went in alongside the logging
   math was re-checked against `game_view_redraw()`'s and found
   self-consistent, but that's not proof against a runtime-only issue.
 
+**Round 4**: a real screenshot this time (not a secondhand description),
+plus the round-3 diagnostic `Log` file never actually appeared. Two
+findings, both traced to the same root cause:
+
+- **The ring path now rendered correctly (confirming round 3's contrast
+  fix worked), but green's and blue's home columns (the horizontal cross
+  bar) still rendered as plain ring grey instead of their pale tint, while
+  red's and yellow's (the vertical bar) rendered correctly.** Re-checked
+  `board_layout.c`'s actual current data (not from memory this time) and
+  `build_cell_kinds()`/`game_view_redraw()` again -- still no code or data
+  bug found (the 169-check distinctness test already rules out a cell
+  collision). Left as an open question pending real log data (see below).
+- **The `Log` file the user was asked to check simply didn't exist**, and
+  the pawns were rendering as flat squares (the no-sprite fallback) rather
+  than the circular placeholder art -- i.e. `assets/Sprites` was *also*
+  silently failing to load, this whole time. Both point at the same root
+  cause: a bare relative filename ("Sprites", "Log") doesn't reliably
+  resolve against this program's own directory when launched this way (the
+  assumption in round 3 that "Sprites" already loading proved relative
+  paths worked was wrong -- it was never actually loading; the fallback
+  render path just looks passable enough not to have been noticed).
+  **Fixed properly**: `main()` now takes `argc`/`argv` (ArchieSDK's crt0
+  populates `argv[0]` with the full RISC OS pathname the program was
+  invoked as, e.g. `"HostFS:$.ArchiLudo"` -- see its `SDK/src/libc/crt0.s`
+  and `argv.c`), and `game_view_initialise()` derives the program's own
+  directory from it (truncate at the last `.` path separator) to build
+  absolute paths for both `Sprites` and `Log`, rather than trusting the
+  current selected directory at launch. This is the standard RISC OS
+  convention for a program to find its own resources. Added one more
+  targeted log line dumping the exact runtime `cell_kinds`/`cell_owner`
+  classification of every cell on both cross bars (row 5 and column 5), so
+  the green/blue mystery above gets a definitive answer from the next log
+  instead of another round of guessing from source.
+- **Also fixed** (not from a specific report, but adjacent and clearly
+  wrong once noticed): the Throw button forced a full-window redraw on
+  *every* click regardless of whether anything visible changed, causing a
+  visible flash on every single roll -- reported as "redraws on every dice
+  roll which is annoying". A roll only changes the board when a six
+  releases a home pawn onto the ring; an ordinary roll only changes the
+  status text, which `refresh_status()` already redraws via
+  `wimp_set_icon_state()` without touching the board. Now the full-window
+  force-redraw only happens when `game.just_released` is true.
+
 **Still not fully verified** -- these are all high-confidence fixes for
 concretely-identified bugs (a real screenshot each round, not a
 guess-and-hope pass), but the redraw origin/click-coordinate arithmetic in
 particular can still only be truly confirmed by looking at it running
-again in Arculator. For round 3 specifically, the `Log` file's contents
-after a test run are needed to either confirm the two fixes above resolved
-everything or narrow down what's actually happening at runtime.
+again in Arculator. The `Log` file's actual contents after a round-4 test
+run are now needed to either confirm the sprite/log path fix worked and
+narrow down the green/blue home-column mystery, or reveal a genuine
+click-handling bug behind the "pawns don't move" report.
 
 ### Board layout: ported from the GEOS edition, not invented
 
