@@ -36,9 +36,9 @@ that limitation.
 | Component | Status |
 |---|---|
 | `game_logic.c` | Complete rules engine (see [GAME_LOGIC.md](GAME_LOGIC.md)), fully unit tested |
-| `board_layout.c` | Complete placeholder board geometry (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), fully unit tested |
+| `board_layout.c` | The real Mens Erger Je Niet board (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), ported from the GEOS edition's coordinate tables, not invented -- fully unit tested |
 | Sprite/graphics tooling | `tools/riscos_sprite.py`, see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md); placeholder pawn art generated via `assets/generate_placeholder_art.py` |
-| `main.c` / `game_view.c` | Playable Phase 1 WIMP game: iconbar icon opens a game window with a Throw button and status line; board cells + pawns drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK -- **not yet verified visually in Arculator** (next step) |
+| `main.c` / `game_view.c` | Playable Phase 1 WIMP game: iconbar icon opens a game window with a Throw button and status line; board cells + pawns drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK. **First round of Arculator feedback applied** (see "Phase 1 implementation notes" below) -- **needs another round of manual verification** |
 | Music/SFX (QTM) | Not started -- see "Roadmap" below |
 | Dialogue boxes (name entry, AI count, save/load), AI opponents | Not started |
 
@@ -50,9 +50,9 @@ decision below via an explicit choice):
 | Phase | Goal | Status |
 |---|---|---|
 | 0 | Build environment: ArchieSDK, Arculator profiles, `game_logic.c` + tests, docs set, PRM/wimp-prog mirrors | done |
-| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop done, compiles clean, **needs manual Arculator verification**; name-entry/restart-confirm dialogues and drag-based save/load not yet done (deferred to polish alongside Phase 5) |
+| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop done, first round of real-hardware-emulator feedback applied, **needs another round of manual Arculator verification**; name-entry/restart-confirm dialogues and drag-based save/load not yet done (deferred to polish alongside Phase 5) |
 | 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done |
-| 2 | Real board/pawn/dice art via the tooling above (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!) -- confirms the traditional 4-colour-pawn, private-home-run ("eindcirkel") structure the Phase 1 placeholder board already follows) | not started |
+| 2 | Real board/pawn/dice art via the tooling above, replacing the current flat-colour-rectangle placeholder cells with actual board artwork (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!)) -- the board *shape* itself is already the real one as of Phase 1 (ported from the GEOS edition, see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), so this phase is about art, not layout | not started |
 | 3 | Audio: `lib/qtm.c`/`docs/QTM.md` wrapper (see [[archiludo-riscos-project]] memory / `CREDITS.md` for why QTM over archieklang), bundle `QTMModule`, background MOD + dice-roll/capture/win sound effects | not started |
 | 4 | Enhanced graphics: full-screen double-buffered gameplay view (see "Graphics architecture: hybrid" below), smooth pawn/dice animation | not started |
 | 5 | AI difficulty, credits/options dialogues, `!Sprites`/`!Boot`/`!Run` app-directory packaging | not started |
@@ -137,14 +137,64 @@ whichever of the current player's movable pawns (per
 need a real `!ArchiLudo` application-directory path once Phase 5 packaging
 happens.
 
-**This compiles and links cleanly under `arm-archie-gcc` with no warnings,
-but has not yet been run inside Arculator** -- per this project's testing
-philosophy (see the top of this file), anything touching OSLib/WIMP can
-only be verified by hand. Next session should boot
-`ArchiLudo-ARM3-4MB.cfg`, confirm the iconbar icon appears, the window
-opens with a visible board/Throw button/status line, dice rolling and
-pawn-clicking work, and fix whatever the redraw-origin/click-coordinate
-arithmetic above got wrong on first contact with a real Wimp.
+**This compiles and links cleanly under `arm-archie-gcc` with no warnings.**
+Round 1 of manual Arculator testing (a real screenshot, not just a compile
+check) found several real bugs, all now fixed -- recorded here since
+they're exactly the kind of mistake worth not repeating:
+
+- **Window wasn't draggable, resizable, or closeable.** `main.c`'s
+  `main_dispatch()` didn't handle `Open_Window_Request`/
+  `Close_Window_Request` at all -- per the RISC OS 3 PRM, the Wimp expects
+  the *owning task* to confirm a reposition/resize/scroll by calling
+  `Wimp_OpenWindow` back with the new state; a missing handler means
+  dragging/resizing/scrolling visibly does nothing, even though the user's
+  input reached the Wimp correctly. Fixed by handling both reason codes
+  generically for any window (not just this app's own), and added
+  `wimp_WINDOW_SIZE_ICON`/`wimp_WINDOW_TOGGLE_ICON` to the window flags so
+  there's actually a resize/maximise icon to use.
+- **Status line and Throw button text were unreadable.** Both icons'
+  `flags` left the foreground/background colour bits unset, which defaults
+  to Wimp colour 0 for both -- i.e. white text on a white fill,
+  effectively invisible (the pale "barely readable" text in the
+  screenshot was the Wimp's own icon border/fill anti-aliasing showing
+  through, not the text itself). Fixed by explicitly OR-ing in
+  `wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT` and
+  `wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT`.
+- **Felt sluggish.** The window didn't set `wimp_WINDOW_AUTO_REDRAW`, so
+  the Wimp asked the client to fully redraw (41 filled cells + up to 16
+  sprite plots, each several SWI calls, on an emulated ARM) on *every*
+  expose/uncover, not just on genuine content changes. Re-added
+  `wimp_WINDOW_AUTO_REDRAW` (the app already calls `Wimp_ForceRedraw`
+  itself whenever the game state actually changes, so this doesn't lose
+  any needed redraws).
+- **Board didn't look like Mens Erger Je Niet at all.** The Phase 1 board
+  shape was an invented square-ring-with-diagonal-home-columns design, not
+  the real cross-shaped board -- see "Board layout" below for the fix
+  (ported the GEOS edition's actual coordinates instead).
+
+Also set the window ~30% smaller (11x11 grid instead of the old invented
+15x15) and reworded the status line to be shorter, since board size and
+message length both feed directly into how much of this ever fits inside
+Mode 15's window space.
+
+**Still not fully verified** -- these are all high-confidence fixes for
+concretely-identified bugs, not a guess-and-hope pass, but the redraw
+origin/click-coordinate arithmetic in particular can still only be truly
+confirmed by looking at it running again in Arculator.
+
+### Board layout: ported from the GEOS edition, not invented
+
+The Phase 1 board shape now comes directly from
+`/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
+`homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
+`row = (raw_y-3)/2` onto an 11x11 grid), per the user's explicit request
+to match that version rather than a new design -- see
+[BOARD_LAYOUT.md](BOARD_LAYOUT.md) for the conversion detail and how it
+was verified (rendered as an image and visually compared against the
+classic cross shape before writing it into `board_layout.c`). Player
+colours/order also now match the GEOS source's `startfieldgraphics`
+comments exactly: 0=green, 1=red, 2=blue, 3=yellow (previously an
+arbitrary order).
 
 ## Directory layout
 
@@ -196,6 +246,7 @@ strategy for the UI layer once it's built:
 
 | GEOS (source) | ArchiLudo (RISC OS Wimp) | Why |
 |---|---|---|
+| `fieldcoords[40][2]`/`homedestcoords[4][8][2]` (board geometry) | `board_layout.c`'s ring/home-column/home-base tables (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)) | Ported directly (coordinate-converted), not redesigned -- the user explicitly wanted the same board |
 | `struct menu` tree (`menuGEOS`/`menuGame`/`menuFile`) | `wimp_menu` tree via `Wimp_CreateMenu` | Direct structural match |
 | `DlgBoxGetString`/`DlgBoxYesNo`/`DlgBoxOk`/`DlgBoxOkCancel` | A small reusable dialogue-window helper built on plain Wimp windows | Wimp has no built-in dialogue-box kernel call like GEOS does |
 | `SaveFile`/`GetFile` (GEOS's directory-listing file picker) | RISC OS-native Save box + drag-and-drop (`Message_DataSave`/`DataSaveAck`, `Message_DataOpen`) | Idiomatic RISC OS UX, not a literal port |

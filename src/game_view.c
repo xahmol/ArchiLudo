@@ -15,14 +15,18 @@
 #include "game_logic.h"
 #include "board_layout.h"
 
-#define CELL          24
+#define CELL          32
 #define MARGIN         8
-#define ICON_HEIGHT   24
+#define THROW_HEIGHT  32
+#define THROW_WIDTH  100
+#define STATUS_HEIGHT 28
+#define HEADER_GAP     4
+#define HEADER_HEIGHT (THROW_HEIGHT + HEADER_GAP + STATUS_HEIGHT)
 #define BOARD_ORIGIN_X MARGIN
-#define BOARD_ORIGIN_Y (-(MARGIN + ICON_HEIGHT + MARGIN))
+#define BOARD_ORIGIN_Y (-(MARGIN + HEADER_HEIGHT + MARGIN))
 #define BOARD_PIXELS  (BOARD_GRID_SIZE * CELL)
 #define WINDOW_WIDTH  (MARGIN + BOARD_PIXELS + MARGIN)
-#define WINDOW_HEIGHT (MARGIN + ICON_HEIGHT + MARGIN + BOARD_PIXELS + MARGIN)
+#define WINDOW_HEIGHT (MARGIN + HEADER_HEIGHT + MARGIN + BOARD_PIXELS + MARGIN)
 
 #define ICON_THROW  0
 #define ICON_STATUS 1
@@ -42,13 +46,16 @@ typedef enum {
 	CELL_CENTRE
 } cell_kind;
 
+/* Player order/colours match /home/xahmol/git/ludo/GEOS/src/main.c's
+ * startfieldgraphics comments exactly (see docs/BOARD_LAYOUT.md) -- must
+ * also match assets/generate_placeholder_art.py's PLAYER_COLOURS. */
 static const int player_rgb[LUDO_PLAYERS][3] = {
-	{ 220, 30, 30 },   /* 0: red   -- must match assets/generate_placeholder_art.py */
-	{ 30, 140, 220 },  /* 1: blue */
-	{ 230, 200, 30 },  /* 2: yellow */
-	{ 30, 160, 60 },   /* 3: green */
+	{ 30, 160, 60 },   /* 0: green */
+	{ 220, 30, 30 },   /* 1: red */
+	{ 30, 140, 220 },  /* 2: blue */
+	{ 230, 200, 30 },  /* 3: yellow */
 };
-static const char *player_name[LUDO_PLAYERS] = { "RED", "BLUE", "YELLOW", "GREEN" };
+static const char *player_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLOW" };
 
 static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
@@ -133,16 +140,16 @@ static void fill_rect(int x0, int y0, int x1, int y1)
 static void refresh_status(void)
 {
 	if (game.winner != -1) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s wins! Click Throw to play again.",
+		snprintf(status_text, STATUS_TEXT_LEN, "%s wins! Throw to play again.",
 		         player_name[game.winner]);
 	} else if (game.last_roll == 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s to move -- click Throw.",
+		snprintf(status_text, STATUS_TEXT_LEN, "%s to move: click Throw",
 		         player_name[game.current_player]);
 	} else if (ludo_movable_pawns(&game) != 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d -- click a pawn to move it.",
+		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: click a pawn",
 		         player_name[game.current_player], game.last_roll);
 	} else {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d -- click Throw again.",
+		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: Throw again",
 		         player_name[game.current_player], game.last_roll);
 	}
 
@@ -153,7 +160,7 @@ static void refresh_status(void)
 void game_view_new_game(void)
 {
 	ludo_init(&game);
-	snprintf(status_text, STATUS_TEXT_LEN, "%s to move -- click Throw.", player_name[0]);
+	snprintf(status_text, STATUS_TEXT_LEN, "%s to move: click Throw", player_name[0]);
 	if (window_handle != (wimp_w) -1)
 		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 }
@@ -173,9 +180,10 @@ void game_view_initialise(void)
 	def.xscroll = 0;
 	def.yscroll = 0;
 	def.next = wimp_TOP;
-	def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
+	def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE | wimp_WINDOW_AUTO_REDRAW |
 	            wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
-	            wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON;
+	            wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON |
+	            wimp_WINDOW_TOGGLE_ICON | wimp_WINDOW_SIZE_ICON;
 	def.title_fg = wimp_COLOUR_BLACK;
 	def.title_bg = wimp_COLOUR_LIGHT_GREY;
 	def.work_fg = wimp_COLOUR_BLACK;
@@ -192,27 +200,34 @@ void game_view_initialise(void)
 	                   wimp_ICON_VCENTRED | wimp_ICON_FILLED;
 	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
 	def.sprite_area = wimpspriteop_AREA;
-	def.xmin = 0;
-	def.ymin = 0;
+	/* Content is a fixed layout, not scrollable data -- don't allow
+	 * shrinking below its natural size (the size icon can still make the
+	 * window bigger than that, which just leaves blank margin). */
+	def.xmin = WINDOW_WIDTH;
+	def.ymin = WINDOW_HEIGHT;
 	strncpy(def.title_data.text, "ArchiLudo", 12);
 	def.icon_count = WINDOW_ICON_COUNT;
 
 	icon = &def.icons[ICON_THROW];
 	icon->extent.x0 = MARGIN;
-	icon->extent.y0 = -(MARGIN + ICON_HEIGHT);
-	icon->extent.x1 = MARGIN + 80;
+	icon->extent.y0 = -(MARGIN + THROW_HEIGHT);
+	icon->extent.x1 = MARGIN + THROW_WIDTH;
 	icon->extent.y1 = -MARGIN;
 	icon->flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
 	              wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
 	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
 	strncpy(icon->data.text, "Throw", 12);
 
 	icon = &def.icons[ICON_STATUS];
-	icon->extent.x0 = MARGIN + 88;
-	icon->extent.y0 = -(MARGIN + ICON_HEIGHT);
+	icon->extent.x0 = MARGIN;
+	icon->extent.y0 = -(MARGIN + THROW_HEIGHT + HEADER_GAP + STATUS_HEIGHT);
 	icon->extent.x1 = WINDOW_WIDTH - MARGIN;
-	icon->extent.y1 = -MARGIN;
+	icon->extent.y1 = -(MARGIN + THROW_HEIGHT + HEADER_GAP);
 	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_VCENTRED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
 	              (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
 	icon->data.indirected_text.text = status_text;
 	icon->data.indirected_text.validation = "";

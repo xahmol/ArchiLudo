@@ -24,13 +24,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-# Player colours, in game_logic.c's player-index order (0=red, matching
-# board_layout.c's ring entry at the top-left corner in the board preview).
+# Player colours, in game_logic.c's player-index order -- matches
+# /home/xahmol/git/ludo/GEOS/src/main.c's startfieldgraphics comments
+# exactly (0=green, 1=red, 2=blue, 3=yellow), and must match
+# player_rgb/player_name in src/game_view.c.
 PLAYER_COLOURS = [
-    (220, 30, 30),   # player 0: red
-    (30, 140, 220),  # player 1: blue
-    (230, 200, 30),  # player 2: yellow
-    (30, 160, 60),   # player 3: green
+    (30, 160, 60),   # player 0: green
+    (220, 30, 30),   # player 1: red
+    (30, 140, 220),  # player 2: blue
+    (230, 200, 30),  # player 3: yellow
 ]
 
 PAWN_SIZE = 20

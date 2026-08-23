@@ -14,29 +14,38 @@
  * WIMP shell (src/game_view.c) multiplies these grid cells by its own
  * chosen cell size to get actual window/screen coordinates.
  *
- * Board shape: a square ring path (40 cells, 10 per side, matching
- * LUDO_RING_LENGTH) around a central home-column area, on a
- * BOARD_GRID_SIZE x BOARD_GRID_SIZE grid of cells:
+ * Board shape: the classic Mens Erger Je Niet / Ludo cross ("plus sign"),
+ * on an 11x11 grid -- ported directly from the coordinate tables in this
+ * game's own prior GEOS port (`/home/xahmol/git/ludo/GEOS/src/main.c`'s
+ * `fieldcoords[40][2]` and `homedestcoords[4][8][2]`), not invented from
+ * scratch, per the user's explicit request to match that version's board.
+ * Those coordinates use 2-unit steps on a wider native grid (x even
+ * 0..20, y odd 3..23); converting with col = raw_x/2, row = (raw_y-3)/2
+ * lands them exactly on an 11x11 grid (0..10 both axes) with no
+ * remainder and no collisions -- confirmed both by inspection (every
+ * player's home-column cells connect to the ring cell immediately before
+ * their own entry point, matching game_logic.c's `player*10` entry
+ * convention exactly) and by rendering the converted grid as an image
+ * during development to visually confirm the classic cross shape came out
+ * right.
  *
- *   - Ring cells sit on the frame at column/row 2 or 12 (an 11x11 core,
- *     columns/rows 2..12), giving exactly 4*(11-1) = 40 unique cells --
- *     see board_ring_cell().
- *   - Each player's home column runs diagonally from just inside their
- *     entry corner to the centre cell (7,7) -- see board_home_column_cell().
- *   - Each player's home base (for pawns still waiting) is a 2x2 block in
- *     one of the four outer corners (columns/rows 0-1 or 13-14) -- see
- *     board_home_base_cell().
- *   - Finished pawns are drawn stacked at the centre cell -- see
- *     board_finished_cell().
+ * Player order/colours match the GEOS source's `startfieldgraphics`
+ * comments exactly: player 0 = green, 1 = red, 2 = blue, 3 = yellow (see
+ * player_rgb/player_name in game_view.c).
  *
- * This is a deliberately simple placeholder geometry for Phase 1 (see
- * docs/ARCHITECTURE.md's Roadmap) -- functional and symmetric, not a
- * pixel-accurate recreation of a physical Ludo board. Real board artwork
- * in Phase 2 can either keep this same cell grid (just prettier per-cell
- * sprites) or prompt a redesign; this module is where that would change.
+ * - Ring: 40 cells (`LUDO_RING_LENGTH`), forming the cross's outer track
+ *   -- see `board_ring_cell()`.
+ * - Home column: 4 cells per player, running from just inside their ring
+ *   entry corner along the middle of "their" arm of the cross toward the
+ *   centre -- see `board_home_column_cell()`.
+ * - Home base: 4 slots per player, a 2x2 block in one of the four outer
+ *   corners -- see `board_home_base_cell()`.
+ * - Finished pawns are drawn stacked at the centre cell (5,5), the point
+ *   all four home columns converge on but that none of them actually
+ *   uses as one of their 4 stored cells -- see `board_finished_cell()`.
  */
 
-#define BOARD_GRID_SIZE 15
+#define BOARD_GRID_SIZE 11
 
 /*
  * Type: board_cell

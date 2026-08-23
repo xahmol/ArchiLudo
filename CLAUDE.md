@@ -67,8 +67,13 @@ compiler. Window/icon definitions are built directly in C as OSLib
 structures rather than a Wimp template file.
 
 **Current status**: Phase 1 (see `docs/ARCHITECTURE.md`'s Roadmap) — a
-playable core loop compiles and links cleanly under ArchieSDK, but has not
-yet been verified inside Arculator. That's the next thing to do.
+playable core loop, first-round Arculator feedback already applied (real
+board layout ported from the GEOS edition instead of an invented one;
+`Open_Window_Request`/`Close_Window_Request` were unhandled, which is why
+the window couldn't be dragged/closed; icons had no explicit fg/bg colour
+so text was invisible; `wimp_WINDOW_AUTO_REDRAW` was missing, which is
+likely why it felt slow). Still needs another round of manual Arculator
+verification.
 
 Porting source: `/home/xahmol/git/ludo`, specifically `GEOS/` — see
 `docs/ARCHITECTURE.md`'s GeoLudo→Wimp mapping table.
@@ -98,7 +103,13 @@ autotype/socket/remote-control interface; its only CLI hook is
 `Arculator.exe <config-name>` to skip the config picker): boot
 `configs/ArchiLudo-ARM3-4MB.cfg` (matches the maintainer's real hardware)
 or `configs/ArchiLudo-ARM2-1MB.cfg` (stock ARM2/1MB compatibility check) in
-the Arculator install at `D:\Retro\Acorn\Arculator_V2.2_Windows`. Debugging
+the Arculator install at `D:\Retro\Acorn\Arculator_V2.2_Windows`. On first
+boot of a profile, run `*Configure Mode 15` once from a command line (F12)
+to switch the desktop to 256-colour mode 15 — RISC OS saves this to CMOS
+itself, so it only needs doing once per profile (not something to set via
+Arculator's own `.cfg` file — its `display_mode` key is an Arculator
+rendering option, unrelated to the RISC OS screen mode; confirmed by
+reading Arculator's own source). Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory
 view, disassembly) is the primary tool, since nothing like the Reporter
 module is assumed present on stock RISC OS 3.10; file-based logging via

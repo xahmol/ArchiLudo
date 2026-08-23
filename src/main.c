@@ -91,6 +91,18 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			game_view_redraw(&block->redraw);
 		break;
 
+	case wimp_OPEN_WINDOW_REQUEST:
+		/* Must be answered for ANY window, not just ours -- this is what
+		 * makes dragging/resizing/scrolling actually take effect (the
+		 * Wimp asks the owning task to confirm the new position; a
+		 * missing handler here is why a window looks undraggable). */
+		wimp_open_window(&block->open);
+		break;
+
+	case wimp_CLOSE_WINDOW_REQUEST:
+		wimp_close_window(block->close.w);
+		break;
+
 	case wimp_MOUSE_CLICK:
 		if (block->pointer.w == wimp_ICON_BAR) {
 			if (block->pointer.buttons & wimp_CLICK_MENU)
