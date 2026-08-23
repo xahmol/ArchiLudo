@@ -941,6 +941,168 @@ doesn't read as "drag me" at a glance, and at that width even that
 short label was clipped. Relabelled "Drag" and widened to 64 units so
 the label actually fits and the intent is legible.
 
+**Round 7.7**: the player-colour swatch's black outline had an
+invisible top border -- per explicit report, correctly self-diagnosed
+("perhaps as every two OS lines is one actual screen line?"). Mode 15
+is 2x4 OS units per physical pixel (non-square, see this doc's Testing
+section) -- a manually `fill_rect()`-drawn border needs at least 4 OS
+units of thickness to reliably render (a rasterizer painting a pixel
+when its centre falls inside the filled shape only guarantees a hit at
+one full pixel's thickness; thinner can land entirely between two
+pixel-centre samples and paint nothing), and the swatch's outline used
+only 2 -- below the 4-unit vertical minimum, though *above* the smaller
+2-unit horizontal one, which is exactly why the top/bottom edges
+specifically vanished while the left/right edges still showed. Fixed by
+raising it to 4.
+
+Audited the rest of `src/*.c` for the same pattern (a fork agent, since
+this seemed likely to explain other rendering reports too, per explicit
+user request to "document... including clear strategy to avoid these
+issues"): `plot_pawn()`'s outline (`PAWN_SIZE/12` = 4) already satisfied
+the rule, which is why pawns never showed the problem, but only by
+coincidence of the current `PAWN_SIZE`; `plot_dice()`'s border
+(`DICE_SIZE/16` = 4.5, truncating to 4) was *also* only safe by luck of
+integer truncation -- a different `DICE_SIZE` would have silently
+dropped below the minimum with no warning, so it now has an explicit
+`if (border < 4) border = 4;` floor rather than relying on that
+coincidence. `setup_view.c`/`save_view.c` have no manual `fill_rect`
+borders at all (every border there is a standard Wimp-drawn 3D bevel).
+Left genuinely open: `outline_circle()` (`os_PLOT_CIRCLE_OUTLINE`, used
+for the ring-track markers and the movable-pawn/hover highlight rings)
+is documented in-code as a native "fixed 1-pixel line" stroke, assumed
+immune to this bug class (rasterizes at the physical pixel level rather
+than as an OS-unit-thick filled shape) -- a standard, conventional
+assumption for RISC OS stroke primitives, but not independently proven
+against the PRM's `os_plot` reference, which documents the plot code's
+existence without spelling out its rasterization guarantee. If a ring
+or highlight circle is ever reported as patchy or partially invisible,
+revisit this specifically rather than assuming it's automatically safe.
+
+The general rule and this incident are now recorded in
+`riscos_wimp_reference.md`'s new "Screen modes: non-square pixels and
+thin manually-drawn lines" section (canonical copy updated at
+`~/.claude/riscos_wimp_reference.md` first, per the usual convention)
+and in this project's own auto-memory, specifically so a future session
+checks line/border thickness *first* the next time something like this
+gets reported, rather than re-deriving the whole non-square-pixel
+mechanism from scratch or chasing an unrelated coordinate-math theory.
+
+**Round 7.8**: a genuine rules bug, found via headless simulation rather
+than guessed at from a single manually-reported symptom -- per explicit
+report ("green pawn threw two and was one before end of home area...
+should be invalid move, but moved 1 place anyway") plus a request to
+check whether the debug Log already captured enough to diagnose it (it
+didn't -- see below) and whether a *full* headless game could be
+simulated at all to hunt for this systematically.
+
+- **The debug Log only ever captured human board clicks**
+  (`try_move_pawn()`'s own `debug_log` calls) -- every AI move and every
+  human *auto*-move (the "don't ask which pawn" single-choice case)
+  went through `start_move_animation()` with no logging at all. Given
+  the reported save file's players were Human/AI/AI/AI, and the actual
+  supplied Log had zero `try_move_pawn`/`MOVING pawn` entries anywhere
+  near the report, the move in question almost certainly happened via
+  one of the un-logged paths. Fixed by moving the log call to
+  `start_move_animation()` itself (the one function every move --
+  human click, human auto-move, AI -- funnels through), logging
+  player/human-or-AI/pawn/roll/steps-before/steps-after; also logged
+  `resolve_roll()`'s movable-mask decision point. The old
+  per-animation-tick `plot_dice()` log line (added chasing the
+  since-resolved "last line of die" report, see Round 7.7) was removed
+  entirely -- at roughly 8 lines per throw it had come to dominate the
+  277KB Log file's size and made the entries that actually mattered
+  hard to find, which is exactly what slowed down locating the real bug
+  here.
+- **Verified game_logic.c itself first, with a real headless
+  simulation** (`tests/test_game_logic.c`'s new
+  `test_headless_full_games_invariants()`, and `tests/test_ai.c`'s new
+  `test_headless_four_ai_games()` using the actual AI, matching the
+  reported save's all-but-one-seat-AI setup, per explicit follow-up
+  request) rather than trying to manually reconstruct the exact
+  reported board position: both play out hundreds of complete, real,
+  randomly-rolled games through nothing but the public
+  `game_logic.h`/`ai.h` API (exactly what `game_view.c` itself does),
+  asserting after every single roll and move that no pawn's steps ever
+  goes out of range, `finished` always agrees with
+  `steps == LUDO_TOTAL_STEPS`, the finished-pawn count never decreases,
+  and -- the check that would catch the reported bug directly -- a
+  pawn reported movable by `ludo_movable_pawns()` never actually
+  overshoots when moved. `test_game_logic.c` alone runs ~9.5 million
+  checks across 500 games in well under a second.
+- **The first version of this simulation immediately found a
+  failure** -- but it turned out to be a bug in the *test*, not
+  `game_logic.c`, and finding that distinction is exactly what
+  `game_logic.h`'s own `ludo_roll()` doc comment already warns about: a
+  caller must "keep rolling while `ludo_movable_pawns()` is 0 and the
+  current_player has not changed." Three consecutive failed tries makes
+  `ludo_roll()` silently call `ludo_end_turn()` *internally*, advancing
+  `current_player` to a different player and resetting `last_roll` to
+  0 -- a fresh, not-yet-thrown state for them -- before returning. The
+  test's first draft (and, critically, `game_view.c`'s real
+  `resolve_roll()`) trusted whatever `ludo_movable_pawns()` said
+  immediately after any roll, without checking whether the roll had
+  actually landed on the player it started with. With `last_roll == 0`,
+  `compute_movable_pawns()`'s overshoot check (`new_steps =
+  p->steps + g->last_roll`) can never trigger -- adding zero never
+  overshoots -- so *every* in-play pawn of the new player reports as
+  movable, and `resolve_roll()` would go on to auto-move (or, for a
+  human with more than one such pawn, invite a click on) a pawn that
+  player never actually threw a die for, moving it by zero net steps.
+  This is the real mechanism behind the reported bug (a pawn parked
+  one square from finishing, "moved" without a valid roll actually
+  landing on it) even though the exact manually-observed board position
+  couldn't be independently reconstructed from the supplied save file
+  (which only captures state *at* save time, not the move history
+  leading up to it) or the Log (which, per above, didn't capture the
+  move at all). Fixed in `game_view.c`'s `resolve_roll()` by capturing
+  who was actually rolling (`roll_anim_player`, set in
+  `start_roll_animation()` *before* calling `ludo_roll()`) and checking
+  it against `game.current_player` first thing in `resolve_roll()` --
+  if they differ, the turn passed automatically and nothing was rolled
+  for whoever it is now, so settle straight into their own fresh "click
+  Throw"/"click Continue" state instead of resolving a phantom move.
+  The same fix was applied to both headless simulations' own roll loops
+  (their first drafts had exactly this same bug, which is what
+  surfaced it) so they now correctly model the real, fixed calling
+  convention rather than the old broken one.
+- **This is the first genuinely rules-breaking bug this project's
+  `game_logic.c` test suite didn't already have direct coverage for**,
+  despite `test_three_failed_tries_passes_turn` existing (round 0/1)
+  and testing that the turn *does* pass after three tries -- it just
+  never went on to check what a caller does with the state immediately
+  afterward. The headless full-game simulations are now permanent
+  members of the test suite (`make test`), not one-off debugging
+  scripts, specifically so a class of bug like this -- one that only
+  shows up from a specific sequence of many turns, not any single
+  hand-constructed board position -- has an automated, fast, always-run
+  chance of getting caught before it reaches Arculator at all.
+
+**Round 7.9**: the Save dialogue's drag-to-Filer flow, revisited after
+Round 7.6's relabelling turned out not to be the real problem -- per
+explicit follow-up report ("save is still not a draggable icon where
+path changes to where you drag it to"). Two real issues found on
+re-reading the code, not just re-asserting it was already correct:
+
+- **A successful drag-save gave zero visible feedback.**
+  `save_view_message_received()`'s `Message_DataSaveAck` handler wrote
+  the file and replied `Message_DataLoad` correctly, but never touched
+  the dialogue window afterward -- no pathname field update, no closed
+  window, nothing -- so from the user's side, dragging the icon onto a
+  Filer window looked exactly like nothing had happened at all, even
+  though the file was in fact being written. Fixed to match the real
+  RISC OS Save-box convention (a successful drag reflects the resolved
+  path into the pathname field) and, since this dialogue also serves as
+  a direct type-a-path Save tool, closes the window afterward -- the
+  same unambiguous "done" feedback the typed-path Save button already
+  gave.
+- **The `wimp_drag` struct passed to `Wimp_DragBox` had uninitialised
+  stack fields.** `handle`/`draw`/`undraw`/`redraw` are documented as
+  only meaningful for the ASM_FIXED/ASM_RUBBER drag types (8-11), not
+  `wimp_DRAG_USER_FIXED` (5) used here, but leaving them as garbage
+  rather than explicitly zeroed was an unnecessary risk in a struct
+  handed straight to a SWI -- fixed with a `memset` before filling in
+  the fields that matter.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

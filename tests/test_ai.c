@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "ai.h"
 #include "game_logic.h"
@@ -178,6 +179,93 @@ static void test_only_one_choice(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x4, LUDO_AI_NORMAL) == 2);
 }
 
+/*
+ * Function: test_headless_four_ai_games
+ * Summary: Play out several complete games with all four seats AI-
+ *          controlled (ludo_ai_choose_pawn() choosing every single
+ *          move) start to finish, purely through the public API --
+ *          exactly the "four AI players" scenario the actual save file
+ *          that prompted this investigation was in (see
+ *          docs/ARCHITECTURE.md's Round 7.8), and exactly what
+ *          src/game_view.c's own resolve_roll() does turn after turn in
+ *          a real all-AI game. Same invariant style as
+ *          tests/test_game_logic.c's own headless simulation (this
+ *          project's engine-only equivalent, using a random legal pawn
+ *          instead of the AI) -- this one additionally checks that
+ *          ludo_ai_choose_pawn() always returns a pawn actually present
+ *          in the movable mask it was given, which the scoring-weights
+ *          tests elsewhere in this file don't exercise across a real,
+ *          evolving board.
+ */
+static void test_headless_four_ai_games(void)
+{
+	int game_num;
+
+	srand(20260824u); /* same fixed seed as test_game_logic.c's simulation */
+
+	for (game_num = 0; game_num < 20; game_num++) {
+		ludo_game g;
+		int roll_num;
+		int last_finished_count = 0;
+		const int max_rolls = 5000;
+
+		ludo_init(&g);
+
+		for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+			int roller, roll, player, pawn, finished_count = 0;
+			unsigned movable;
+			int chosen, before_steps, after_steps, expected_after;
+
+			/* See test_game_logic.c's test_headless_full_games_invariants()
+			 * for why the roller must be captured before the roll and
+			 * checked against current_player afterwards -- ludo_roll()
+			 * can silently pass the turn (three failed tries), and
+			 * resolving a "move" against the new player's fresh,
+			 * not-yet-thrown state is exactly the bug this whole
+			 * investigation started from. */
+			roller = g.current_player;
+			roll = ludo_roll(&g, 0);
+			CHECK(roll >= 1 && roll <= 6);
+
+			for (player = 0; player < LUDO_PLAYERS; player++) {
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+					const ludo_pawn *p = &g.players[player].pawns[pawn];
+
+					CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
+					CHECK((p->steps == LUDO_TOTAL_STEPS) == (p->finished != 0));
+					if (p->finished)
+						finished_count++;
+				}
+			}
+			CHECK(finished_count >= last_finished_count);
+			last_finished_count = finished_count;
+
+			if (g.current_player != roller)
+				continue;
+
+			movable = ludo_movable_pawns(&g);
+			if (movable == 0)
+				continue;
+
+			chosen = ludo_ai_choose_pawn(&g, movable, LUDO_AI_NORMAL);
+			CHECK(chosen >= 0 && chosen < LUDO_PAWNS);
+			CHECK((movable & (1u << chosen)) != 0);
+
+			before_steps = g.players[roller].pawns[chosen].steps;
+			CHECK(before_steps + roll <= LUDO_TOTAL_STEPS);
+			expected_after = before_steps + roll;
+
+			ludo_move_pawn(&g, chosen);
+
+			after_steps = g.players[roller].pawns[chosen].steps;
+			CHECK(after_steps == expected_after);
+		}
+
+		CHECK(roll_num < max_rolls);
+		CHECK(g.winner >= 0 && g.winner < LUDO_PLAYERS);
+	}
+}
+
 int main(void)
 {
 	RUN(test_prefers_capture);
@@ -186,6 +274,7 @@ int main(void)
 	RUN(test_avoids_own_collision_when_alternative_exists);
 	RUN(test_prefers_escaping_danger);
 	RUN(test_only_one_choice);
+	RUN(test_headless_four_ai_games);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,

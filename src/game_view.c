@@ -201,8 +201,13 @@ typedef enum {
 
 static turn_step step = STEP_IDLE;
 
-/* Roll animation state -- see start_roll_animation(), game_view_poll_idle(). */
+/* Roll animation state -- see start_roll_animation(), game_view_poll_idle().
+ * roll_anim_player records who was actually rolling, captured *before*
+ * calling ludo_roll() -- see resolve_roll()'s doc comment for why this
+ * matters (ludo_roll() can silently pass the turn to a different player
+ * internally, three failed tries in a row). */
 static int roll_anim_ticks_done;
+static int roll_anim_player;
 static os_t roll_anim_next_tick;
 /* The die face plot_dice() actually draws: game.last_roll once settled,
  * a cycling cosmetic value while STEP_ROLLING. */
@@ -670,7 +675,20 @@ static void plot_dice(int origin_x, int origin_y)
 	};
 	int face = dice_display_face;
 	int cx, cy, x0, y0, x1, y1, i;
+	/* Mode 15 is 2x4 OS units per physical pixel (non-square -- see
+	 * CLAUDE.md's Testing section): any manually fill_rect()-drawn
+	 * border/outline thickness under 4 OS units risks not rendering at
+	 * all on some or all edges, since a pixel only paints when its
+	 * centre (spaced 4 units apart vertically) falls inside the filled
+	 * shape. DICE_SIZE/16 happens to floor to exactly 4 at the current
+	 * DICE_SIZE (72), but that was luck of integer truncation, not a
+	 * guarantee -- a different DICE_SIZE could silently drop below the
+	 * safe minimum (see the swatch-outline bug this same rule explains,
+	 * game_view_redraw()'s swatch block below). Floored explicitly here
+	 * so this can't regress if DICE_SIZE ever changes again. */
 	int border = DICE_SIZE / 16;
+	if (border < 4)
+		border = 4;
 	/* Smaller relative to `step` than a naive size/10 would give --
 	 * reported pip crowding on face 6 (two columns of 3) at the old
 	 * ratio, where adjacent same-column pips had very little gap between
@@ -688,14 +706,15 @@ static void plot_dice(int origin_x, int origin_y)
 	x1 = cx + DICE_SIZE / 2;
 	y1 = cy + DICE_SIZE / 2;
 
-	/* Diagnostic for a reported "last line of die does not show" -- no
-	 * code bug found by re-reading this geometry (it's a plain square,
-	 * DICE_SIZE in both dimensions), so log the actual box each redraw
-	 * computes to check against WINDOW_HEIGHT/the window's current state
-	 * next round rather than guess further. */
-	debug_log("plot_dice: face=%d box=(%d,%d,%d,%d) WINDOW_HEIGHT=%d\n",
-	          face, x0, y0, x1, y1, WINDOW_HEIGHT);
-
+	/* The "last line of die does not show" report this diagnostic was
+	 * added for is now understood and fixed (round 7.7's mode-15
+	 * minimum-line-thickness finding, not a coordinate bug -- see
+	 * docs/ARCHITECTURE.md). Removed rather than left logging: this ran
+	 * on every single animation tick (dice-roll cycling, ~8 times per
+	 * throw), which had come to dominate the debug Log's size and made
+	 * genuinely useful entries (move/roll outcomes) hard to find --
+	 * exactly the noise that made the Round 7.8 investigation slower
+	 * than it needed to be. */
 	set_gcol(0, 0, 0);
 	fill_rect(x0, y0, x1, y1);
 	set_gcol(255, 255, 255);
@@ -1031,10 +1050,24 @@ static void after_settle(void)
 static void start_move_animation(int player, int pawn_index)
 {
 	int from_steps = game.players[player].pawns[pawn_index].steps;
+	int roll = game.last_roll; /* captured before ludo_move_pawn() -- it may
+	                             * itself reset last_roll (a six grants
+	                             * another roll) before this can log it */
 	int to_steps, i;
 
 	ludo_move_pawn(&game, pawn_index);
 	to_steps = game.players[player].pawns[pawn_index].steps;
+
+	/* The single funnel every pawn move passes through (human click,
+	 * human auto-move, and every AI move) -- unlike the old MOVED/MOVING
+	 * log line in try_move_pawn() (human clicks only), this captures
+	 * every move regardless of path, which is exactly what was missing
+	 * when investigating the "moved 1 place instead of being rejected"
+	 * report (see docs/ARCHITECTURE.md's Round 7.8 -- the actual move
+	 * involved never went through a human click at all). */
+	debug_log("start_move_animation: player=%d %s pawn=%d roll=%d steps %d -> %d\n",
+	          player, player_is_ai[player] ? "AI" : "human", pawn_index,
+	          roll, from_steps, to_steps);
 
 	move_anim_path_len = to_steps - from_steps + 1;
 	if (move_anim_path_len > MOVE_ANIM_MAX_PATH)
@@ -1075,10 +1108,40 @@ static void resolve_move(void)
  *          ludo_ai_choose_pawn()); with more than one legal move, a
  *          human is left to click a pawn (STEP_IDLE), highlighted per
  *          game_view_redraw()'s movable-pawn ring.
+ *
+ *          Checks first whether the turn actually *passed* during that
+ *          roll: game_logic.h's ludo_roll() doc comment is explicit that
+ *          a caller must "keep rolling while ludo_movable_pawns() is 0
+ *          and the current_player has not changed" -- three consecutive
+ *          failed tries (nobody released, nothing movable) makes
+ *          ludo_roll() silently call ludo_end_turn() *internally*,
+ *          which advances game.current_player to a genuinely different
+ *          player and resets game.last_roll to 0 (a fresh, not-yet-
+ *          thrown state for them) before returning. Found via
+ *          tests/test_game_logic.c's headless full-game simulation
+ *          (see docs/ARCHITECTURE.md's Round 7.8): without this check,
+ *          ludo_movable_pawns() gets evaluated against the *new*
+ *          player's board with last_roll==0 -- and since adding zero
+ *          steps can never overshoot, every one of their in-play pawns
+ *          reports as "movable", so this function would go on to
+ *          auto-move (or, for a human with more than one choice, invite
+ *          a click on) a pawn that player never actually threw a die
+ *          for, moving it by zero net steps. If the roller and the
+ *          current player no longer match, nothing was actually rolled
+ *          for whoever it is now -- settle straight into their own
+ *          fresh "click Throw"/"click Continue" state instead.
  */
 static void resolve_roll(void)
 {
 	unsigned movable;
+
+	if (game.current_player != roll_anim_player) {
+		debug_log("resolve_roll: turn passed automatically during the roll "
+		          "(roller=%d, now current_player=%d) -- nothing to resolve\n",
+		          roll_anim_player, game.current_player);
+		after_settle();
+		return;
+	}
 
 	if (game.just_released) {
 		after_settle();
@@ -1086,6 +1149,8 @@ static void resolve_roll(void)
 	}
 
 	movable = ludo_movable_pawns(&game);
+	debug_log("resolve_roll: player=%d roll=%d movable_mask=0x%x\n",
+	          game.current_player, game.last_roll, movable);
 	if (movable == 0) {
 		after_settle();
 		return;
@@ -1126,6 +1191,7 @@ static void resolve_roll(void)
  */
 static void start_roll_animation(void)
 {
+	roll_anim_player = game.current_player;
 	ludo_roll(&game, 0);
 	roll_anim_ticks_done = 0;
 	dice_display_face = 1;
@@ -1619,7 +1685,17 @@ void game_view_redraw(wimp_draw *redraw)
 			int player = (game.winner != -1) ? game.winner : game.current_player;
 			int x0 = origin_x + SWATCH_X0;
 			int y1 = origin_y + SWATCH_Y1;
-			int outline = 2;
+			/* Mode 15 is 2x4 OS units per physical pixel (non-square --
+			 * see CLAUDE.md's Testing section), so a horizontal edge
+			 * needs at least 4 OS units of thickness to guarantee even
+			 * one physical pixel row; 2 was invisible on the top/bottom
+			 * edges specifically (a vertical edge only needs 2, so those
+			 * happened to still show) -- per explicit user report and
+			 * correctly diagnosed cause ("perhaps as every two OS lines
+			 * is one actual screen line?"). plot_pawn()'s own outline
+			 * (PAWN_SIZE/12 = 4) already satisfied this by coincidence,
+			 * which is why only the swatch showed the problem. */
+			int outline = 4;
 
 			set_gcol(0, 0, 0);
 			fill_rect(x0 - outline, y1 - SWATCH_SIZE - outline, x0 + SWATCH_SIZE + outline, y1 + outline);

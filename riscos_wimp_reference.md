@@ -311,6 +311,52 @@ scale/translation-table pair to pass to `OS_SpriteOp` `PutSpriteScaled` when
 plotting board/dice sprites by hand in a redraw handler (handles the
 differing pixel aspect ratio between screen modes automatically).
 
+## Screen modes: non-square pixels and thin manually-drawn lines
+
+Several RISC OS screen modes (mode 15 among them: 640x256 pixels at
+1280x1024 OS units) have **non-square pixels** — mode 15 specifically is
+2 OS units per pixel horizontally, 4 OS units per pixel vertically.
+`OS_ReadModeVariable`/`OS_ReadVduVariables` give the real per-mode
+XEigFactor/YEigFactor to compute this exactly rather than hardcoding a
+mode's numbers, but the consequence is the same in any non-square mode:
+**a manually fill_rect()-drawn line/border/outline (the common
+"plot a slightly larger shape in black behind, then the real content on
+top" technique for a custom-drawn outline) needs to be at least one full
+physical pixel thick in *both* directions to reliably render** — a
+rasterizer that paints a pixel when the pixel's centre falls inside the
+filled shape only guarantees a hit if the shape is at least as thick as
+one pixel; a thinner one can fall entirely between two pixel-centre
+sample points and paint nothing on that edge, and this isn't reliably
+reproducible at a fixed source coordinate either, since a window's
+on-screen position is OS-unit-granular, not quantised to the pixel grid
+— the same border can vanish or reappear depending purely on where the
+user happens to have dragged the window. Concretely for mode 15: any
+such manually-drawn thickness must be **at least 4 OS units**, not just
+"a couple of units that looks about right" — 4 clears both the 4-unit
+vertical minimum and the (smaller) 2-unit horizontal one in one number,
+so there's no need to track separate per-axis minimums.
+
+Native stroke primitives (`os_PLOT_CIRCLE_OUTLINE` and similar "outline"
+plot codes, as opposed to a filled shape used to fake a border) are
+believed exempt — the standard assumption is that they rasterize at the
+physical pixel level directly (like a Bresenham line algorithm) rather
+than being subject to this OS-unit-vs-pixel-centre sampling issue — but
+this is the conventional assumption, not something independently proven
+against the PRM's `os_plot` reference, which documents the plot code's
+existence without spelling out its rasterization guarantee. If a native
+outline-stroked shape is ever reported as patchy or partially invisible,
+don't assume it's automatically safe — check it the same way.
+
+Found the hard way in ArchiLudo (see that project's `docs/ARCHITECTURE.md`
+"Round 7.7" notes and its own auto-memory for the full incident
+writeup): a player-colour swatch's outline using a 2-unit thickness was
+invisible specifically on its top/bottom
+edges (below the 4-unit vertical minimum) while its left/right edges
+still showed (2 units meets the smaller horizontal minimum) — this
+asymmetry, a border showing on some edges but not others, is the
+signature symptom of this bug and a fast thing to check first before
+assuming a coordinate-math error or an unrelated rendering mystery.
+
 ## Drag
 
 (Pinknoise `Wimp/Drag.html`)

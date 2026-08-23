@@ -18,6 +18,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "game_logic.h"
 
@@ -285,6 +286,144 @@ static void test_non_six_move_ends_turn(void)
 	CHECK(g.current_player == 1);
 }
 
+/* Exactly the scenario reported live in Arculator: a pawn one step short
+ * of finishing (needs exactly 1) must never be reported movable, or
+ * moved at all, on a roll of 2 -- see docs/ARCHITECTURE.md's Round 7.8
+ * for the investigation this came out of. test_overshoot_not_movable()
+ * above already covers "2 short, roll 3" -- this is the "1 short"
+ * off-by-one neighbour, worth its own explicit check. */
+static void test_one_short_overshoot_not_movable(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = LUDO_TOTAL_STEPS - 1; /* needs exactly 1 to finish */
+
+	ludo_roll(&g, 2);
+	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
+
+	ludo_roll(&g, 1);
+	CHECK((ludo_movable_pawns(&g) & 1u) != 0);
+	ludo_move_pawn(&g, 0);
+	CHECK(g.players[0].pawns[0].steps == LUDO_TOTAL_STEPS);
+	CHECK(g.players[0].pawns[0].finished == 1);
+}
+
+/*
+ * Function: test_headless_full_games_invariants
+ * Summary: Play out many complete, real, randomly-rolled games start to
+ *          finish through nothing but the public API (exactly what
+ *          game_view.c itself does), asserting a handful of invariants
+ *          after every single roll and move -- a broad, automated
+ *          equivalent of manually playing hundreds of games in Arculator
+ *          looking for a rules bug, but deterministic (a fixed RNG seed)
+ *          and runnable in well under a second. Written in direct
+ *          response to a live-reported bug (a pawn one step short of
+ *          finishing appeared to move on an overshooting roll) that
+ *          turned out not to reproduce through this API at all (see
+ *          docs/ARCHITECTURE.md's Round 7.8) -- this exists so the next
+ *          such report gets checked here first, and so any *other*
+ *          latent rules bug this specific manual playthrough didn't
+ *          happen to trigger gets a much better chance of surfacing.
+ *
+ *          The one invariant this is really built around: before every
+ *          ludo_move_pawn() call, the pawn being moved must be in
+ *          ludo_movable_pawns()'s mask, and its steps count afterwards
+ *          must be exactly steps-before + the roll (or clamped to
+ *          LUDO_TOTAL_STEPS if and only if that sum reaches or passes
+ *          it) -- if compute_movable_pawns() ever let an overshooting
+ *          move through, this is exactly the check that would catch it.
+ */
+static void test_headless_full_games_invariants(void)
+{
+	int game_num;
+
+	srand(20260824u); /* fixed seed -- reproducible across runs */
+
+	for (game_num = 0; game_num < 500; game_num++) {
+		ludo_game g;
+		int roll_num;
+		int last_finished_count = 0;
+		const int max_rolls = 5000; /* generous safety cap against an infinite game */
+
+		ludo_init(&g);
+
+		for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+			int roller, roll, player, pawn, finished_count = 0;
+			unsigned movable;
+			int candidates[LUDO_PAWNS], candidate_count = 0;
+			int chosen, before_steps, after_steps, expected_after;
+
+			/* Per game_logic.h's ludo_roll() doc comment, the caller
+			 * must "keep rolling while ludo_movable_pawns() is 0 and
+			 * the current_player has not changed" -- three consecutive
+			 * failed tries makes ludo_roll() silently end the turn
+			 * *internally* (see ludo_end_turn()), advancing
+			 * current_player and resetting last_roll to 0 before
+			 * returning. Capturing who was actually rolling first, and
+			 * treating a changed current_player exactly like "nothing
+			 * to resolve this roll" (skip straight to the next
+			 * iteration, which will roll fresh for whoever it is now)
+			 * is the same fix applied to src/game_view.c's
+			 * resolve_roll() -- see docs/ARCHITECTURE.md's Round 7.8.
+			 * Getting this wrong here (as an earlier version of this
+			 * very test did) produces exactly the same class of bug:
+			 * evaluating movability with a stale last_roll==0, under
+			 * which every in-play pawn looks "movable" since adding
+			 * zero can never overshoot. */
+			roller = g.current_player;
+			roll = ludo_roll(&g, 0);
+			CHECK(roll >= 1 && roll <= 6);
+			CHECK(g.current_player >= 0 && g.current_player < LUDO_PLAYERS);
+
+			/* Every pawn's steps must be in range, finished must agree
+			 * with steps == LUDO_TOTAL_STEPS exactly, and the number of
+			 * finished pawns overall must never go backwards. */
+			for (player = 0; player < LUDO_PLAYERS; player++) {
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+					const ludo_pawn *p = &g.players[player].pawns[pawn];
+
+					CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
+					CHECK((p->steps == LUDO_TOTAL_STEPS) == (p->finished != 0));
+					if (p->finished)
+						finished_count++;
+				}
+			}
+			CHECK(finished_count >= last_finished_count);
+			last_finished_count = finished_count;
+
+			if (g.current_player != roller)
+				continue; /* turn passed automatically -- nothing rolled for whoever it is now */
+
+			movable = ludo_movable_pawns(&g);
+			if (movable == 0)
+				continue; /* mandatory six-release, or genuinely stuck this roll */
+
+			for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+				if (movable & (1u << pawn))
+					candidates[candidate_count++] = pawn;
+			chosen = candidates[rand() % candidate_count];
+
+			before_steps = g.players[roller].pawns[chosen].steps;
+			/* This is the exact check that would catch the originally
+			 * reported bug: a movable pawn must never actually overshoot. */
+			CHECK(before_steps + roll <= LUDO_TOTAL_STEPS);
+			expected_after = before_steps + roll;
+
+			ludo_move_pawn(&g, chosen);
+
+			/* current_player may have changed again (a non-six ends
+			 * the turn) -- re-read via roller/chosen, captured before
+			 * the move, not g.current_player. */
+			after_steps = g.players[roller].pawns[chosen].steps;
+			CHECK(after_steps == expected_after);
+		}
+
+		CHECK(roll_num < max_rolls); /* every game actually finished within the cap */
+	}
+}
+
 int main(void)
 {
 	RUN(test_new_game_starts_correctly);
@@ -296,10 +435,12 @@ int main(void)
 	RUN(test_own_pawn_sent_home_on_ring_collision);
 	RUN(test_home_column_blocking);
 	RUN(test_overshoot_not_movable);
+	RUN(test_one_short_overshoot_not_movable);
 	RUN(test_pawn_finishes_exactly);
 	RUN(test_winner_detected_when_all_pawns_finish);
 	RUN(test_extra_roll_on_six_keeps_same_player);
 	RUN(test_non_six_move_ends_turn);
+	RUN(test_headless_full_games_invariants);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,

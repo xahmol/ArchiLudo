@@ -366,6 +366,13 @@ void save_view_click(wimp_pointer *pointer)
 			origin_x = state.visible.x0 - state.xscroll;
 			origin_y = state.visible.y1 - state.yscroll;
 
+			/* Zeroed first: the handle/draw/undraw/redraw fields are
+			 * only meaningful for the ASM_FIXED/ASM_RUBBER drag types
+			 * (8-11), not USER_FIXED (5) used here, but leaving them as
+			 * uninitialised stack garbage instead of explicitly zero is
+			 * an unnecessary risk to take with a struct that gets
+			 * passed straight into a SWI. */
+			memset(&drag, 0, sizeof(drag));
 			drag.w = save_window_handle;
 			drag.type = wimp_DRAG_USER_FIXED;
 			drag.initial.x0 = origin_x + SAVE_FILE_X0;
@@ -488,6 +495,24 @@ void save_view_message_received(wimp_message *message)
 			wimp_send_message_to_window(wimp_USER_MESSAGE, &reply,
 			                             message->data.data_xfer.w,
 			                             message->data.data_xfer.i);
+
+			/* A successful drag-save used to leave the dialogue open
+			 * with no visible change at all -- no field update, no
+			 * closed window -- per explicit user report ("save is
+			 * still not a draggable icon where path changes to where
+			 * you drag it to"), that read as the drag simply not
+			 * working, even though the file itself was being written
+			 * correctly. Reflect the resolved path into the pathname
+			 * field (the real RISC OS Save-box convention: dragging
+			 * fills in where it actually landed) and close the
+			 * dialogue, exactly like the direct path-typed Save button
+			 * already does, so a drag gives the same clear "done"
+			 * feedback. */
+			strncpy(save_path, message->data.data_xfer.file_name, sizeof(save_path) - 1);
+			save_path[sizeof(save_path) - 1] = '\0';
+			if (save_window_handle != (wimp_w) -1)
+				wimp_set_icon_state(save_window_handle, ICON_SAVE_PATH, 0, 0);
+			wimp_close_window(save_window_handle);
 		}
 		return;
 	}
