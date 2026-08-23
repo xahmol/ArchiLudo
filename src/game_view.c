@@ -32,18 +32,23 @@
  * ArchiLudo's earlier solid square grid. */
 #define MARKER_RADIUS 22
 
-/* On-screen sizes in OS units (square) for the two reused-GEOS-art
- * sprites -- must match assets/generate_placeholder_art.py's PAWN_SIZE/
- * START_SIZE (kept in sync manually, one's Python and one's C). */
+/* On-screen size in OS units (square) for the reused-GEOS-art home base
+ * pawn sprite -- must match assets/generate_placeholder_art.py's
+ * PAWN_SIZE (kept in sync manually, one's Python and one's C). Board
+ * entry markers (round 6.1) are drawn programmatically instead of from a
+ * sprite -- see plot_start_marker(). */
 #define PAWN_SIZE     40
-#define START_SIZE    32
 
-/* Side panel: player name, action status, and the Throw button -- laid
- * out top-to-bottom on the right of the board, Throw positioned lower
- * rather than at the very top, again matching the GEOS reference. */
+/* Side panel: player name (+ a colour swatch, see game_view_redraw()),
+ * action status, and the Throw button -- laid out top-to-bottom on the
+ * right of the board, Throw positioned lower rather than at the very
+ * top, again matching the GEOS reference. */
 #define PANEL_GAP     16
 #define PANEL_WIDTH  260
 #define NAME_HEIGHT   40
+#define SWATCH_SIZE   24
+#define SWATCH_X0     (PANEL_X0 + PANEL_WIDTH - SWATCH_SIZE - MARGIN)
+#define SWATCH_Y1     (-(MARGIN + (NAME_HEIGHT - SWATCH_SIZE) / 2))
 #define STATUS_GAP     8
 #define STATUS_HEIGHT 40
 #define THROW_WIDTH  160
@@ -74,17 +79,18 @@
  * forward mapping (see build_cell_kinds()) so the redraw handler doesn't
  * need its own copy of the geometry rules. CELL_RING_ENTRY is the one
  * ring cell per player (steps==0 for that player) where GEOS shows a
- * coloured direction-arrow icon instead of a plain track marker -- see
- * assets/generate_placeholder_art.py's start0..start3 sprites. Home base
- * cells aren't tracked here at all: GEOS draws no background there,
- * just the pawns themselves directly on the window background (see the
- * reference screenshot), so build_cell_kinds() simply never marks them. */
+ * coloured direction-arrow marker instead of a plain track marker -- see
+ * plot_start_marker(). Home base cells, and the centre "finished pawns"
+ * cell, aren't tracked here at all: GEOS draws no background at the
+ * home base (see the reference screenshot), and the centre cell isn't
+ * part of any player's home stretch, so neither gets a permanent marker
+ * -- both are left as plain window background, with only actual pawns
+ * (drawn separately, see plot_pawn()) making them visible. */
 typedef enum {
 	CELL_EMPTY,
 	CELL_RING,
 	CELL_RING_ENTRY,
-	CELL_HOME_COLUMN,
-	CELL_CENTRE
+	CELL_HOME_COLUMN
 } cell_kind;
 
 /* Player order/colours match /home/xahmol/git/ludo/GEOS/src/main.c's
@@ -217,11 +223,6 @@ static void build_cell_kinds(void)
 			cell_owner[cell.col][cell.row] = player;
 		}
 	}
-
-	{
-		board_cell centre = board_finished_cell();
-		cell_kinds[centre.col][centre.row] = CELL_CENTRE;
-	}
 }
 
 /*
@@ -272,6 +273,20 @@ static void outline_circle(int cx, int cy, int radius)
 {
 	os_plot(os_MOVE_TO, cx, cy);
 	os_plot(os_PLOT_CIRCLE_OUTLINE + os_PLOT_TO, cx + radius, cy);
+}
+
+/*
+ * Function: fill_triangle
+ * Summary: Plot a filled triangle in the current foreground colour, given
+ *          its three vertices in OS units. Per the RISC OS 3 PRM's
+ *          os_plot summary: "Move to first vertex. Move to second
+ *          vertex. Plot triangle to last vertex."
+ */
+static void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2)
+{
+	os_plot(os_MOVE_TO, x0, y0);
+	os_plot(os_MOVE_TO, x1, y1);
+	os_plot(os_PLOT_TRIANGLE + os_PLOT_TO, x2, y2);
 }
 
 /*
@@ -506,26 +521,47 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 
 /*
  * Function: plot_start_marker
- * Summary: Draw one player's board-entry marker (the direction-arrow
- *          sprite reused from GEOS, see assets/generate_placeholder_art.py)
- *          at a CELL_RING_ENTRY cell. Falls back to a plain outline
- *          circle (as if it were an ordinary empty ring cell) if
- *          assets/Sprites failed to load.
+ * Summary: Draw one player's board-entry marker at a CELL_RING_ENTRY
+ *          cell: a filled circle in the player's colour (same size as an
+ *          ordinary marker) with a white arrow pointing in that player's
+ *          direction of travel -- per explicit user request ("should
+ *          look like a normal round but filled in the corresponding
+ *          color and an arrow in it in direction of movement"). Round
+ *          6's first attempt reused GEOS's own bm_gstart/rstart/bstart/
+ *          ystart bitmaps as sprites here, but they rendered far too
+ *          narrow in Arculator for reasons that didn't reproduce in any
+ *          offline check (the packed sprite file's own metadata and a
+ *          round-tripped/stretched preview both looked correct -- see
+ *          docs/GRAPHICS_TOOLING.md's "Round 6.1"); drawn programmatically
+ *          instead, sidestepping the whole sprite-scaling question and
+ *          giving an exact, guaranteed-correct size and shape.
  */
 static void plot_start_marker(int player, int cx, int cy)
 {
-	if (sprites_loaded) {
-		char name[13];
-		int x = cx - START_SIZE / 2;
-		int y = cy - START_SIZE / 2;
+	/* Direction each player's pawns travel at their own entry point, as
+	 * OS-unit screen deltas (not row/col deltas -- board rows increase
+	 * DOWNWARD on screen, i.e. toward more NEGATIVE os units, since
+	 * cell_centre() subtracts row*CELL) -- matches board_layout.c's ring
+	 * travel order exactly: green +col (right), red +row (down), blue
+	 * -col (left), yellow -row (up); verified by comparing each player's
+	 * entry ring cell against the very next one in travel order. */
+	static const int dir_x[LUDO_PLAYERS] = {  1,  0, -1,  0 };
+	static const int dir_y[LUDO_PLAYERS] = {  0, -1,  0,  1 };
+	int dx = dir_x[player], dy = dir_y[player];
+	int tip_len = MARKER_RADIUS * 6 / 10;
+	int back_len = MARKER_RADIUS * 3 / 10;
+	int half_base = MARKER_RADIUS * 4 / 10;
+	int tip_x = cx + dx * tip_len,   tip_y = cy + dy * tip_len;
+	int base_x = cx - dx * back_len, base_y = cy - dy * back_len;
+	int perp_x = -dy, perp_y = dx;
 
-		snprintf(name, sizeof(name), "start%d", player);
-		xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
-		                                    (osspriteop_id) name, x, y,
-		                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
-	} else {
-		outline_circle(cx, cy, MARKER_RADIUS);
-	}
+	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+	fill_circle(cx, cy, MARKER_RADIUS);
+
+	set_gcol(255, 255, 255);
+	fill_triangle(tip_x, tip_y,
+	              base_x + perp_x * half_base, base_y + perp_y * half_base,
+	              base_x - perp_x * half_base, base_y - perp_y * half_base);
 }
 
 void game_view_redraw(wimp_draw *redraw)
@@ -568,10 +604,7 @@ void game_view_redraw(wimp_draw *redraw)
 					set_gcol(player_rgb[owner][0], player_rgb[owner][1], player_rgb[owner][2]);
 					fill_circle(cx, cy, MARKER_RADIUS);
 					break;
-				case CELL_CENTRE:
 				default:
-					set_gcol(255, 215, 0);
-					fill_circle(cx, cy, MARKER_RADIUS);
 					break;
 				}
 			}
@@ -580,6 +613,18 @@ void game_view_redraw(wimp_draw *redraw)
 		for (player = 0; player < LUDO_PLAYERS; player++)
 			for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
 				plot_pawn(player, pawn, origin_x, origin_y);
+
+		/* Player-colour swatch next to the name line -- matches GEOS's own
+		 * reference screenshot, which has a small coloured box beside the
+		 * player name/status text. */
+		{
+			int player = (game.winner != -1) ? game.winner : game.current_player;
+			int x0 = origin_x + SWATCH_X0;
+			int y1 = origin_y + SWATCH_Y1;
+
+			set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+			fill_rect(x0, y1 - SWATCH_SIZE, x0 + SWATCH_SIZE, y1);
+		}
 
 		more = wimp_get_rectangle(redraw);
 	}

@@ -3,25 +3,30 @@
 ArchiLudo placeholder art generator
 ====================================
 
-Summary: Generates ArchiLudo's Phase 1 placeholder art (see
-docs/ARCHITECTURE.md's Roadmap) by recolouring and resizing bitmaps from
-this game's own prior GEOS port, rather than drawing new shapes from
-scratch -- the user's call: reuse the existing GeoLudo artwork properly
-resized until bespoke Phase 2 art is designed, instead of inventing
-placeholder shapes. Source bitmaps are local copies (see
-assets/geos_source/) of /home/xahmol/git/ludo/GEOS/assets/*.gbm -- see
-CREDITS.md and docs/GRAPHICS_TOOLING.md's "Round 6: reusing GeoLudo's own
-art" for the full writeup of what was reused and why.
+Summary: Generates ArchiLudo's Phase 1 placeholder pawn art (see
+docs/ARCHITECTURE.md's Roadmap) by recolouring and resizing the pawn
+bitmap from this game's own prior GEOS port, rather than drawing a new
+shape from scratch -- the user's call: reuse the existing GeoLudo artwork
+properly resized until bespoke Phase 2 art is designed, instead of
+inventing placeholder shapes. Source bitmap is a local copy (see
+assets/geos_source/bm_pawn.gbm) of
+/home/xahmol/git/ludo/GEOS/assets/bm_pawn.gbm -- see CREDITS.md and
+docs/GRAPHICS_TOOLING.md's "Round 6: reusing GeoLudo's own art" for the
+full writeup of what was reused and why. (The board-entry direction
+markers this round *also* first tried reusing -- bm_gstart/rstart/bstart/
+ystart.gbm -- are drawn programmatically in src/game_view.c instead as of
+round 6.1; see that file's plot_start_marker() and
+docs/GRAPHICS_TOOLING.md's "Round 6.1" for why. The .gbm files themselves
+are left in assets/geos_source/ in case they're useful again later.)
 
-Then converts+packs the results into a single RISC OS Sprite file via
+Then converts+packs the result into a single RISC OS Sprite file via
 tools/riscos_sprite.py.
 
 Syntax:  python3 assets/generate_placeholder_art.py
 
-Output:  assets/pawn0.png .. assets/pawn3.png, assets/start0.png ..
-         assets/start3.png (recoloured source images, kept for
-         reference/regeneration) and assets/Sprites (the packed RISC OS
-         sprite file the game actually loads, filetype &FF9 --
+Output:  assets/pawn0.png .. assets/pawn3.png (recoloured source images,
+         kept for reference/regeneration) and assets/Sprites (the packed
+         RISC OS sprite file the game actually loads, filetype &FF9 --
          see docs/GRAPHICS_TOOLING.md).
 """
 
@@ -61,10 +66,9 @@ PLAYER_COLOURS = [
 # MODES_BY_BPP for the matching old-style sprite mode per bpp.
 MODE15_OS_UNITS_PER_PIXEL = (2, 4)  # (x, y)
 
-# On-screen sizes in OS units (square) -- must match src/game_view.c's
-# PAWN_SIZE and START_SIZE.
+# On-screen size in OS units (square) -- must match src/game_view.c's
+# PAWN_SIZE.
 PAWN_SIZE = 40
-START_SIZE = 32
 
 HERE = Path(__file__).parent
 GEOS_SOURCE = HERE / "geos_source"
@@ -131,20 +135,9 @@ def recolour_and_squish(mask_img, colour, target_pixel_size):
 
 def main():
     pawn_mask = decode_gbm(GEOS_SOURCE / "bm_pawn.gbm")
-    # bm_gstart/rstart/bstart/ystart -- named for the player colour whose
-    # board entry point they mark (green/red/blue/yellow), matching this
-    # project's player order exactly (see PLAYER_COLOURS above).
-    start_masks = [
-        decode_gbm(GEOS_SOURCE / "bm_gstart.gbm"),
-        decode_gbm(GEOS_SOURCE / "bm_rstart.gbm"),
-        decode_gbm(GEOS_SOURCE / "bm_bstart.gbm"),
-        decode_gbm(GEOS_SOURCE / "bm_ystart.gbm"),
-    ]
 
     pawn_pixel_size = (PAWN_SIZE // MODE15_OS_UNITS_PER_PIXEL[0],
                         PAWN_SIZE // MODE15_OS_UNITS_PER_PIXEL[1])
-    start_pixel_size = (START_SIZE // MODE15_OS_UNITS_PER_PIXEL[0],
-                         START_SIZE // MODE15_OS_UNITS_PER_PIXEL[1])
 
     spr_paths = []
     for i, colour in enumerate(PLAYER_COLOURS):
@@ -154,16 +147,6 @@ def main():
         spr_path = HERE / f"pawn{i}.spr"
         subprocess.run([sys.executable, str(TOOL), "from-png", str(png_path),
                          str(spr_path), "--name", f"pawn{i}", "--bpp", "4"],
-                        check=True)
-        spr_paths.append(spr_path)
-
-    for i, colour in enumerate(PLAYER_COLOURS):
-        png_path = HERE / f"start{i}.png"
-        recolour_and_squish(start_masks[i], colour, start_pixel_size).save(png_path)
-        print(f"wrote {png_path}")
-        spr_path = HERE / f"start{i}.spr"
-        subprocess.run([sys.executable, str(TOOL), "from-png", str(png_path),
-                         str(spr_path), "--name", f"start{i}", "--bpp", "4"],
                         check=True)
         spr_paths.append(spr_path)
 

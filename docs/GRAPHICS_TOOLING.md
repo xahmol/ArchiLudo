@@ -205,6 +205,36 @@ above) and flood-fills the masked shape with the player's flat RGB colour
 -- one resize does both the "make it the right on-screen size" and "make
 it round-trip mode 15's non-square pixels correctly" jobs at once.
 
+## Round 6.1: board-entry markers drawn programmatically instead
+
+The `bm_gstart`/`rstart`/`bstart`/`ystart` sprites described above
+rendered far too narrow in Arculator -- reported directly from a
+screenshot, not a guess. This is puzzling given every offline check
+looked correct *before* it ever reached Arculator: `tools/riscos_sprite.py
+info assets/Sprites` reported the right dimensions (16x8, matching the
+intended pre-squish maths) with no signs of pack-order corruption, and a
+locally-simulated stretch (resizing the packed-then-decoded PNG 2x
+horizontally / 4x vertically, the same transform mode 15 itself performs)
+rendered a correctly-proportioned ring-with-arrow shape. Whatever the
+actual mechanism is (something specific to `xosspriteop_put_sprite_user_coords`
+scaling very small sprites, perhaps, or something Arculator-specific --
+not chased down further), the pragmatic fix was to stop depending on
+sprite plotting for this element entirely: `plot_start_marker()` in
+`src/game_view.c` now draws a filled circle (same `MARKER_RADIUS` as
+every other board marker, via the same `os_plot` calls) with a white
+`os_PLOT_TRIANGLE` arrow on top, computed directly from each player's
+board-entry travel direction (green +col/right, red +row/down, blue
+-col/left, yellow -row/up -- read off `board_layout.c`'s ring travel
+order). This sidesteps the whole sprite-scaling question, guarantees an
+exactly-correct size regardless of screen mode, and directly matches what
+was asked for ("should look like a normal round but filled in the
+corresponding color and an arrow in it"). The `start0-3` sprites/PNGs and
+`generate_placeholder_art.py`'s code to build them were removed;
+`assets/geos_source/bm_{g,r,b,y}start.gbm` are left in place in case a
+real Phase 2 art pass wants to revisit reusing them (e.g. as a proper
+bitmap once the sprite question is actually understood, or as a visual
+reference for hand-drawn Phase 2 art).
+
 ## How the format was verified
 
 Rather than trust the PRM's prose alone for the trickier parts (the

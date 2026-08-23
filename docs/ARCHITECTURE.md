@@ -369,18 +369,42 @@ ArchiLudo's own earlier design assumed) and for on-track pawns. Home base
 cells no longer draw any background at all, matching GEOS -- just the
 pawns sitting directly on the window background.
 
+**Round 6.1**, from a real round-6 screenshot: the reused
+`bm_gstart`/etc. board-entry-marker sprites rendered far too narrow --
+puzzling, since the packed sprite's own metadata and a locally-simulated
+stretch both looked correct beforehand (see
+`docs/GRAPHICS_TOOLING.md`'s "Round 6.1" for the full investigation, which
+didn't reach a root cause). Fixed pragmatically by dropping sprite
+plotting for this element entirely: `plot_start_marker()` now draws a
+filled circle plus a white `os_PLOT_TRIANGLE` arrow, both computed
+directly rather than loaded from a sprite -- exactly matching what was
+asked for ("should look like a normal round but filled in the
+corresponding color and an arrow in it") and sidestepping the unexplained
+scaling issue altogether. Also this round: removed the centre "finished
+pawns" cell's permanent gold marker (explicit user request -- "why do we
+have a colored mid circle as that circle is not part of any home
+stretch"; it's now plain background like the home base cells, visible
+only once an actual finished pawn sits there), and added a player-colour
+swatch next to the name line (matching the small coloured box in GEOS's
+own reference screenshot, deferred from the initial round-6 pass).
+
 **Still not fully verified** -- these are all high-confidence fixes for
 concretely-identified bugs (a real screenshot each round, not a
 guess-and-hope pass) and a from-a-reference-screenshot layout redesign,
 but can still only be truly confirmed by looking at it running again in
 Arculator. The "pawns don't move" / pawn-click report from round 3 is
-still open -- the click-side debug logging has been in place since round
-3 but no screenshot/log has yet shown a click actually being attempted;
-still needed. The Throw-button flicker fix and six-release wording from
-round 4 haven't been re-confirmed against this round's rewritten
-`refresh_status()`/`game_view_click()` (behaviour preserved, believed
-still correct, but not yet re-verified visually since the whole
-layout changed underneath them).
+still open -- the round-6 `Log` file confirmed no click had actually been
+attempted yet (`try_move_pawn`'s trace line never appeared), so this
+remains unverified rather than confirmed broken. The Throw-button flicker
+fix and six-release wording from round 4 haven't been re-confirmed
+against this round's rewritten `refresh_status()`/`game_view_click()`
+(behaviour preserved, believed still correct, but not yet re-verified
+visually since the whole layout changed underneath them). Whether
+on-track pawns should stay as plain filled circles (GEOS-authentic, per
+round 6's screenshot-crop research) or show the detailed pawn sprite
+instead is an open design question raised by the round-6 user report
+("Pawn placement does not place a pawn, but just color fills the
+circle") -- not yet resolved either way.
 
 ### Board layout: ported from the GEOS edition, not invented
 
