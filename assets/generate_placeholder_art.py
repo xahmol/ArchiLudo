@@ -35,7 +35,7 @@ PLAYER_COLOURS = [
     (230, 200, 30),  # player 3: yellow
 ]
 
-PAWN_SIZE = 20
+PAWN_SIZE = 40
 
 HERE = Path(__file__).parent
 TOOL = HERE.parent / "tools" / "riscos_sprite.py"

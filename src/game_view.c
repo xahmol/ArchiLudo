@@ -16,7 +16,12 @@
 #include "game_logic.h"
 #include "board_layout.h"
 
-#define CELL          32
+/* Round 5: doubled from 32 -- the board read as too small on screen (user
+ * feedback: "why is window that small, can't we do it twice in height and
+ * width?"). PAWN_SIZE grew to match (see assets/generate_placeholder_art.py,
+ * kept in sync manually since one's Python and one's C). */
+#define CELL          64
+#define PAWN_SIZE     40
 #define MARGIN         8
 #define THROW_HEIGHT  32
 #define THROW_WIDTH  100
@@ -227,7 +232,17 @@ static void build_cell_kinds(void)
  * Summary: Set the current graphics foreground colour for os_plot(), from
  *          plain RGB values (0..255 each).
  */
-static void set_gcol(int r, int g, int b)
+/*
+ * Function: set_gcol
+ * Summary: Set the current graphics foreground colour for os_plot(), from
+ *          plain RGB values (0..255 each). Returns the actually-matched
+ *          GCOL palette entry (not just the requested RGB) -- see the
+ *          call sites in game_view_redraw() that log it for the cross-bar
+ *          cells, chasing a bug where two different requested tints
+ *          weren't visually distinguishable (docs/ARCHITECTURE.md's Phase
+ *          1 notes, "Round 5").
+ */
+static os_gcol set_gcol(int r, int g, int b)
 {
 	/* Cast each component to unsigned before shifting -- r/g/b can be up
 	 * to 255, and shifting a *signed* 255 left by 24 sets the sign bit,
@@ -235,8 +250,10 @@ static void set_gcol(int r, int g, int b)
 	 * though every compiler this project uses happens to wrap it as
 	 * expected. Avoid relying on that. */
 	os_colour colour = ((os_colour) b << 24) | ((os_colour) g << 16) | ((os_colour) r << 8);
+	os_gcol gcol_out = 0;
 
-	colourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, 0);
+	xcolourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, &gcol_out, 0);
+	return gcol_out;
 }
 
 /*
@@ -415,8 +432,8 @@ wimp_w game_view_window_handle(void)
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
 	board_cell cell = board_pawn_cell(&game, player, pawn_index);
-	int x = origin_x + BOARD_ORIGIN_X + cell.col * CELL + (CELL - 20) / 2;
-	int y = origin_y + BOARD_ORIGIN_Y - (cell.row + 1) * CELL + (CELL - 20) / 2;
+	int x = origin_x + BOARD_ORIGIN_X + cell.col * CELL + (CELL - PAWN_SIZE) / 2;
+	int y = origin_y + BOARD_ORIGIN_Y - (cell.row + 1) * CELL + (CELL - PAWN_SIZE) / 2;
 
 	if (sprites_loaded) {
 		char name[13];
@@ -427,7 +444,7 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
 	} else {
 		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-		fill_rect(x, y, x + 18, y + 18);
+		fill_rect(x, y, x + PAWN_SIZE - 2, y + PAWN_SIZE - 2);
 	}
 }
 
@@ -462,30 +479,52 @@ void game_view_redraw(wimp_draw *redraw)
 				x0 = origin_x + BOARD_ORIGIN_X + col * CELL;
 				y1 = origin_y + BOARD_ORIGIN_Y - row * CELL;
 
-				switch (kind) {
-				case CELL_RING:
-					set_gcol(150, 150, 150);
-					drawn_ring++;
-					break;
-				case CELL_HOME_COLUMN:
-					player = cell_owner[col][row];
-					set_gcol((player_rgb[player][0] + 255 * 3) / 4,
-					         (player_rgb[player][1] + 255 * 3) / 4,
-					         (player_rgb[player][2] + 255 * 3) / 4);
-					drawn_col++;
-					break;
-				case CELL_HOME_BASE:
-					player = cell_owner[col][row];
-					set_gcol(player_rgb[player][0] * 3 / 4,
-					         player_rgb[player][1] * 3 / 4,
-					         player_rgb[player][2] * 3 / 4);
-					drawn_base++;
-					break;
-				case CELL_CENTRE:
-				default:
-					set_gcol(255, 215, 0);
-					drawn_centre++;
-					break;
+				{
+					os_gcol gcol = 0;
+
+					switch (kind) {
+					case CELL_RING:
+						gcol = set_gcol(150, 150, 150);
+						drawn_ring++;
+						break;
+					case CELL_HOME_COLUMN:
+						player = cell_owner[col][row];
+						/* Round 5: was a 25%-player/75%-white blend
+						 * ((rgb+255*3)/4) -- pale enough that
+						 * colourtrans_set_gcol's nearest-palette-entry
+						 * approximation may be collapsing green's/blue's
+						 * tint onto (or very near) the same palette entry
+						 * as the ring's grey in whatever screen mode is
+						 * active, even though red's/yellow's tints stayed
+						 * distinguishable (see round 4's log: all 16 cells
+						 * were classified and drawn correctly, so this is
+						 * a colour-matching issue, not a geometry one).
+						 * A 50% blend is both more clearly a distinct hue
+						 * regardless of palette, and simply reads better
+						 * as board art -- see docs/ARCHITECTURE.md's Phase
+						 * 1 notes, "Round 5". */
+						gcol = set_gcol((player_rgb[player][0] + 255) / 2,
+						                 (player_rgb[player][1] + 255) / 2,
+						                 (player_rgb[player][2] + 255) / 2);
+						drawn_col++;
+						break;
+					case CELL_HOME_BASE:
+						player = cell_owner[col][row];
+						gcol = set_gcol(player_rgb[player][0] * 3 / 4,
+						                 player_rgb[player][1] * 3 / 4,
+						                 player_rgb[player][2] * 3 / 4);
+						drawn_base++;
+						break;
+					case CELL_CENTRE:
+					default:
+						gcol = set_gcol(255, 215, 0);
+						drawn_centre++;
+						break;
+					}
+
+					if (col == 5 || row == 5)
+						debug_log("  cross-bar cell (%d,%d) kind=%d -> gcol=0x%x\n",
+						          col, row, (int) kind, (unsigned) gcol);
 				}
 
 				fill_rect(x0, y1 - CELL + 2, x0 + CELL - 2, y1);

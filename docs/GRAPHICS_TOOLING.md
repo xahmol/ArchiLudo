@@ -45,8 +45,8 @@ tools/riscos_sprite.py pack <output-spritefile> <input-spritefile>...
   bit depth, and writes a single-sprite RISC OS sprite file. The alpha
   channel becomes the sprite's transparency mask (`--mask-alpha-threshold`,
   default 128; pass a negative number to omit the mask). `--bpp`
-  defaults to 4 (16 colours, RISC OS mode 12 -- the conventional WIMP icon
-  depth); pass `--bpp 8` for 256-colour full-screen game assets (mode 15).
+  defaults to 4 (16 colours, RISC OS mode 9 -- square-pixel game art depth,
+  see below); pass `--bpp 8` for 256-colour full-screen game assets (mode 13).
 - `pack`: concatenates several single-sprite files (as `from-png`
   produces) into one multi-sprite sprite area/file, matching how a real
   `!Sprites` file holds many named icons together.
@@ -100,17 +100,36 @@ whole number of 32-bit words. Within a word, the **least significant
 bits are the left-most pixel** -- i.e. pixel 0 goes in bits `0..bpp-1` of
 byte 0, pixel 1 in the next `bpp` bits, and so on.
 
-**Old-style mode numbers actually used by this project** (PRM's "Sprite
-modes" table):
+**Old-style mode numbers actually used by this project** (PRM Volume 4
+Chapter 95 "Table B: Modes", `~/riscos-dev/prm-mirror/modes.html`):
 
-| bpp | Colours | Mode (2x4 OS-unit pixels) |
-|---|---|---|
-| 4 | 16 | 12 |
-| 8 | 256 | 15 |
+| bpp | Colours | Mode | OS units/pixel |
+|---|---|---|---|
+| 1 | 2   | 4  | 4x4 (square) |
+| 2 | 4   | 1  | 4x4 (square) |
+| 4 | 16  | 9  | 4x4 (square) |
+| 8 | 256 | 13 | 4x4 (square) |
 
-Mode 12 is what real WIMP icon sprites use (confirmed against a real
-file, see below); mode 15 is the natural choice for full-screen 256-colour
-game art in the hybrid gameplay view (see `docs/ARCHITECTURE.md`).
+**Round 5 correction**: this table originally used modes 0/8/12/15
+(640x256 pixels, 2x4 OS units/pixel -- pixels *twice as tall as wide*),
+reasoning that mode 12 is the conventional WIMP-icon depth and mode 15 the
+natural 256-colour full-screen choice. Both are true, but 2x4 pixels mean
+ordinary square-pixel source art (any PNG drawn with normal square pixels)
+renders visibly squashed regardless of what mode the *sprite itself* is
+tagged with -- the distortion comes from the *screen* mode's own pixel
+geometry, not a sprite/screen mode mismatch. Confirmed the hard way: pawn
+placeholder sprites (circles in the source PNG) rendered as tall thin
+"bottle" shapes in Arculator under mode 15. Modes 1/4/9/13 are the
+320x256-pixel counterparts at the same four bit depths, sharing mode
+12/15's 1280x1024 OS-unit desktop resolution but with genuinely square 4x4
+OS-unit pixels -- switched to these throughout, and to `*Configure Mode
+13` instead of 15 for the live screen mode (see `CLAUDE.md`'s Testing
+section). Mode 12 remains correct for real WIMP icon sprites specifically
+(confirmed against a real file, see below) since *icon* sprites are meant
+to render 1:1 with the WIMP's own screen mode-relative scaling, not as
+free-standing full-screen game art -- this project doesn't currently
+generate any icon sprites, only board/pawn art, so mode 12 isn't actually
+used by anything here despite being confirmed correct as a fact.
 
 ## How the format was verified
 

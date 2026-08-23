@@ -291,14 +291,59 @@ findings, both traced to the same root cause:
   `wimp_set_icon_state()` without touching the board. Now the full-window
   force-redraw only happens when `game.just_released` is true.
 
+**Round 5**: the round-4 fixes worked -- the `Log` file appeared this
+time, and its `build_cell_kinds`/redraw-count dump proved something
+important: green's and blue's home column cells were classified as
+`CELL_HOME_COLUMN` with the correct owner, *and* the redraw loop drew all
+16 home-column cells including theirs (matched the expected count exactly)
+-- so the round-4 mystery was never a geometry or draw-loop bug at all,
+it was a colour-matching issue. Two real findings from the round-5
+screenshot, resolved:
+
+- **Green's/blue's home column tint was too pale to survive
+  `colourtrans_set_gcol`'s nearest-palette-entry approximation, while
+  red's/yellow's survived.** The old tint formula was a 25%-player/
+  75%-white blend (`(rgb+255*3)/4`) -- for green/blue specifically, pale
+  enough that it's plausible the palette match collapsed onto (or very
+  near) the same entry as the ring's grey. Switched to a 50% blend
+  (`(rgb+255)/2`), clearly saturated regardless of exact palette. Added
+  `set_gcol()`-returns-the-matched-GCOL + a targeted log line for every
+  cross-bar cell so this is directly confirmable from the next log rather
+  than inferred.
+- **Pawns rendered as tall thin "bottle" shapes instead of circles, and
+  the shape was wrong for a completely different reason than expected --
+  not a sprite-tool bug** (the packed `assets/Sprites` round-tripped
+  perfectly back to PNG with each player's correct colour, confirmed with
+  `tools/riscos_sprite.py to-png` + a Pillow colour-count check before
+  touching any RISC OS code). The real cause: RISC OS mode 15 (this
+  project's chosen 256-colour screen mode, per `CLAUDE.md`'s `*Configure
+  Mode 15` instruction) has 640x256 pixels at 1280x1024 OS units -- 2x4 OS
+  units per pixel, i.e. pixels twice as tall as wide -- an inherent
+  property of that *screen* mode, not something a matching sprite mode
+  number can fix. **Switched the target screen mode to 13** (320x256
+  pixels, same 1280x1024 OS units, 256 colours, genuinely square 4x4
+  OS-unit pixels) and retagged every generated sprite to the matching
+  square-pixel old-style mode for its bpp (`tools/riscos_sprite.py`'s
+  `MODES_BY_BPP`: 1bpp=4, 2bpp=1, 4bpp=9, 8bpp=13 -- see
+  `docs/GRAPHICS_TOOLING.md`'s "Round 5 correction"). `CLAUDE.md`'s Testing
+  section now says `*Configure Mode 13`.
+- **Also addressed** (explicit user request, not a bug): the board read
+  as too small. Doubled `CELL` from 32 to 64 and `PAWN_SIZE` from 20 to 40
+  (regenerated `assets/Sprites` at the new size); every other window
+  dimension derives from `CELL` via the existing macros, so the whole
+  board area roughly doubles without needing per-dimension changes.
+
 **Still not fully verified** -- these are all high-confidence fixes for
 concretely-identified bugs (a real screenshot each round, not a
 guess-and-hope pass), but the redraw origin/click-coordinate arithmetic in
-particular can still only be truly confirmed by looking at it running
-again in Arculator. The `Log` file's actual contents after a round-4 test
-run are now needed to either confirm the sprite/log path fix worked and
-narrow down the green/blue home-column mystery, or reveal a genuine
-click-handling bug behind the "pawns don't move" report.
+particular, and now the mode-13 switch itself, can still only be truly
+confirmed by looking at it running again in Arculator. **The Arculator
+profiles' CMOS still has mode 15 configured from earlier rounds** -- the
+user needs to run `*Configure Mode 13` again on each profile before
+re-testing, the same one-time-per-profile step as before just with a
+different mode number. The "pawns don't move" / pawn-click report from
+round 3 is still open -- round 4's click-side logging never got exercised
+since the round-4 screenshot didn't include a click attempt; still needed.
 
 ### Board layout: ported from the GEOS edition, not invented
 
