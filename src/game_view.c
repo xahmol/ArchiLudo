@@ -22,10 +22,16 @@
 #define STATUS_HEIGHT 28
 #define HEADER_GAP     4
 #define HEADER_HEIGHT (THROW_HEIGHT + HEADER_GAP + STATUS_HEIGHT)
-#define BOARD_ORIGIN_X MARGIN
-#define BOARD_ORIGIN_Y (-(MARGIN + HEADER_HEIGHT + MARGIN))
 #define BOARD_PIXELS  (BOARD_GRID_SIZE * CELL)
-#define WINDOW_WIDTH  (MARGIN + BOARD_PIXELS + MARGIN)
+/* The system font is a fixed 16 OS units per character (see
+ * riscos_wimp_reference.md's Text section), and the longest status
+ * message is ~28 characters -- so the window has to be wide enough for
+ * that text, not just for the board. MIN_CONTENT_WIDTH is that floor;
+ * the board is then centred within whichever of the two ends up wider. */
+#define MIN_CONTENT_WIDTH 528
+#define WINDOW_WIDTH  (MARGIN + (BOARD_PIXELS > (MIN_CONTENT_WIDTH - 2 * MARGIN) ? BOARD_PIXELS : (MIN_CONTENT_WIDTH - 2 * MARGIN)) + MARGIN)
+#define BOARD_ORIGIN_X ((WINDOW_WIDTH - BOARD_PIXELS) / 2)
+#define BOARD_ORIGIN_Y (-(MARGIN + HEADER_HEIGHT + MARGIN))
 #define WINDOW_HEIGHT (MARGIN + HEADER_HEIGHT + MARGIN + BOARD_PIXELS + MARGIN)
 
 #define ICON_THROW  0
@@ -115,7 +121,12 @@ static void build_cell_kinds(void)
  */
 static void set_gcol(int r, int g, int b)
 {
-	os_colour colour = (os_colour) ((b << 24) | (g << 16) | (r << 8));
+	/* Cast each component to unsigned before shifting -- r/g/b can be up
+	 * to 255, and shifting a *signed* 255 left by 24 sets the sign bit,
+	 * which is technically undefined behaviour for a plain int even
+	 * though every compiler this project uses happens to wrap it as
+	 * expected. Avoid relying on that. */
+	os_colour colour = ((os_colour) b << 24) | ((os_colour) g << 16) | ((os_colour) r << 8);
 
 	colourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, 0);
 }
@@ -140,13 +151,11 @@ static void fill_rect(int x0, int y0, int x1, int y1)
 static void refresh_status(void)
 {
 	if (game.winner != -1) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s wins! Throw to play again.",
-		         player_name[game.winner]);
+		snprintf(status_text, STATUS_TEXT_LEN, "%s wins!", player_name[game.winner]);
 	} else if (game.last_roll == 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s to move: click Throw",
-		         player_name[game.current_player]);
+		snprintf(status_text, STATUS_TEXT_LEN, "%s: click Throw", player_name[game.current_player]);
 	} else if (ludo_movable_pawns(&game) != 0) {
-		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: click a pawn",
+		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: pick a pawn",
 		         player_name[game.current_player], game.last_roll);
 	} else {
 		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: Throw again",
@@ -160,7 +169,7 @@ static void refresh_status(void)
 void game_view_new_game(void)
 {
 	ludo_init(&game);
-	snprintf(status_text, STATUS_TEXT_LEN, "%s to move: click Throw", player_name[0]);
+	snprintf(status_text, STATUS_TEXT_LEN, "%s: click Throw", player_name[0]);
 	if (window_handle != (wimp_w) -1)
 		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 }
@@ -180,7 +189,14 @@ void game_view_initialise(void)
 	def.xscroll = 0;
 	def.yscroll = 0;
 	def.next = wimp_TOP;
-	def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE | wimp_WINDOW_AUTO_REDRAW |
+	/* NOTE: deliberately NOT wimp_WINDOW_AUTO_REDRAW. It was tried (to
+	 * address a "feels slow" report) and caused a worse regression: the
+	 * board stopped drawing at all, while the window's own icons (which
+	 * the Wimp redraws itself regardless of this flag) kept appearing --
+	 * i.e. Redraw_Window_Request stopped reaching this app's custom
+	 * drawing code for a freshly-opened window. Revisit performance a
+	 * different way (fewer plot calls per redraw) rather than this flag. */
+	def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
 	            wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
 	            wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON |
 	            wimp_WINDOW_TOGGLE_ICON | wimp_WINDOW_SIZE_ICON;
@@ -200,11 +216,12 @@ void game_view_initialise(void)
 	                   wimp_ICON_VCENTRED | wimp_ICON_FILLED;
 	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
 	def.sprite_area = wimpspriteop_AREA;
-	/* Content is a fixed layout, not scrollable data -- don't allow
-	 * shrinking below its natural size (the size icon can still make the
-	 * window bigger than that, which just leaves blank margin). */
-	def.xmin = WINDOW_WIDTH;
-	def.ymin = WINDOW_HEIGHT;
+	/* Allow shrinking to about half size -- content beyond the visible
+	 * area is simply clipped (no scrollbars yet), but the size icon needs
+	 * genuine headroom below the natural size to do anything visible; a
+	 * minimum equal to the natural size effectively disables it. */
+	def.xmin = WINDOW_WIDTH / 2;
+	def.ymin = WINDOW_HEIGHT / 2;
 	strncpy(def.title_data.text, "ArchiLudo", 12);
 	def.icon_count = WINDOW_ICON_COUNT;
 

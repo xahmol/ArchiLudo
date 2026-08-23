@@ -160,27 +160,49 @@ they're exactly the kind of mistake worth not repeating:
   through, not the text itself). Fixed by explicitly OR-ing in
   `wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT` and
   `wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT`.
-- **Felt sluggish.** The window didn't set `wimp_WINDOW_AUTO_REDRAW`, so
-  the Wimp asked the client to fully redraw (41 filled cells + up to 16
-  sprite plots, each several SWI calls, on an emulated ARM) on *every*
-  expose/uncover, not just on genuine content changes. Re-added
-  `wimp_WINDOW_AUTO_REDRAW` (the app already calls `Wimp_ForceRedraw`
-  itself whenever the game state actually changes, so this doesn't lose
-  any needed redraws).
+- **Felt sluggish.** Suspected cause: no `wimp_WINDOW_AUTO_REDRAW`, so the
+  Wimp asks the client to fully redraw on every expose/uncover, not just
+  genuine content changes.
 - **Board didn't look like Mens Erger Je Niet at all.** The Phase 1 board
   shape was an invented square-ring-with-diagonal-home-columns design, not
   the real cross-shaped board -- see "Board layout" below for the fix
   (ported the GEOS edition's actual coordinates instead).
 
 Also set the window ~30% smaller (11x11 grid instead of the old invented
-15x15) and reworded the status line to be shorter, since board size and
-message length both feed directly into how much of this ever fits inside
-Mode 15's window space.
+15x15) and reworded the status line to be shorter.
+
+**Round 2** (after adding `wimp_WINDOW_AUTO_REDRAW` above and re-testing)
+surfaced a regression and two more real bugs from a second screenshot:
+
+- **`wimp_WINDOW_AUTO_REDRAW` made the board disappear entirely**, while
+  the Wimp's own icons (Throw button, status line -- drawn by the Wimp
+  itself regardless of this flag) kept appearing correctly. This means
+  `Redraw_Window_Request` stopped reaching this app's custom drawing code
+  for a freshly-opened window once that flag was set. **Reverted it** --
+  performance needs a different fix (fewer plot calls per redraw), not
+  this flag; a slower-but-correct window beats a fast-but-blank one. The
+  exact mechanism wasn't chased down further since the flag simply isn't
+  worth the risk here.
+- **Status text was truncated mid-word** ("GREEN to move: click T...").
+  Root cause: the system font is a fixed 16 OS units per character (this
+  was already documented in `riscos_wimp_reference.md`'s Text section --
+  should have been checked *before* picking a window width, not after),
+  and the status icon was only sized to fit the board's width (352 units
+  = 22 characters), not the longest possible status message (~29
+  characters = 464 units needed). Fixed by giving the window a minimum
+  content width (528 units, comfortably fitting ~32 characters) independent
+  of the board's own width, and centring the board within whichever of
+  the two ends up wider.
+- **Resize icon present but had no effect.** `xmin`/`ymin` were set equal
+  to the window's natural full size, leaving no actual range to shrink
+  into -- from the Wimp's perspective there was nothing to resize.
+  Lowered both to half the natural size.
 
 **Still not fully verified** -- these are all high-confidence fixes for
-concretely-identified bugs, not a guess-and-hope pass, but the redraw
-origin/click-coordinate arithmetic in particular can still only be truly
-confirmed by looking at it running again in Arculator.
+concretely-identified bugs (a real screenshot each round, not a
+guess-and-hope pass), but the redraw origin/click-coordinate arithmetic in
+particular can still only be truly confirmed by looking at it running
+again in Arculator.
 
 ### Board layout: ported from the GEOS edition, not invented
 
