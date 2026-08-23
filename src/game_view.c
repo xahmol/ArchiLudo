@@ -67,12 +67,48 @@
  * introducing-icons tutorial and its reference screenshot,
  * https://www.stevefryatt.org.uk/risc-os/wimp-prog/introducing-icons --
  * real OK/Cancel/Close buttons there are compact, not oversized) rather
- * than the original guess -- "Throw" is 5 characters (80 OS units at the
- * system font's fixed 16 units/char), so 120 gives ~20 units padding
- * each side, and 40 tall matches the system font's own 32-unit height
- * plus a modest margin, the same proportions those buttons use. */
-#define THROW_WIDTH  120
+ * than the original guess -- 40 tall matches the system font's own
+ * 32-unit height plus a modest margin, the same proportions those
+ * buttons use. Width sized for "Continue" (8 characters, 128 OS units
+ * at the system font's fixed 16 units/char), the longer of this one
+ * button's two labels (see refresh_status()) -- 120 (sized only for
+ * "Throw", 5 characters) clipped "Continue" per explicit user report. */
+#define THROW_WIDTH  168
 #define THROW_HEIGHT  40
+
+/* Highlight ring drawn around a movable pawn's cell when the current
+ * human player has more than one legal choice, and around the cell a
+ * hovered movable pawn would land on -- per explicit user request
+ * ("suggest a way to highlight possible moves ... on hover over
+ * possible moves, highlight the destination"). Sized a little larger
+ * than the plain track marker so it reads as a ring drawn over/around
+ * existing content, not a replacement for it. */
+#define MOVABLE_HIGHLIGHT_RADIUS (MARKER_RADIUS + 6)
+#define HOVER_HIGHLIGHT_RADIUS   (MARKER_RADIUS + 10)
+
+/* Dice-roll animation: cycles through cosmetic faces for a short beat
+ * before settling on the real (already-determined) result -- see
+ * start_roll_animation(). Applies uniformly to human and AI rolls. */
+#define ROLL_ANIM_TICKS    8
+#define ROLL_ANIM_TICK_CS  6
+
+/* Pawn-move animation: follows the actual board track -- one board
+ * square per die pip, not a straight line cutting across the board --
+ * see start_move_animation()'s `move_anim_path[]`. Each square-to-square
+ * segment gets its own MOVE_ANIM_TICKS_PER_CELL ticks of linear
+ * interpolation, so a longer roll takes proportionally longer to animate
+ * rather than covering more distance in the same fixed time. Applies
+ * uniformly to human and AI moves. */
+#define MOVE_ANIM_TICKS_PER_CELL 3
+#define MOVE_ANIM_STEP_CS        4
+/* A legal move is never more than a 6 pip roll, so at most 7 cells
+ * (start cell + up to 6 steps) -- see start_move_animation(). */
+#define MOVE_ANIM_MAX_PATH 7
+
+/* How often game_view_poll_idle() re-checks the pointer position for
+ * hover highlighting -- cheap, but no need on literally every single
+ * Null_Reason_Code poll. */
+#define HOVER_POLL_CS 5
 
 #define BOARD_ORIGIN_X MARGIN
 #define BOARD_ORIGIN_Y (-MARGIN)
@@ -133,8 +169,66 @@ static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
 static char name_text[NAME_TEXT_LEN] = "";
 static char status_text[STATUS_TEXT_LEN] = "";
-static char throw_text[8] = "Throw";
+/* "Throw" or "Continue" -- see refresh_status(). Sized for "Continue\0",
+ * the longer of the two. */
+static char throw_text[10] = "Throw";
 static char throw_validation[4] = "R1";
+
+/* True once a game has actually been started via game_view_new_game()
+ * (i.e. via src/setup_view.c's "New Game" dialogue) -- lets main.c tell
+ * a first-ever iconbar click (which must ask for player details first)
+ * apart from a later one (which just reopens/refocuses the game already
+ * in progress). See game_view_has_started(). */
+static int game_started = 0;
+
+/*
+ * Turn/animation phase. STEP_IDLE is the normal interactive state
+ * (a human player's turn, nothing animating); STEP_AWAIT_CONTINUE pauses
+ * an AI-controlled player's turn until the Throw/Continue icon (see
+ * refresh_status()) is clicked, so an AI turn never advances on its own
+ * -- per explicit user request ("only continue after pressing that").
+ * STEP_ROLLING/STEP_MOVING run a short cosmetic animation (see
+ * start_roll_animation()/start_move_animation()) before the real,
+ * already-determined result is revealed; both apply equally to human and
+ * AI turns.
+ */
+typedef enum {
+	STEP_IDLE,
+	STEP_AWAIT_CONTINUE,
+	STEP_ROLLING,
+	STEP_MOVING
+} turn_step;
+
+static turn_step step = STEP_IDLE;
+
+/* Roll animation state -- see start_roll_animation(), game_view_poll_idle(). */
+static int roll_anim_ticks_done;
+static os_t roll_anim_next_tick;
+/* The die face plot_dice() actually draws: game.last_roll once settled,
+ * a cycling cosmetic value while STEP_ROLLING. */
+static int dice_display_face = 0;
+
+/* Move animation state -- see start_move_animation(), game_view_poll_idle().
+ * move_anim_path[] is the sequence of board cells the pawn actually
+ * passes through (its own current cell, then one entry per step of the
+ * roll -- see cell_for_steps()), not just the two endpoints, so the
+ * animation follows the real track instead of cutting across the board
+ * in a straight line. move_anim_tick counts ticks across the *whole*
+ * path; game_view_poll_idle() and plot_pawn() both derive which segment
+ * that falls in from MOVE_ANIM_TICKS_PER_CELL. */
+static int move_anim_player, move_anim_pawn_index;
+static board_cell move_anim_path[MOVE_ANIM_MAX_PATH];
+static int move_anim_path_len;
+static int move_anim_tick;
+static os_t move_anim_next_tick;
+
+/* Hover-preview state -- highlights the destination cell a movable pawn
+ * under the pointer would land on, per explicit user request. Only
+ * meaningful while STEP_IDLE, the current player is human, and there is
+ * more than one legal choice (see game_view_poll_idle()). */
+static int hover_active = 0;
+static board_cell hover_destination;
+static os_t hover_next_poll;
 
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
@@ -336,14 +430,32 @@ static const char *player_display_name(int player)
 
 static void refresh_status(void)
 {
+	/* Only genuinely an "AI's turn" while the game isn't already won --
+	 * once there's a winner, the Throw/Continue icon always reverts to
+	 * "Throw" (its "play again" meaning, see game_view_click()),
+	 * regardless of which player happened to win. */
+	int ai_turn = (game.winner == -1) && player_is_ai[game.current_player];
+
 	if (game.winner != -1) {
 		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_display_name(game.winner));
 		snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
 	} else {
 		snprintf(name_text, NAME_TEXT_LEN, "%s", player_display_name(game.current_player));
 
+		/* Per explicit user request, AI turns get their own status
+		 * wording throughout (not left blank/stale) -- mirrors the human
+		 * wording below, but "Pick a pawn" doesn't apply (the AI always
+		 * picks immediately, see resolve_roll()) and "Click Throw"
+		 * becomes "Click Continue" to match the relabelled button. */
 		if (game.last_roll == 0) {
-			snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
+			snprintf(status_text, STATUS_TEXT_LEN, ai_turn ? "Click Continue" : "Click Throw");
+		} else if (ai_turn) {
+			if (ludo_movable_pawns(&game) != 0)
+				snprintf(status_text, STATUS_TEXT_LEN, "AI is moving...");
+			else if (game.just_released)
+				snprintf(status_text, STATUS_TEXT_LEN, "Pawn released!");
+			else
+				snprintf(status_text, STATUS_TEXT_LEN, "Throw again");
 		} else if (ludo_movable_pawns(&game) != 0) {
 			snprintf(status_text, STATUS_TEXT_LEN, "Pick a pawn");
 		} else if (game.just_released) {
@@ -360,9 +472,16 @@ static void refresh_status(void)
 		}
 	}
 
+	/* The Throw/Continue icon is one single physical button, relabelled
+	 * -- per explicit user request ("ensure only either throw or continue
+	 * button is visible"), never two separate buttons shown/hidden. */
+	strncpy(throw_text, ai_turn ? "Continue" : "Throw", sizeof(throw_text) - 1);
+	throw_text[sizeof(throw_text) - 1] = '\0';
+
 	if (window_handle != (wimp_w) -1) {
 		wimp_set_icon_state(window_handle, ICON_NAME, 0, 0);
 		wimp_set_icon_state(window_handle, ICON_STATUS, 0, 0);
+		wimp_set_icon_state(window_handle, ICON_THROW, 0, 0);
 	}
 }
 
@@ -379,15 +498,425 @@ void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_L
 }
 
 /*
+ * Function: cell_centre
+ * Summary: The centre point, in the current redraw's absolute screen
+ *          coordinates, of a board grid cell -- shared by the cell-kind
+ *          loop and plot_pawn() so marker circles and pawns line up
+ *          exactly.
+ */
+static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, int *cy)
+{
+	*cx = origin_x + BOARD_ORIGIN_X + col * CELL + CELL / 2;
+	*cy = origin_y + BOARD_ORIGIN_Y - row * CELL - CELL / 2;
+}
+
+/*
+ * Function: plot_pawn
+ * Summary: Draw one pawn -- home base, ring, home column, or finished --
+ *          wherever board_pawn_cell() says it currently is: two
+ *          overlapping filled circles (a wider "body" below a narrower
+ *          "head"), giving a simple pawn-like silhouette.
+ *
+ *          Round 6.3: this used to plot the recoloured GEOS pawn sprite
+ *          (see assets/generate_placeholder_art.py) via
+ *          xosspriteop_put_sprite_user_coords(). Three separate small
+ *          sprites in a row rendered wrong in Arculator in ways that
+ *          never reproduced in any offline check (the packed sprite's
+ *          own metadata, and a locally-simulated 2x/4x stretch, both
+ *          looked correct every time): round 6.1's board-entry markers
+ *          (too narrow), round 6.3's dice (cropped), and this pawn sprite
+ *          itself (rendering solid black regardless of player, despite
+ *          the packed sprite file's palette and pixel data both verified
+ *          correct offline -- see docs/GRAPHICS_TOOLING.md's "Round
+ *          6.4"). Given `os_plot` primitives (circles, rectangles,
+ *          triangles) have been reliable in every single round so far
+ *          with zero unexplained failures, standardised on them for both
+ *          pawns and dice rather than keep chasing a sprite-rendering
+ *          bug with no diagnosable cause -- correctness over the
+ *          authentic GEOS silhouette shape for this Phase 1 placeholder
+ *          pass. Revisit real sprite art in Phase 2 with more time to
+ *          debug properly (or a different underlying mechanism, e.g. an
+ *          explicit ColourTrans_GenerateTable translation table).
+ */
+static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
+{
+	int cx, cy;
+	int body_radius = PAWN_SIZE * 5 / 16;
+	int head_radius = PAWN_SIZE * 3 / 16;
+	/* Outline thickness -- drawn as a slightly larger black circle behind
+	 * each fill circle rather than an os_PLOT_CIRCLE_OUTLINE stroke, so its
+	 * width is controllable (the outline plot code draws a fixed 1-pixel
+	 * line). Needed so a pawn sitting on a same-coloured background marker
+	 * (its own home column lane, or its own ring entry marker) is still
+	 * visible against it -- per explicit user request. */
+	int outline = PAWN_SIZE / 12;
+	int body_y, head_y;
+
+	/* The one pawn currently mid-move (see start_move_animation()) is
+	 * drawn part-way between its old and new cell rather than at
+	 * board_pawn_cell()'s (already-updated) destination -- per explicit
+	 * user request ("animate the pawns actually moving to the new
+	 * placement location") rather than the previous instant jump. Every
+	 * other pawn draws at its normal current cell as before. */
+	if (step == STEP_MOVING && player == move_anim_player && pawn_index == move_anim_pawn_index) {
+		int fx, fy, tx, ty;
+		int segments = move_anim_path_len - 1;
+		int tick = move_anim_tick;
+		int seg, seg_progress;
+
+		if (segments < 1)
+			segments = 1;
+		seg = tick / MOVE_ANIM_TICKS_PER_CELL;
+		if (seg >= segments)
+			seg = segments - 1;
+		seg_progress = tick - seg * MOVE_ANIM_TICKS_PER_CELL;
+
+		cell_centre(move_anim_path[seg].col, move_anim_path[seg].row, origin_x, origin_y, &fx, &fy);
+		cell_centre(move_anim_path[seg + 1].col, move_anim_path[seg + 1].row, origin_x, origin_y, &tx, &ty);
+		cx = fx + (tx - fx) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+		cy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+	} else {
+		board_cell cell = board_pawn_cell(&game, player, pawn_index);
+
+		cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+	}
+	body_y = cy - body_radius * 2 / 5;
+	head_y = cy + body_radius * 4 / 5;
+
+	set_gcol(0, 0, 0);
+	fill_circle(cx, body_y, body_radius + outline);
+	fill_circle(cx, head_y, head_radius + outline);
+
+	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+	fill_circle(cx, body_y, body_radius);
+	fill_circle(cx, head_y, head_radius);
+}
+
+/*
+ * Function: plot_start_marker
+ * Summary: Draw one player's board-entry marker at a CELL_RING_ENTRY
+ *          cell: a filled circle in the player's colour (same size as an
+ *          ordinary marker) with a white arrow pointing in that player's
+ *          direction of travel -- per explicit user request ("should
+ *          look like a normal round but filled in the corresponding
+ *          color and an arrow in it in direction of movement"). Round
+ *          6's first attempt reused GEOS's own bm_gstart/rstart/bstart/
+ *          ystart bitmaps as sprites here, but they rendered far too
+ *          narrow in Arculator for reasons that didn't reproduce in any
+ *          offline check (the packed sprite file's own metadata and a
+ *          round-tripped/stretched preview both looked correct -- see
+ *          docs/GRAPHICS_TOOLING.md's "Round 6.1"); drawn programmatically
+ *          instead, sidestepping the whole sprite-scaling question and
+ *          giving an exact, guaranteed-correct size and shape.
+ */
+static void plot_start_marker(int player, int cx, int cy)
+{
+	/* Direction each player's pawns travel at their own entry point, as
+	 * OS-unit screen deltas (not row/col deltas -- board rows increase
+	 * DOWNWARD on screen, i.e. toward more NEGATIVE os units, since
+	 * cell_centre() subtracts row*CELL) -- matches board_layout.c's ring
+	 * travel order exactly: green +col (right), red +row (down), blue
+	 * -col (left), yellow -row (up); verified by comparing each player's
+	 * entry ring cell against the very next one in travel order. */
+	static const int dir_x[LUDO_PLAYERS] = {  1,  0, -1,  0 };
+	static const int dir_y[LUDO_PLAYERS] = {  0, -1,  0,  1 };
+	int dx = dir_x[player], dy = dir_y[player];
+	int tip_len = MARKER_RADIUS * 6 / 10;
+	int back_len = MARKER_RADIUS * 3 / 10;
+	int half_base = MARKER_RADIUS * 4 / 10;
+	int tip_x = cx + dx * tip_len,   tip_y = cy + dy * tip_len;
+	int base_x = cx - dx * back_len, base_y = cy - dy * back_len;
+	int perp_x = -dy, perp_y = dx;
+
+	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+	fill_circle(cx, cy, MARKER_RADIUS);
+
+	set_gcol(255, 255, 255);
+	fill_triangle(tip_x, tip_y,
+	              base_x + perp_x * half_base, base_y + perp_y * half_base,
+	              base_x - perp_x * half_base, base_y - perp_y * half_base);
+}
+
+/*
+ * Function: plot_dice
+ * Summary: Draw a die face for the current roll -- a white square with a
+ *          thin black border and the standard pip layout -- in the panel
+ *          gap between the status line and the Throw button. Added in
+ *          round 6.3 since nothing previously showed the roll's actual
+ *          outcome anywhere on screen (per repeated user report: "no dice
+ *          are shown still, nor outcome of the dice throw"). Draws
+ *          nothing before the first throw of a turn (`game.last_roll ==
+ *          0`).
+ *
+ *          Round 6.3 first tried this via GEOS's own dice1..6.gbm
+ *          sprites (see assets/generate_placeholder_art.py); like the
+ *          pawn sprite (see plot_pawn()'s doc comment), it rendered
+ *          wrong in Arculator (cropped) for reasons that never
+ *          reproduced offline. Drawn with `os_plot` primitives instead,
+ *          for the same reliability reason.
+ */
+static void plot_dice(int origin_x, int origin_y)
+{
+	/* Pip positions per face, as (col,row) on a 3x3 grid (0,0)=top-left
+	 * .. (2,2)=bottom-right, standard die layout. {-1,-1} marks unused
+	 * slots for faces with fewer than 6 pips. */
+	static const signed char pips[6][6][2] = {
+		{ {1, 1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 2},   {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {1, 1},   {2, 2},   {-1, -1}, {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 0},   {0, 2},   {2, 2},   {-1, -1}, {-1, -1} },
+		{ {0, 0}, {2, 0},   {1, 1},   {0, 2},   {2, 2},   {-1, -1} },
+		{ {0, 0}, {2, 0},   {0, 1},   {2, 1},   {0, 2},   {2, 2} },
+	};
+	int face = dice_display_face;
+	int cx, cy, x0, y0, x1, y1, i;
+	int border = DICE_SIZE / 16;
+	/* Smaller relative to `step` than a naive size/10 would give --
+	 * reported pip crowding on face 6 (two columns of 3) at the old
+	 * ratio, where adjacent same-column pips had very little gap between
+	 * their edges. */
+	int pip_radius = DICE_SIZE / 13;
+	int step = DICE_SIZE / 4;
+
+	if (face == 0)
+		return;
+
+	cx = origin_x + DICE_CENTRE_X;
+	cy = origin_y + DICE_CENTRE_Y;
+	x0 = cx - DICE_SIZE / 2;
+	y0 = cy - DICE_SIZE / 2;
+	x1 = cx + DICE_SIZE / 2;
+	y1 = cy + DICE_SIZE / 2;
+
+	/* Diagnostic for a reported "last line of die does not show" -- no
+	 * code bug found by re-reading this geometry (it's a plain square,
+	 * DICE_SIZE in both dimensions), so log the actual box each redraw
+	 * computes to check against WINDOW_HEIGHT/the window's current state
+	 * next round rather than guess further. */
+	debug_log("plot_dice: face=%d box=(%d,%d,%d,%d) WINDOW_HEIGHT=%d\n",
+	          face, x0, y0, x1, y1, WINDOW_HEIGHT);
+
+	set_gcol(0, 0, 0);
+	fill_rect(x0, y0, x1, y1);
+	set_gcol(255, 255, 255);
+	fill_rect(x0 + border, y0 + border, x1 - border, y1 - border);
+
+	set_gcol(0, 0, 0);
+	for (i = 0; i < 6; i++) {
+		int col = pips[face - 1][i][0];
+		int row = pips[face - 1][i][1];
+
+		if (col < 0)
+			break;
+		fill_circle(x0 + DICE_SIZE / 2 + (col - 1) * step,
+		            y0 + DICE_SIZE / 2 - (row - 1) * step,
+		            pip_radius);
+	}
+}
+
+/*
+ * Function: draw_board_region
+ * Summary: Draw cell markers and pawns restricted to a rectangular range
+ *          of board grid cells (inclusive) -- shared by game_view_redraw()
+ *          (called with the whole board) and mark_move_animation_area_dirty()
+ *          (called with just the few cells a pawn-move animation's
+ *          current frame touches), so a move animation doesn't have to
+ *          re-plot the *entire* board -- roughly 150 os_plot primitives
+ *          (121 cell markers, 16 pawns' worth of circles, swatch, dice)
+ *          -- on every single animation tick. Per explicit user report
+ *          ("pawn movement also seems to do redraw every frame... only
+ *          local redraw?").
+ */
+static void draw_board_region(int origin_x, int origin_y, int col0, int row0, int col1, int row1)
+{
+	int col, row, player, pawn;
+
+	for (row = row0; row <= row1; row++) {
+		for (col = col0; col <= col1; col++) {
+			cell_kind kind = cell_kinds[col][row];
+			int cx, cy, owner;
+
+			if (kind == CELL_EMPTY)
+				continue;
+
+			cell_centre(col, row, origin_x, origin_y, &cx, &cy);
+
+			switch (kind) {
+			case CELL_RING:
+				set_gcol(96, 96, 96);
+				outline_circle(cx, cy, MARKER_RADIUS);
+				break;
+			case CELL_RING_ENTRY:
+				plot_start_marker(cell_owner[col][row], cx, cy);
+				break;
+			case CELL_HOME_COLUMN:
+				/* Always the owning player's full colour, whether or
+				 * not a pawn currently sits there -- GEOS shows these
+				 * as permanent "this lane belongs to X" markers, not
+				 * an occupancy indicator (confirmed against the
+				 * reference screenshot: the visible home-column dots
+				 * are full-saturation player colour, not a paler
+				 * background tint). */
+				owner = cell_owner[col][row];
+				set_gcol(player_rgb[owner][0], player_rgb[owner][1], player_rgb[owner][2]);
+				fill_circle(cx, cy, MARKER_RADIUS);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			board_cell cell;
+
+			/* The one pawn currently mid-move draws somewhere along its
+			 * whole path (see plot_pawn()) -- included if any cell of
+			 * that path falls in range, since that covers every cell its
+			 * interpolated position could actually pass through. */
+			if (step == STEP_MOVING && player == move_anim_player && pawn == move_anim_pawn_index) {
+				int in_range = 0, k;
+
+				for (k = 0; k < move_anim_path_len; k++) {
+					if (move_anim_path[k].col >= col0 && move_anim_path[k].col <= col1
+					 && move_anim_path[k].row >= row0 && move_anim_path[k].row <= row1) {
+						in_range = 1;
+						break;
+					}
+				}
+				if (in_range)
+					plot_pawn(player, pawn, origin_x, origin_y);
+				continue;
+			}
+
+			cell = board_pawn_cell(&game, player, pawn);
+			if (cell.col >= col0 && cell.col <= col1 && cell.row >= row0 && cell.row <= row1)
+				plot_pawn(player, pawn, origin_x, origin_y);
+		}
+	}
+}
+
+/*
+ * Function: cell_range_to_work_box
+ * Summary: Convert a rectangular range of board grid cells (inclusive)
+ *          into work-area OS-unit bounds (the coordinate space
+ *          Wimp_ForceRedraw takes, and the same one the rest of this
+ *          module's WINDOW_WIDTH/WINDOW_HEIGHT etc. already use) -- the
+ *          inverse of cell_centre()'s per-cell math, but for a whole
+ *          range at once rather than one cell's centre point.
+ */
+static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
+                                    int *x0, int *y0, int *x1, int *y1)
+{
+	*x0 = BOARD_ORIGIN_X + col0 * CELL;
+	*x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL;
+	*y1 = BOARD_ORIGIN_Y - row0 * CELL;
+	*y0 = BOARD_ORIGIN_Y - (row1 + 1) * CELL;
+}
+
+/*
+ * Function: mark_move_animation_area_dirty
+ * Summary: Mark just the board cells a pawn-move animation's current
+ *          frame can touch (every cell of its path -- see
+ *          move_anim_path[] -- plus a one-cell margin so outline/marker
+ *          radii spilling slightly past a cell's own boundary aren't
+ *          clipped) as needing a redraw, via Wimp_ForceRedraw -- used
+ *          instead of a full redraw_now() on every STEP_MOVING tick.
+ *
+ *          This replaced an earlier attempt (see docs/ARCHITECTURE.md's
+ *          Round 7.3) that called Wimp_RedrawWindow/Wimp_UpdateWindow
+ *          directly and *synchronously* from inside the tick -- that
+ *          approach fought the Wimp's own redraw protocol on both sides:
+ *          Wimp_RedrawWindow auto-clears every rectangle it returns to
+ *          the window's background colour first (which blanked the
+ *          whole board, since a manually-invoked RedrawWindow always
+ *          reports the *entire* currently-exposed window, not a
+ *          caller-supplied clip), and Wimp_UpdateWindow, called the same
+ *          synchronous way, produced no visible frames at all. Marking a
+ *          small rectangle dirty with Wimp_ForceRedraw and letting the
+ *          Wimp deliver a genuine Redraw_Window_Request back through the
+ *          normal Wimp_Poll loop (handled by game_view_redraw() below,
+ *          completely unchanged) is the same technique this codebase
+ *          already used successfully for the panel-only redraw in
+ *          try_move_pawn() before any of this animation work existed --
+ *          proven, and the standard, PRM-documented way a Wimp app is
+ *          meant to ask for a scoped redraw. Wimp_RedrawWindow's
+ *          auto-clear is exactly what's wanted for a genuine
+ *          Redraw_Window_Request (start from a clean slate), and the OS
+ *          itself, not this code, decides how much of the window that
+ *          actually covers (clipped to the requested rectangle when the
+ *          window isn't obscured) -- os_plot calls for content outside
+ *          whatever VDU graphics window the Wimp sets up are cheap
+ *          no-ops, so game_view_redraw() can keep drawing the whole
+ *          board's worth of primitives every time without that being
+ *          expensive for a small forced rectangle. Any *other* pawn's
+ *          position change this same move triggered (a capture sent
+ *          home, a six-release) is outside this animation's scope and
+ *          only appears once resolve_move() -> after_settle() does its
+ *          own full redraw once the animation finishes -- an
+ *          acceptable, deliberate limit (nothing asked for those to
+ *          animate too, only the moving pawn itself).
+ */
+static void mark_move_animation_area_dirty(void)
+{
+	int col0, row0, col1, row1, i, x0, y0, x1, y1;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	col0 = row0 = BOARD_GRID_SIZE;
+	col1 = row1 = -1;
+	for (i = 0; i < move_anim_path_len; i++) {
+		if (move_anim_path[i].col < col0) col0 = move_anim_path[i].col;
+		if (move_anim_path[i].col > col1) col1 = move_anim_path[i].col;
+		if (move_anim_path[i].row < row0) row0 = move_anim_path[i].row;
+		if (move_anim_path[i].row > row1) row1 = move_anim_path[i].row;
+	}
+
+	col0--; if (col0 < 0) col0 = 0;
+	row0--; if (row0 < 0) row0 = 0;
+	col1++; if (col1 >= BOARD_GRID_SIZE) col1 = BOARD_GRID_SIZE - 1;
+	row1++; if (row1 >= BOARD_GRID_SIZE) row1 = BOARD_GRID_SIZE - 1;
+
+	cell_range_to_work_box(col0, row0, col1, row1, &x0, &y0, &x1, &y1);
+	wimp_force_redraw(window_handle, x0, y0, x1, y1);
+}
+
+/*
+ * Function: mark_dice_area_dirty
+ * Summary: Mark just the die face's box as needing a redraw, via
+ *          Wimp_ForceRedraw -- used instead of a full redraw_now() on
+ *          every STEP_ROLLING tick. See
+ *          mark_move_animation_area_dirty()'s doc comment for why this
+ *          is Wimp_ForceRedraw + the normal Redraw_Window_Request path
+ *          rather than a direct synchronous Wimp_RedrawWindow/
+ *          Wimp_UpdateWindow call.
+ */
+static void mark_dice_area_dirty(void)
+{
+	int x0, y0, x1, y1;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	x0 = DICE_CENTRE_X - DICE_SIZE / 2;
+	x1 = DICE_CENTRE_X + DICE_SIZE / 2;
+	y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
+	y1 = DICE_CENTRE_Y + DICE_SIZE / 2;
+	wimp_force_redraw(window_handle, x0, y0, x1, y1);
+}
+
+/*
  * Function: redraw_now
  * Summary: Redraw the whole game window immediately, synchronously --
  *          not via wimp_force_redraw(), which only *schedules* a
  *          Redraw_Window_Request for the next Wimp_Poll and so wouldn't
  *          show anything until this whole function returns. Needed by
- *          advance_ai_turns() so each AI roll/move actually becomes
- *          visible one at a time rather than only the final state ever
- *          appearing on screen. This is the same
- *          Wimp_RedrawWindow/Wimp_GetRectangle call
+ *          every animation tick (see game_view_poll_idle()) so each
+ *          intermediate frame actually becomes visible one at a time
+ *          rather than only the final state ever appearing on screen.
+ *          This is the same Wimp_RedrawWindow/Wimp_GetRectangle call
  *          main_dispatch()'s wimp_REDRAW_WINDOW_REQUEST case makes in
  *          response to a genuine Wimp-issued request -- Wimp_RedrawWindow
  *          doesn't care why the app is asking, only which window.
@@ -404,53 +933,321 @@ static void redraw_now(void)
 }
 
 /*
- * Function: pace_delay
- * Summary: A short deliberate busy-wait (same technique as
- *          flash_throw_button()'s press-flash, see that function's doc
- *          comment) so an AI-controlled player's rolls and moves are
- *          visible one at a time rather than flashing past instantly.
+ * Function: single_movable_pawn
+ * Summary: If exactly one bit is set in a ludo_movable_pawns() mask,
+ *          return that pawn's index; otherwise (none, or more than one)
+ *          return -1. Used so the player is only ever asked to pick a
+ *          pawn when there's an actual choice to make -- see
+ *          resolve_roll().
  */
-static void pace_delay(int centiseconds)
+static int single_movable_pawn(unsigned mask)
 {
-	os_t start = os_read_monotonic_time();
+	int pawn, found = -1;
 
-	while (os_read_monotonic_time() - start < centiseconds)
-		;
+	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+		if (!(mask & (1u << pawn)))
+			continue;
+		if (found != -1)
+			return -1;
+		found = pawn;
+	}
+	return found;
 }
 
 /*
- * Function: advance_ai_turns
- * Summary: Play out consecutive AI-controlled turns automatically,
- *          starting from whoever g.current_player is right now, stopping
- *          as soon as it's a human player's turn (or the game has been
- *          won). Called after anything that might have changed whose
- *          turn it is: a human's move, an AI's own move finishing a
- *          six-bonus chain and ending their turn, or a fresh game
- *          starting -- see game_view_configure_players()'s doc comment.
- *          Each roll and each move gets its own redraw_now() +
- *          pace_delay() so a human watching can actually follow what an
- *          AI opponent did, rather than only ever seeing the final state
- *          once several turns have already happened.
+ * Function: cell_for_steps
+ * Summary: The board cell for an arbitrary, explicit "steps travelled"
+ *          value -- a read-only variant of board_pawn_cell() that isn't
+ *          tied to a pawn's own *current* steps, mirroring its ring/
+ *          home-column dispatch logic exactly (see board_layout.c's
+ *          board_pawn_cell()/docs/BOARD_LAYOUT.md). Used to build a
+ *          move's whole cell-by-cell path (start_move_animation()) and
+ *          to preview a single hypothetical destination
+ *          (preview_destination()), without mutating any game state.
  */
-static void advance_ai_turns(void)
+static board_cell cell_for_steps(int player, int steps)
 {
-	while (game.winner == -1 && player_is_ai[game.current_player]) {
-		ludo_roll(&game, 0);
-		refresh_status();
-		redraw_now();
-		pace_delay(60);
+	if (steps < LUDO_RING_LENGTH) {
+		int entry = player * (LUDO_RING_LENGTH / LUDO_PLAYERS);
 
-		if (!game.just_released) {
-			unsigned movable = ludo_movable_pawns(&game);
+		return board_ring_cell((entry + steps) % LUDO_RING_LENGTH);
+	} else {
+		int column_index = steps - LUDO_RING_LENGTH;
 
-			if (movable != 0) {
-				int pawn = ludo_ai_choose_pawn(&game, movable, LUDO_AI_NORMAL);
+		if (column_index >= LUDO_HOME_COLUMN_LENGTH)
+			column_index = LUDO_HOME_COLUMN_LENGTH - 1;
+		return board_home_column_cell(player, column_index);
+	}
+}
 
-				ludo_move_pawn(&game, pawn);
-				refresh_status();
-				redraw_now();
-				pace_delay(60);
+/*
+ * Function: preview_destination
+ * Summary: Where a pawn would land if moved right now with the current
+ *          roll -- a read-only preview (no state change), used for the
+ *          hover highlight (see game_view_poll_idle()). Safe to call for
+ *          any pawn ludo_movable_pawns() reports movable: that already
+ *          guarantees game.last_roll doesn't overshoot the home column.
+ */
+static board_cell preview_destination(int player, int pawn_index)
+{
+	const ludo_pawn *p = &game.players[player].pawns[pawn_index];
+
+	return cell_for_steps(player, p->steps + game.last_roll);
+}
+
+/*
+ * Function: after_settle
+ * Summary: Decide the turn_step to leave things in once a roll or a move
+ *          has fully resolved (no animation, no pending auto-move) --
+ *          shared by resolve_roll() and resolve_move() so "whose turn is
+ *          it now" is handled in exactly one place. STEP_AWAIT_CONTINUE
+ *          if it's now an AI-controlled player's turn (their next action,
+ *          even the very first roll of a fresh turn, waits for a
+ *          Continue click -- per explicit user request), otherwise
+ *          STEP_IDLE for ordinary human play (or a finished game).
+ */
+static void after_settle(void)
+{
+	if (game.winner == -1 && player_is_ai[game.current_player])
+		step = STEP_AWAIT_CONTINUE;
+	else
+		step = STEP_IDLE;
+	refresh_status();
+	redraw_now();
+}
+
+/*
+ * Function: start_move_animation
+ * Summary: Apply a pawn's move immediately (the rules/board state change
+ *          instantly, exactly as before) but hold its on-screen position
+ *          at the old cell and animate it sliding along the real board
+ *          track, one square per die pip (move_anim_path[], built here
+ *          from the pawn's steps count *before* the move via
+ *          cell_for_steps()) rather than cutting straight across the
+ *          board in one jump -- per explicit user request ("is it
+ *          possible to follow the valid spaces track?"). Used for both a
+ *          human's clicked/auto-moved pawn and an AI's chosen pawn.
+ */
+static void start_move_animation(int player, int pawn_index)
+{
+	int from_steps = game.players[player].pawns[pawn_index].steps;
+	int to_steps, i;
+
+	ludo_move_pawn(&game, pawn_index);
+	to_steps = game.players[player].pawns[pawn_index].steps;
+
+	move_anim_path_len = to_steps - from_steps + 1;
+	if (move_anim_path_len > MOVE_ANIM_MAX_PATH)
+		move_anim_path_len = MOVE_ANIM_MAX_PATH; /* defensive -- a legal roll is never more than 6 */
+	for (i = 0; i < move_anim_path_len; i++)
+		move_anim_path[i] = cell_for_steps(player, from_steps + i);
+
+	move_anim_player = player;
+	move_anim_pawn_index = pawn_index;
+	move_anim_tick = 0;
+	move_anim_next_tick = os_read_monotonic_time() + MOVE_ANIM_STEP_CS;
+	hover_active = 0;
+	step = STEP_MOVING;
+	mark_move_animation_area_dirty();
+}
+
+/*
+ * Function: resolve_move
+ * Summary: Called once a pawn-move animation has finished -- the board
+ *          state is already correct (start_move_animation() applied it
+ *          up front), so this just settles the next turn_step.
+ */
+static void resolve_move(void)
+{
+	after_settle();
+}
+
+/*
+ * Function: resolve_roll
+ * Summary: Called once a die-roll animation has finished and the real
+ *          result is showing -- runs the same "what happens after this
+ *          roll" logic for both human and AI turns: a mandatory six-
+ *          release needs nothing further; otherwise, with no legal move
+ *          the turn's already been handled internally by ludo_roll()
+ *          (see game_logic.h); with exactly one legal move it's played
+ *          automatically for a human (per existing "don't ask which
+ *          pawn" behaviour) and *always* automatically for an AI (via
+ *          ludo_ai_choose_pawn()); with more than one legal move, a
+ *          human is left to click a pawn (STEP_IDLE), highlighted per
+ *          game_view_redraw()'s movable-pawn ring.
+ */
+static void resolve_roll(void)
+{
+	unsigned movable;
+
+	if (game.just_released) {
+		after_settle();
+		return;
+	}
+
+	movable = ludo_movable_pawns(&game);
+	if (movable == 0) {
+		after_settle();
+		return;
+	}
+
+	if (player_is_ai[game.current_player]) {
+		int pawn = ludo_ai_choose_pawn(&game, movable, LUDO_AI_NORMAL);
+
+		start_move_animation(game.current_player, pawn);
+		return;
+	}
+
+	{
+		int auto_pawn = single_movable_pawn(movable);
+
+		if (auto_pawn != -1) {
+			start_move_animation(game.current_player, auto_pawn);
+			return;
+		}
+	}
+
+	/* Multiple choices -- a human clicks a pawn next; nothing more
+	 * automatic happens this step. */
+	step = STEP_IDLE;
+	refresh_status();
+	redraw_now();
+}
+
+/*
+ * Function: start_roll_animation
+ * Summary: Roll the die immediately (the real result is determined right
+ *          away, exactly as before) but hold the displayed face on a
+ *          cycling cosmetic animation for ROLL_ANIM_TICKS redraws (see
+ *          game_view_poll_idle()) before revealing it and calling
+ *          resolve_roll() -- per explicit user request ("AI play does
+ *          not have any dice throw animation"). Used for both a human's
+ *          Throw click and an AI's Continue-triggered roll.
+ */
+static void start_roll_animation(void)
+{
+	ludo_roll(&game, 0);
+	roll_anim_ticks_done = 0;
+	dice_display_face = 1;
+	roll_anim_next_tick = os_read_monotonic_time() + ROLL_ANIM_TICK_CS;
+	hover_active = 0;
+	step = STEP_ROLLING;
+	mark_dice_area_dirty();
+}
+
+/*
+ * Function: game_view_poll_idle
+ * Summary: Called by main.c on every Wimp_Poll Null_Reason_Code (idle)
+ *          event. Advances whichever animation is currently running by
+ *          comparing the real-time clock against a stored "next tick
+ *          due" mark (never blocking/busy-waiting -- unlike the old
+ *          pace_delay(), this must let Wimp_Poll keep running so the
+ *          Continue button and pointer stay responsive throughout), and
+ *          separately polls the pointer position for the hover-
+ *          destination highlight (see preview_destination()) at a
+ *          coarser interval, since that's cheap but pointless to redo on
+ *          literally every idle poll.
+ */
+void game_view_poll_idle(void)
+{
+	os_t now;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	now = os_read_monotonic_time();
+
+	if (step == STEP_ROLLING) {
+		if (now < roll_anim_next_tick)
+			return;
+		roll_anim_ticks_done++;
+		if (roll_anim_ticks_done >= ROLL_ANIM_TICKS) {
+			dice_display_face = game.last_roll;
+			mark_dice_area_dirty();
+			resolve_roll();
+		} else {
+			dice_display_face = (dice_display_face % 6) + 1;
+			mark_dice_area_dirty();
+			roll_anim_next_tick = now + ROLL_ANIM_TICK_CS;
+		}
+		return;
+	}
+
+	if (step == STEP_MOVING) {
+		int total_ticks = (move_anim_path_len - 1) * MOVE_ANIM_TICKS_PER_CELL;
+
+		if (now < move_anim_next_tick)
+			return;
+		move_anim_tick++;
+		if (move_anim_tick >= total_ticks) {
+			mark_move_animation_area_dirty();
+			resolve_move();
+		} else {
+			mark_move_animation_area_dirty();
+			move_anim_next_tick = now + MOVE_ANIM_STEP_CS;
+		}
+		return;
+	}
+
+	/* Hover-destination highlight: only meaningful in exactly the same
+	 * "waiting for the human to pick among several pawns" situation the
+	 * movable-pawn rings cover (see game_view_redraw()) -- checked here
+	 * rather than unconditionally so an idle AI turn, a finished game, or
+	 * a mid-animation frame never computes or shows a stale preview. */
+	if (step != STEP_IDLE || game.winner != -1 || player_is_ai[game.current_player]
+	 || game.last_roll == 0) {
+		if (hover_active) {
+			hover_active = 0;
+			redraw_now();
+		}
+		return;
+	}
+
+	if (now < hover_next_poll)
+		return;
+	hover_next_poll = now + HOVER_POLL_CS;
+
+	{
+		unsigned movable = ludo_movable_pawns(&game);
+		wimp_pointer pointer;
+		int was_active = hover_active;
+		board_cell prev_dest = hover_destination;
+		int new_active = 0;
+		board_cell new_dest = { 0, 0 };
+
+		if (movable != 0) {
+			wimp_window_state state;
+			int work_x, work_y, col, row, pawn;
+
+			wimp_get_pointer_info(&pointer);
+			if (pointer.w == window_handle) {
+				state.w = window_handle;
+				wimp_get_window_state(&state);
+				work_x = pointer.pos.x - state.visible.x0 + state.xscroll;
+				work_y = pointer.pos.y - state.visible.y1 + state.yscroll;
+				col = (work_x - BOARD_ORIGIN_X) / CELL;
+				row = (BOARD_ORIGIN_Y - work_y) / CELL;
+
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+					board_cell cell;
+
+					if (!(movable & (1u << pawn)))
+						continue;
+					cell = board_pawn_cell(&game, game.current_player, pawn);
+					if (cell.col == col && cell.row == row) {
+						new_active = 1;
+						new_dest = preview_destination(game.current_player, pawn);
+						break;
+					}
+				}
 			}
+		}
+
+		if (new_active != was_active || (new_active
+		 && (new_dest.col != prev_dest.col || new_dest.row != prev_dest.row))) {
+			hover_active = new_active;
+			hover_destination = new_dest;
+			redraw_now();
 		}
 	}
 }
@@ -458,10 +1255,178 @@ static void advance_ai_turns(void)
 void game_view_new_game(void)
 {
 	ludo_init(&game);
-	refresh_status();
-	if (window_handle != (wimp_w) -1)
-		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-	advance_ai_turns();
+	game_started = 1;
+	step = STEP_IDLE;
+	hover_active = 0;
+	dice_display_face = 0;
+	/* after_settle() itself calls refresh_status() and does a synchronous
+	 * full redraw -- see its doc comment. If the very first player is
+	 * AI-controlled, their first action still waits for a Continue click. */
+	after_settle();
+}
+
+int game_view_has_started(void)
+{
+	return game_started;
+}
+
+const char *game_view_app_dir(void)
+{
+	return app_dir;
+}
+
+/*
+ * Save/load
+ * =========
+ *
+ * A fixed-layout binary snapshot of everything needed to resume a game
+ * exactly where it left off: each player's configured name and human/AI
+ * setting (see game_view_configure_players()), plus every field of the
+ * `ludo_game` struct itself (game_logic.h). Deliberately NOT a raw
+ * `fwrite(&game, ...)` struct dump -- compiler struct padding isn't part
+ * of any documented contract, so an explicit byte-by-byte layout (via
+ * serialize_game()/deserialize_game()) is used instead, the same way
+ * network/file formats normally are. See src/save_view.c for the
+ * Save/Load dialogue windows and the drag-and-drop protocol built on top
+ * of these functions -- per explicit user request for GEOS-parity
+ * save/load, and docs/ARCHITECTURE.md's Round 7.1 notes on why drag-and-
+ * drop rather than GEOS's own file picker.
+ */
+#define SAVE_FILE_SIZE GAME_VIEW_SAVE_FILE_SIZE
+
+/*
+ * Function: serialize_game
+ * Summary: Pack the current game (players' names/AI flags, and every
+ *          field of `game`) into a fixed-size byte buffer -- see the
+ *          "Save/load" block comment above for the layout and why it's
+ *          explicit rather than a raw struct dump.
+ * Syntax:  static void serialize_game(unsigned char *buf);
+ * Input:   buf - at least SAVE_FILE_SIZE bytes.
+ * Output:  none. buf is filled with exactly SAVE_FILE_SIZE bytes.
+ */
+static void serialize_game(unsigned char *buf)
+{
+	int i = 0, player, pawn;
+
+	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '1';
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		memcpy(&buf[i], configured_name[player], GAME_VIEW_NAME_LEN);
+		i += GAME_VIEW_NAME_LEN;
+		buf[i++] = (unsigned char) player_is_ai[player];
+	}
+
+	buf[i++] = (unsigned char) game.current_player;
+	buf[i++] = (unsigned char) game.last_roll;
+	buf[i++] = (unsigned char) game.tries_remaining;
+	buf[i++] = (unsigned char) game.forced_pawn;
+	buf[i++] = (unsigned char) game.pending_forced_pawn;
+	buf[i++] = (unsigned char) game.just_released;
+	buf[i++] = (unsigned char) game.winner;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			buf[i++] = (unsigned char) game.players[player].pawns[pawn].in_play;
+			buf[i++] = (unsigned char) game.players[player].pawns[pawn].finished;
+			buf[i++] = (unsigned char) game.players[player].pawns[pawn].steps;
+		}
+	}
+}
+
+/*
+ * Function: deserialize_game
+ * Summary: Reverse of serialize_game() -- restores `configured_name`,
+ *          `player_is_ai`, and `game` from a buffer produced by it.
+ *          Caller must have already checked the 4-byte magic/version
+ *          (see game_view_load_from_path()) before calling this.
+ * Syntax:  static void deserialize_game(const unsigned char *buf);
+ * Input:   buf - SAVE_FILE_SIZE bytes, magic already verified.
+ * Output:  none.
+ */
+static void deserialize_game(const unsigned char *buf)
+{
+	int i = 4, player, pawn;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		memcpy(configured_name[player], &buf[i], GAME_VIEW_NAME_LEN);
+		configured_name[player][GAME_VIEW_NAME_LEN - 1] = '\0';
+		i += GAME_VIEW_NAME_LEN;
+		player_is_ai[player] = buf[i++];
+	}
+
+	game.current_player = buf[i++];
+	game.last_roll = buf[i++];
+	game.tries_remaining = buf[i++];
+	game.forced_pawn = (signed char) buf[i++];
+	game.pending_forced_pawn = (signed char) buf[i++];
+	game.just_released = buf[i++];
+	game.winner = (signed char) buf[i++];
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			game.players[player].pawns[pawn].in_play = buf[i++];
+			game.players[player].pawns[pawn].finished = buf[i++];
+			game.players[player].pawns[pawn].steps = buf[i++];
+		}
+	}
+}
+
+int game_view_save_to_path(const char *path)
+{
+	unsigned char buf[SAVE_FILE_SIZE];
+	FILE *f;
+	size_t written;
+
+	serialize_game(buf);
+
+	f = fopen(path, "wb");
+	if (f == NULL) {
+		debug_log("game_view_save_to_path: fopen failed for \"%s\"\n", path);
+		return 0;
+	}
+	written = fwrite(buf, 1, SAVE_FILE_SIZE, f);
+	fclose(f);
+
+	if (written != SAVE_FILE_SIZE) {
+		debug_log("game_view_save_to_path: short write to \"%s\" (%lu/%d bytes)\n",
+		          path, (unsigned long) written, SAVE_FILE_SIZE);
+		return 0;
+	}
+	return 1;
+}
+
+int game_view_load_from_path(const char *path)
+{
+	unsigned char buf[SAVE_FILE_SIZE];
+	FILE *f;
+	size_t got;
+
+	f = fopen(path, "rb");
+	if (f == NULL) {
+		debug_log("game_view_load_from_path: fopen failed for \"%s\"\n", path);
+		return 0;
+	}
+	got = fread(buf, 1, SAVE_FILE_SIZE, f);
+	fclose(f);
+
+	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '1') {
+		debug_log("game_view_load_from_path: \"%s\" is not a valid ArchiLudo save "
+		          "(%lu bytes read, expected %d)\n", path, (unsigned long) got, SAVE_FILE_SIZE);
+		return 0;
+	}
+
+	deserialize_game(buf);
+	game_started = 1;
+	hover_active = 0;
+	/* Show whatever die face the save was mid-turn on, if any, rather
+	 * than a blank die until the next throw. */
+	dice_display_face = game.last_roll;
+	/* after_settle() sets the correct turn_step (STEP_AWAIT_CONTINUE if
+	 * the loaded game's current player is AI-controlled, matching
+	 * game_view_new_game()'s own "every AI action waits for Continue"
+	 * rule) and does the refresh_status()/full redraw. */
+	after_settle();
+	return 1;
 }
 
 void game_view_initialise(const char *argv0)
@@ -595,196 +1560,6 @@ wimp_w game_view_window_handle(void)
 	return window_handle;
 }
 
-/*
- * Function: cell_centre
- * Summary: The centre point, in the current redraw's absolute screen
- *          coordinates, of a board grid cell -- shared by the cell-kind
- *          loop and plot_pawn() so marker circles and pawns line up
- *          exactly.
- */
-static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, int *cy)
-{
-	*cx = origin_x + BOARD_ORIGIN_X + col * CELL + CELL / 2;
-	*cy = origin_y + BOARD_ORIGIN_Y - row * CELL - CELL / 2;
-}
-
-/*
- * Function: plot_pawn
- * Summary: Draw one pawn -- home base, ring, home column, or finished --
- *          wherever board_pawn_cell() says it currently is: two
- *          overlapping filled circles (a wider "body" below a narrower
- *          "head"), giving a simple pawn-like silhouette.
- *
- *          Round 6.3: this used to plot the recoloured GEOS pawn sprite
- *          (see assets/generate_placeholder_art.py) via
- *          xosspriteop_put_sprite_user_coords(). Three separate small
- *          sprites in a row rendered wrong in Arculator in ways that
- *          never reproduced in any offline check (the packed sprite's
- *          own metadata, and a locally-simulated 2x/4x stretch, both
- *          looked correct every time): round 6.1's board-entry markers
- *          (too narrow), round 6.3's dice (cropped), and this pawn sprite
- *          itself (rendering solid black regardless of player, despite
- *          the packed sprite file's palette and pixel data both verified
- *          correct offline -- see docs/GRAPHICS_TOOLING.md's "Round
- *          6.4"). Given `os_plot` primitives (circles, rectangles,
- *          triangles) have been reliable in every single round so far
- *          with zero unexplained failures, standardised on them for both
- *          pawns and dice rather than keep chasing a sprite-rendering
- *          bug with no diagnosable cause -- correctness over the
- *          authentic GEOS silhouette shape for this Phase 1 placeholder
- *          pass. Revisit real sprite art in Phase 2 with more time to
- *          debug properly (or a different underlying mechanism, e.g. an
- *          explicit ColourTrans_GenerateTable translation table).
- */
-static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
-{
-	board_cell cell = board_pawn_cell(&game, player, pawn_index);
-	int cx, cy;
-	int body_radius = PAWN_SIZE * 5 / 16;
-	int head_radius = PAWN_SIZE * 3 / 16;
-	/* Outline thickness -- drawn as a slightly larger black circle behind
-	 * each fill circle rather than an os_PLOT_CIRCLE_OUTLINE stroke, so its
-	 * width is controllable (the outline plot code draws a fixed 1-pixel
-	 * line). Needed so a pawn sitting on a same-coloured background marker
-	 * (its own home column lane, or its own ring entry marker) is still
-	 * visible against it -- per explicit user request. */
-	int outline = PAWN_SIZE / 12;
-	int body_y, head_y;
-
-	cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
-	body_y = cy - body_radius * 2 / 5;
-	head_y = cy + body_radius * 4 / 5;
-
-	set_gcol(0, 0, 0);
-	fill_circle(cx, body_y, body_radius + outline);
-	fill_circle(cx, head_y, head_radius + outline);
-
-	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-	fill_circle(cx, body_y, body_radius);
-	fill_circle(cx, head_y, head_radius);
-}
-
-/*
- * Function: plot_start_marker
- * Summary: Draw one player's board-entry marker at a CELL_RING_ENTRY
- *          cell: a filled circle in the player's colour (same size as an
- *          ordinary marker) with a white arrow pointing in that player's
- *          direction of travel -- per explicit user request ("should
- *          look like a normal round but filled in the corresponding
- *          color and an arrow in it in direction of movement"). Round
- *          6's first attempt reused GEOS's own bm_gstart/rstart/bstart/
- *          ystart bitmaps as sprites here, but they rendered far too
- *          narrow in Arculator for reasons that didn't reproduce in any
- *          offline check (the packed sprite file's own metadata and a
- *          round-tripped/stretched preview both looked correct -- see
- *          docs/GRAPHICS_TOOLING.md's "Round 6.1"); drawn programmatically
- *          instead, sidestepping the whole sprite-scaling question and
- *          giving an exact, guaranteed-correct size and shape.
- */
-static void plot_start_marker(int player, int cx, int cy)
-{
-	/* Direction each player's pawns travel at their own entry point, as
-	 * OS-unit screen deltas (not row/col deltas -- board rows increase
-	 * DOWNWARD on screen, i.e. toward more NEGATIVE os units, since
-	 * cell_centre() subtracts row*CELL) -- matches board_layout.c's ring
-	 * travel order exactly: green +col (right), red +row (down), blue
-	 * -col (left), yellow -row (up); verified by comparing each player's
-	 * entry ring cell against the very next one in travel order. */
-	static const int dir_x[LUDO_PLAYERS] = {  1,  0, -1,  0 };
-	static const int dir_y[LUDO_PLAYERS] = {  0, -1,  0,  1 };
-	int dx = dir_x[player], dy = dir_y[player];
-	int tip_len = MARKER_RADIUS * 6 / 10;
-	int back_len = MARKER_RADIUS * 3 / 10;
-	int half_base = MARKER_RADIUS * 4 / 10;
-	int tip_x = cx + dx * tip_len,   tip_y = cy + dy * tip_len;
-	int base_x = cx - dx * back_len, base_y = cy - dy * back_len;
-	int perp_x = -dy, perp_y = dx;
-
-	set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-	fill_circle(cx, cy, MARKER_RADIUS);
-
-	set_gcol(255, 255, 255);
-	fill_triangle(tip_x, tip_y,
-	              base_x + perp_x * half_base, base_y + perp_y * half_base,
-	              base_x - perp_x * half_base, base_y - perp_y * half_base);
-}
-
-/*
- * Function: plot_dice
- * Summary: Draw a die face for the current roll -- a white square with a
- *          thin black border and the standard pip layout -- in the panel
- *          gap between the status line and the Throw button. Added in
- *          round 6.3 since nothing previously showed the roll's actual
- *          outcome anywhere on screen (per repeated user report: "no dice
- *          are shown still, nor outcome of the dice throw"). Draws
- *          nothing before the first throw of a turn (`game.last_roll ==
- *          0`).
- *
- *          Round 6.3 first tried this via GEOS's own dice1..6.gbm
- *          sprites (see assets/generate_placeholder_art.py); like the
- *          pawn sprite (see plot_pawn()'s doc comment), it rendered
- *          wrong in Arculator (cropped) for reasons that never
- *          reproduced offline. Drawn with `os_plot` primitives instead,
- *          for the same reliability reason.
- */
-static void plot_dice(int origin_x, int origin_y)
-{
-	/* Pip positions per face, as (col,row) on a 3x3 grid (0,0)=top-left
-	 * .. (2,2)=bottom-right, standard die layout. {-1,-1} marks unused
-	 * slots for faces with fewer than 6 pips. */
-	static const signed char pips[6][6][2] = {
-		{ {1, 1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
-		{ {0, 0}, {2, 2},   {-1, -1}, {-1, -1}, {-1, -1}, {-1, -1} },
-		{ {0, 0}, {1, 1},   {2, 2},   {-1, -1}, {-1, -1}, {-1, -1} },
-		{ {0, 0}, {2, 0},   {0, 2},   {2, 2},   {-1, -1}, {-1, -1} },
-		{ {0, 0}, {2, 0},   {1, 1},   {0, 2},   {2, 2},   {-1, -1} },
-		{ {0, 0}, {2, 0},   {0, 1},   {2, 1},   {0, 2},   {2, 2} },
-	};
-	int face = game.last_roll;
-	int cx, cy, x0, y0, x1, y1, i;
-	int border = DICE_SIZE / 16;
-	/* Smaller relative to `step` than a naive size/10 would give --
-	 * reported pip crowding on face 6 (two columns of 3) at the old
-	 * ratio, where adjacent same-column pips had very little gap between
-	 * their edges. */
-	int pip_radius = DICE_SIZE / 13;
-	int step = DICE_SIZE / 4;
-
-	if (face == 0)
-		return;
-
-	cx = origin_x + DICE_CENTRE_X;
-	cy = origin_y + DICE_CENTRE_Y;
-	x0 = cx - DICE_SIZE / 2;
-	y0 = cy - DICE_SIZE / 2;
-	x1 = cx + DICE_SIZE / 2;
-	y1 = cy + DICE_SIZE / 2;
-
-	/* Diagnostic for a reported "last line of die does not show" -- no
-	 * code bug found by re-reading this geometry (it's a plain square,
-	 * DICE_SIZE in both dimensions), so log the actual box each redraw
-	 * computes to check against WINDOW_HEIGHT/the window's current state
-	 * next round rather than guess further. */
-	debug_log("plot_dice: face=%d box=(%d,%d,%d,%d) WINDOW_HEIGHT=%d\n",
-	          face, x0, y0, x1, y1, WINDOW_HEIGHT);
-
-	set_gcol(0, 0, 0);
-	fill_rect(x0, y0, x1, y1);
-	set_gcol(255, 255, 255);
-	fill_rect(x0 + border, y0 + border, x1 - border, y1 - border);
-
-	set_gcol(0, 0, 0);
-	for (i = 0; i < 6; i++) {
-		int col = pips[face - 1][i][0];
-		int row = pips[face - 1][i][1];
-
-		if (col < 0)
-			break;
-		fill_circle(x0 + DICE_SIZE / 2 + (col - 1) * step,
-		            y0 + DICE_SIZE / 2 - (row - 1) * step,
-		            pip_radius);
-	}
-}
 
 void game_view_redraw(wimp_draw *redraw)
 {
@@ -794,56 +1569,60 @@ void game_view_redraw(wimp_draw *redraw)
 	while (more) {
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
-		int col, row, player, pawn;
+		int pawn;
 
-		for (row = 0; row < BOARD_GRID_SIZE; row++) {
-			for (col = 0; col < BOARD_GRID_SIZE; col++) {
-				cell_kind kind = cell_kinds[col][row];
-				int cx, cy, owner;
+		draw_board_region(origin_x, origin_y, 0, 0, BOARD_GRID_SIZE - 1, BOARD_GRID_SIZE - 1);
 
-				if (kind == CELL_EMPTY)
-					continue;
+		/* Movable-pawn highlight rings: only meaningful while genuinely
+		 * waiting for the human player to pick among more than one legal
+		 * choice (single-choice rolls auto-move immediately, see
+		 * resolve_roll(), so there's nothing to highlight then) -- per
+		 * explicit user request ("if multiple pawns are able to move,
+		 * suggest a way to highlight possible moves"). */
+		if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
+		 && game.last_roll != 0) {
+			unsigned movable = ludo_movable_pawns(&game);
 
-				cell_centre(col, row, origin_x, origin_y, &cx, &cy);
+			if (movable != 0 && (movable & (movable - 1)) != 0) {
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+					board_cell cell;
+					int cx, cy;
 
-				switch (kind) {
-				case CELL_RING:
-					set_gcol(96, 96, 96);
-					outline_circle(cx, cy, MARKER_RADIUS);
-					break;
-				case CELL_RING_ENTRY:
-					plot_start_marker(cell_owner[col][row], cx, cy);
-					break;
-				case CELL_HOME_COLUMN:
-					/* Always the owning player's full colour, whether or
-					 * not a pawn currently sits there -- GEOS shows these
-					 * as permanent "this lane belongs to X" markers, not
-					 * an occupancy indicator (confirmed against the
-					 * reference screenshot: the visible home-column dots
-					 * are full-saturation player colour, not a paler
-					 * background tint). */
-					owner = cell_owner[col][row];
-					set_gcol(player_rgb[owner][0], player_rgb[owner][1], player_rgb[owner][2]);
-					fill_circle(cx, cy, MARKER_RADIUS);
-					break;
-				default:
-					break;
+					if (!(movable & (1u << pawn)))
+						continue;
+					cell = board_pawn_cell(&game, game.current_player, pawn);
+					cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+					set_gcol(player_rgb[game.current_player][0],
+					         player_rgb[game.current_player][1],
+					         player_rgb[game.current_player][2]);
+					outline_circle(cx, cy, MOVABLE_HIGHLIGHT_RADIUS);
 				}
 			}
 		}
 
-		for (player = 0; player < LUDO_PLAYERS; player++)
-			for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
-				plot_pawn(player, pawn, origin_x, origin_y);
+		/* Hover destination preview -- see game_view_poll_idle(). */
+		if (hover_active) {
+			int cx, cy;
+
+			cell_centre(hover_destination.col, hover_destination.row, origin_x, origin_y, &cx, &cy);
+			set_gcol(0, 0, 0);
+			outline_circle(cx, cy, HOVER_HIGHLIGHT_RADIUS);
+		}
 
 		/* Player-colour swatch next to the name line -- matches GEOS's own
 		 * reference screenshot, which has a small coloured box beside the
-		 * player name/status text. */
+		 * player name/status text. Black outline (same "larger shape
+		 * behind the fill" technique as plot_pawn()'s pawn outline) per
+		 * explicit user request -- yellow in particular read poorly
+		 * against the panel's own light background with no border. */
 		{
 			int player = (game.winner != -1) ? game.winner : game.current_player;
 			int x0 = origin_x + SWATCH_X0;
 			int y1 = origin_y + SWATCH_Y1;
+			int outline = 2;
 
+			set_gcol(0, 0, 0);
+			fill_rect(x0 - outline, y1 - SWATCH_SIZE - outline, x0 + SWATCH_SIZE + outline, y1 + outline);
 			set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
 			fill_rect(x0, y1 - SWATCH_SIZE, x0 + SWATCH_SIZE, y1);
 		}
@@ -855,37 +1634,23 @@ void game_view_redraw(wimp_draw *redraw)
 }
 
 /*
- * Function: single_movable_pawn
- * Summary: If exactly one bit is set in a ludo_movable_pawns() mask,
- *          return that pawn's index; otherwise (none, or more than one)
- *          return -1. Used so the player is only ever asked to pick a
- *          pawn when there's an actual choice to make -- see
- *          game_view_click()'s ICON_THROW handler.
- */
-static int single_movable_pawn(unsigned mask)
-{
-	int pawn, found = -1;
-
-	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
-		if (!(mask & (1u << pawn)))
-			continue;
-		if (found != -1)
-			return -1;
-		found = pawn;
-	}
-	return found;
-}
-
-/*
  * Function: try_move_pawn
  * Summary: If (col, row) matches one of the current player's currently
  *          movable pawns, move it and refresh the display.
  */
 static void try_move_pawn(int col, int row)
 {
-	unsigned movable = ludo_movable_pawns(&game);
+	unsigned movable;
 	int pawn;
 
+	/* Only the human player actually clicks pawns: not during an
+	 * animation, an AI's turn (it always picks its own pawn via
+	 * resolve_roll()), or before any roll this turn. */
+	if (step != STEP_IDLE || game.winner != -1 || player_is_ai[game.current_player]
+	 || game.last_roll == 0)
+		return;
+
+	movable = ludo_movable_pawns(&game);
 	debug_log("try_move_pawn: click at (%d,%d) player=%d movable_mask=0x%x\n",
 	          col, row, game.current_player, movable);
 
@@ -897,16 +1662,8 @@ static void try_move_pawn(int col, int row)
 		cell = board_pawn_cell(&game, game.current_player, pawn);
 		debug_log("  candidate pawn %d at (%d,%d)\n", pawn, cell.col, cell.row);
 		if (cell.col == col && cell.row == row) {
-			ludo_move_pawn(&game, pawn);
-			debug_log("  MOVED pawn %d\n", pawn);
-			refresh_status();
-			wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-			/* The player after this human's move might be AI-controlled
-			 * (this move may have ended the turn, or chained through a
-			 * six onto the same player who might themselves be AI in a
-			 * mixed setup -- game_view_configure_players() puts no
-			 * restriction on which players are AI). */
-			advance_ai_turns();
+			debug_log("  MOVING pawn %d\n", pawn);
+			start_move_animation(game.current_player, pawn);
 			return;
 		}
 	}
@@ -963,43 +1720,22 @@ void game_view_click(wimp_pointer *pointer)
 	          ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
 
 	if (pointer->i == ICON_THROW) {
+		/* Ignore extra clicks while an animation is already running, or
+		 * outside the two situations this one button actually means
+		 * something in (a human's own "Throw", or an AI turn paused on
+		 * "Continue" -- see refresh_status()). */
+		if (step != STEP_IDLE && step != STEP_AWAIT_CONTINUE)
+			return;
+		if (step == STEP_IDLE && game.winner == -1 && player_is_ai[game.current_player])
+			return;
+
 		flash_throw_button();
 
 		if (game.winner != -1) {
 			game_view_new_game();
 		} else {
-			ludo_roll(&game, 0);
-			/* A six that releases a home pawn changes the board itself
-			 * (the released pawn appears on the ring), so needs a full
-			 * redraw. Otherwise, if exactly one pawn can legally move
-			 * (including the forced-pawn case, which is always exactly
-			 * one), move it immediately rather than making the player
-			 * click it -- per explicit user request ("if there is only
-			 * one possible pawn that moves, don't ask which pawn should
-			 * move"): the board changes either way, needing a full
-			 * redraw. Only when nothing changed (no release, no
-			 * auto-move -- just the status/die) is a panel-only redraw
-			 * enough; forcing a full-window redraw on every single throw
-			 * regardless caused a visible flash for no visual benefit. */
-			if (game.just_released) {
-				wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-			} else {
-				int auto_pawn = single_movable_pawn(ludo_movable_pawns(&game));
-
-				if (auto_pawn != -1) {
-					ludo_move_pawn(&game, auto_pawn);
-					wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-				} else {
-					wimp_force_redraw(window_handle, PANEL_X0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
-				}
-			}
+			start_roll_animation();
 		}
-		/* Whoever's turn it is now (possibly still this same player, on
-		 * a six) might be AI-controlled -- see game_view_configure_players().
-		 * Harmless no-op if game_view_new_game() (winner branch, above)
-		 * already resolved this. */
-		advance_ai_turns();
-		refresh_status();
 		return;
 	}
 

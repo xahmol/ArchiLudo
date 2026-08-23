@@ -12,6 +12,7 @@
 #include "setup_view.h"
 #include "game_view.h"
 #include "game_logic.h"
+#include "save_view.h"
 
 #define MARGIN        8
 #define ROW_HEIGHT   40
@@ -25,7 +26,11 @@
 #define BUTTON_GAP   16
 
 #define ROWS_HEIGHT (LUDO_PLAYERS * ROW_HEIGHT + (LUDO_PLAYERS - 1) * ROW_GAP)
-#define WINDOW_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH + MARGIN)
+#define ROWS_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH + MARGIN)
+/* Three buttons (Start/Load/Cancel) now, not two -- widen the window if
+ * that row would otherwise be wider than the name/type rows above it. */
+#define BUTTONS_WIDTH (MARGIN + 3 * BUTTON_WIDTH + 2 * BUTTON_GAP + MARGIN)
+#define WINDOW_WIDTH (ROWS_WIDTH > BUTTONS_WIDTH ? ROWS_WIDTH : BUTTONS_WIDTH)
 #define WINDOW_HEIGHT (MARGIN + ROWS_HEIGHT + MARGIN + BUTTON_HEIGHT + MARGIN)
 
 #define SWATCH_X0 MARGIN
@@ -38,15 +43,17 @@
 #define BUTTON_ROW_Y1 (-(MARGIN + ROWS_HEIGHT + MARGIN))
 #define BUTTON_ROW_Y0 (BUTTON_ROW_Y1 - BUTTON_HEIGHT)
 #define START_X0  MARGIN
-#define CANCEL_X0 (START_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define LOAD_X0   (START_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define CANCEL_X0 (LOAD_X0 + BUTTON_WIDTH + BUTTON_GAP)
 
-/* One swatch + name + type icon per player, then Start and Cancel. */
+/* One swatch + name + type icon per player, then Start, Load and Cancel. */
 #define ICON_SWATCH(player) ((player) * 3)
 #define ICON_NAME(player)   ((player) * 3 + 1)
 #define ICON_TYPE(player)   ((player) * 3 + 2)
 #define ICON_START  (LUDO_PLAYERS * 3)
-#define ICON_CANCEL (LUDO_PLAYERS * 3 + 1)
-#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 3 + 2)
+#define ICON_LOAD   (LUDO_PLAYERS * 3 + 1)
+#define ICON_CANCEL (LUDO_PLAYERS * 3 + 2)
+#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 3 + 3)
 
 /* Standard 16-colour Wimp desktop palette approximations of this
  * project's actual (full-RGB) player colours -- plain Wimp icons can
@@ -66,6 +73,7 @@ static char name_buffer[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 static char type_text[LUDO_PLAYERS][6]; /* "Human" or "AI", plus terminator */
 static int type_is_ai[LUDO_PLAYERS];
 static char start_validation[4] = "R1";
+static char load_validation[4] = "R1";
 static char cancel_validation[4] = "R1";
 
 static wimp_w window_handle = (wimp_w) -1;
@@ -205,6 +213,26 @@ void setup_view_initialise(void)
 		icon->data.indirected_text.validation = start_validation;
 		icon->data.indirected_text.size = 6;
 
+		icon = &def.icons[ICON_LOAD];
+		icon->extent.x0 = LOAD_X0;
+		icon->extent.x1 = LOAD_X0 + BUTTON_WIDTH;
+		icon->extent.y1 = BUTTON_ROW_Y1;
+		icon->extent.y0 = BUTTON_ROW_Y0;
+		/* Skips this dialogue's own player setup entirely -- per explicit
+		 * user request ("the new game dialogue needs a button to
+		 * optionally load a previously saved game"), opens
+		 * src/save_view.c's Load dialogue instead (which restores its own
+		 * player names/AI settings from the save file, see
+		 * game_view_load_from_path()). */
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = "Load";
+		icon->data.indirected_text.validation = load_validation;
+		icon->data.indirected_text.size = 5;
+
 		icon = &def.icons[ICON_CANCEL];
 		icon->extent.x0 = CANCEL_X0;
 		icon->extent.x1 = CANCEL_X0 + BUTTON_WIDTH;
@@ -276,6 +304,12 @@ void setup_view_click(wimp_pointer *pointer)
 
 	if (pointer->i == ICON_CANCEL) {
 		wimp_close_window(window_handle);
+		return;
+	}
+
+	if (pointer->i == ICON_LOAD) {
+		wimp_close_window(window_handle);
+		load_view_open();
 		return;
 	}
 

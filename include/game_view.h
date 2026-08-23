@@ -11,6 +11,14 @@
  * PANEL_WIDTH). */
 #define GAME_VIEW_NAME_LEN 12
 
+/* Size in bytes of a saved-game file -- see game_view_save_to_path()'s
+ * "Save/load" block comment in game_view.c for the layout. Exposed here
+ * (rather than kept private to game_view.c) so src/save_view.c's
+ * Message_DataSave drag-and-drop handshake can fill in an accurate
+ * est_size field without duplicating this arithmetic. */
+#define GAME_VIEW_SAVE_FILE_SIZE (4 + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 1) + 7 \
+                                 + LUDO_PLAYERS * LUDO_PAWNS * 3)
+
 /*
  * ArchiLudo game view
  * ====================
@@ -57,15 +65,47 @@ void game_view_open(void);
 /*
  * Function: game_view_new_game
  * Summary: Reset the game to a fresh start (all pawns home, player 0 to
- *          move), force a redraw of the window if it's open, and play
- *          out any leading AI turns (see game_view_configure_players())
- *          immediately -- so if player 0 is AI-controlled, their first
- *          turn happens without the human needing to click anything.
+ *          move), force a redraw of the window if it's open, and mark
+ *          the game as started (see game_view_has_started()). If player
+ *          0 is AI-controlled (see game_view_configure_players()), their
+ *          turn does *not* start automatically -- every AI action, even
+ *          a fresh turn's first roll, waits for a Continue click (the
+ *          Throw icon, relabelled -- per explicit user request).
  * Syntax:  void game_view_new_game(void);
  * Input:   none.
  * Output:  none.
  */
 void game_view_new_game(void);
+
+/*
+ * Function: game_view_has_started
+ * Summary: Whether a game has actually been started yet via
+ *          game_view_new_game() (i.e. via src/setup_view.c's "New Game"
+ *          dialogue's Start button). Lets main.c tell a first-ever
+ *          iconbar click -- which must open src/setup_view.c to ask for
+ *          player details first, per explicit user request -- apart from
+ *          a later one, which just reopens/refocuses the game already in
+ *          progress.
+ * Syntax:  int game_view_has_started(void);
+ * Input:   none.
+ * Output:  1 if a game has been started, 0 otherwise.
+ */
+int game_view_has_started(void);
+
+/*
+ * Function: game_view_poll_idle
+ * Summary: Advance whichever animation is currently running (a dice-roll
+ *          or pawn-move animation, see src/game_view.c's turn_step) and
+ *          poll the pointer for the movable-pawn hover-destination
+ *          highlight -- called by main.c on every Wimp_Poll
+ *          Null_Reason_Code (idle) event. A no-op on most calls (each
+ *          animation/poll step is throttled against the real-time clock
+ *          internally), so safe to call unconditionally every idle poll.
+ * Syntax:  void game_view_poll_idle(void);
+ * Input:   none.
+ * Output:  none.
+ */
+void game_view_poll_idle(void);
 
 /*
  * Function: game_view_configure_players
@@ -85,12 +125,53 @@ void game_view_new_game(void);
  *                  (e.g. "GREEN") in place rather than showing blank.
  *          is_ai - one flag per player: 0 = human (waits for Throw/board
  *                  clicks as normal), non-zero = AI-controlled (see
- *                  include/ai.h; plays automatically via
- *                  ludo_ai_choose_pawn() whenever it becomes their turn).
+ *                  include/ai.h; picks its pawn automatically via
+ *                  ludo_ai_choose_pawn() whenever it becomes their turn,
+ *                  but still waits for a Continue click -- the Throw icon,
+ *                  relabelled -- before each roll, per explicit user
+ *                  request that AI turns never advance on their own).
  * Output:  none.
  */
 void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
                                   const int is_ai[LUDO_PLAYERS]);
+
+/*
+ * Function: game_view_app_dir
+ * Summary: This program's own directory (see game_view_initialise()'s
+ *          argv0 handling), for src/save_view.c to build a sensible
+ *          default Save/Load pathname against, the same way
+ *          game_view.c's own debug log already does.
+ * Syntax:  const char *game_view_app_dir(void);
+ * Input:   none.
+ * Output:  the directory path (no trailing "."), or "" if
+ *          game_view_initialise() hasn't been called yet.
+ */
+const char *game_view_app_dir(void);
+
+/*
+ * Function: game_view_save_to_path
+ * Summary: Write the current game (player names/AI settings and full
+ *          board state) to a file at the given path -- see
+ *          src/game_view.c's "Save/load" block comment for the format.
+ * Syntax:  int game_view_save_to_path(const char *path);
+ * Input:   path - a full RISC OS pathname to write to.
+ * Output:  1 on success, 0 on failure (see the debug Log for why).
+ */
+int game_view_save_to_path(const char *path);
+
+/*
+ * Function: game_view_load_from_path
+ * Summary: Replace the current game with one loaded from a file
+ *          previously written by game_view_save_to_path(), and redraw
+ *          the game window if it's open. Marks the game as started (see
+ *          game_view_has_started()) so a first-ever iconbar click after
+ *          loading reopens the game rather than asking for setup again.
+ * Syntax:  int game_view_load_from_path(const char *path);
+ * Input:   path - a full RISC OS pathname to read from.
+ * Output:  1 on success, 0 on failure (not a valid ArchiLudo save, or
+ *          the file couldn't be read -- see the debug Log for which).
+ */
+int game_view_load_from_path(const char *path);
 
 /*
  * Function: game_view_window_handle

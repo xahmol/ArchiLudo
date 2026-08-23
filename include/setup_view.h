@@ -9,9 +9,12 @@
  *
  * The "New Game" dialogue: one row per player with a colour swatch, a
  * writable name field, and a click-to-toggle Human/AI button, plus
- * Start and Cancel. Start applies the settings to src/game_view.c (see
- * game_view_configure_players()) and starts a fresh game; Cancel closes
- * the dialogue without changing anything.
+ * Start, Load and Cancel. Start applies the settings to src/game_view.c
+ * (see game_view_configure_players()) and starts a fresh game; Load
+ * skips this dialogue's own setup entirely and opens src/save_view.c's
+ * Load dialogue instead, per explicit user request ("the new game
+ * dialogue needs a button to optionally load a previously saved game");
+ * Cancel closes the dialogue without changing anything.
  *
  * Kept as its own module (its own window, own icons, own click/redraw/
  * key handling) rather than folded into game_view.c or main.c, matching
@@ -70,7 +73,7 @@ void setup_view_redraw(wimp_draw *redraw);
 /*
  * Function: setup_view_click
  * Summary: Handle a Mouse_Click event in the setup window: toggling a
- *          Human/AI button, or Start/Cancel.
+ *          Human/AI button, or Start/Load/Cancel.
  * Syntax:  void setup_view_click(wimp_pointer *pointer);
  * Input:   pointer - the block from Wimp_Poll for a Mouse_Click event.
  * Output:  none.

@@ -50,7 +50,7 @@ decision below via an explicit choice):
 | Phase | Goal | Status |
 |---|---|---|
 | 0 | Build environment: ArchieSDK, Arculator profiles, `game_logic.c` + tests, docs set, PRM/wimp-prog mirrors | done |
-| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop, click handling, and rules bugs (own-pawn ring collision, finished-pawn placement) all fixed across six-plus rounds of real-hardware-emulator feedback -- see "Phase 1 implementation notes" below. Drag-based save/load still not done |
+| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop, click handling, and rules bugs (own-pawn ring collision, finished-pawn placement) all fixed across six-plus rounds of real-hardware-emulator feedback -- see "Phase 1 implementation notes" below. **Drag-and-drop save/load done** -- see "Round 7.2" below |
 | 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done, though round 6.3/6.4 dropped sprite *plotting* in the running game in favour of `os_plot` primitives after repeated unexplained rendering failures -- the tooling itself stays for Phase 2, see `docs/GRAPHICS_TOOLING.md`'s "Round 6.4" |
 | 2 | Real board/pawn/dice art via the tooling above, replacing the current flat-colour/`os_plot`-primitive placeholder cells with actual board artwork (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!)) -- the board *shape* itself is already the real one as of Phase 1 (ported from the GEOS edition, see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), so this phase is about art, not layout. Also where round 6.4's sprite-plotting mystery should get a proper second look | not started |
 | 3 | Audio: `lib/qtm.c`/`docs/QTM.md` wrapper (see [[archiludo-riscos-project]] memory / `CREDITS.md` for why QTM over archieklang), bundle `QTMModule`, background MOD + dice-roll/capture/win sound effects | not started |
@@ -545,7 +545,401 @@ opponent did) whenever it becomes an AI-controlled player's turn.
 `LUDO_AI_EASY`/`LUDO_AI_HARD` are declared but not yet distinct from
 `LUDO_AI_NORMAL` -- placeholders for later difficulty levels, see AI.md.
 
-### Board layout: ported from the GEOS edition, not invented
+**Round 6.9**: added a splash/about window (`src/splash_view.c` +
+`include/splash_view.h`), shown automatically once at startup and
+reachable afterwards via a new "About" iconbar menu entry. Shows the
+"idi8b" (I Dream In 8 Bits, the maintainer's own brand) logo plus
+title/version/author/URL text, matching GeoLudo's own splash-screen
+convention. Per round 6.4's still-unexplained sprite-plotting failures,
+the logo is drawn as flat `os_plot` rectangles (`logo_rects[]`), not a
+sprite, consistent with every other piece of ArchiLudo art.
+
+Getting the rectangle data right took three attempts, documented here
+since the dead ends are instructive:
+
+1. First attempt: downsample `idi8b-logo-lowercase.png` (from the
+   private `idreamtin8bits-astro` repo, checked out locally) via a
+   one-off Python block-average + nearest-brand-palette-classify script.
+   Hit two real bugs (classifying pre-composited-onto-white pixel
+   colours instead of raw RGB shifted pale purple into misclassifying as
+   blue; an antialiased noise row needed trimming from the grid) but
+   otherwise produced a plausible-looking 42x16 logo.
+2. Second attempt, prompted by the user asking to also check the ANSI
+   and PETSCII source formats in the same asset folder: tried
+   `idi8b-logo-ansi.ans` (CP437 block-character art, aliasing-free by
+   construction, seemingly a cleaner source than an antialiased PNG).
+   Produced a cleaner-looking 54x10 table -- but the user immediately
+   caught that it had lost the design's distinctive thin vertical-bar
+   strokes, flattened into wider blocks by the coarser character-cell
+   grid. Reverted to the PNG-derived table.
+3. Investigating why the PNG lost vertical-bar precision at all led to
+   the real fix: the user pointed out the PNG **is a direct screen
+   capture of the PETSCII source**, not independent artwork -- its
+   apparent "curves" were never real, just PNG antialiasing of
+   underlying blocky character-cell pixels. So the PETSCII source
+   (`idi8b-logo-lowercase.petmate`, a "Petmate" editor save: a JSON grid
+   of C64 screen-code + colour-index per character cell) is the true
+   ground truth, and decoding it directly gives a pixel-exact result
+   with zero antialiasing softness. Decoding it needs a real C64
+   character ROM to turn each screen code into its actual 8x8 bitmap --
+   guessing PETSCII glyph bit patterns from memory was considered and
+   rejected as too error-prone for a silent wrong-shape bug. Found one
+   locally: VICE (the emulator already used as this project's Arculator
+   role model for headless-testing feasibility, see Testing below) is
+   installed via apt but ships with no ROMs at all (Commodore's
+   copyright, standard for open-source distros) -- but a full VICE **source**
+   checkout at `~/svn-mirror/vice` (kept for unrelated reasons) bundles
+   its *test-suite* ROM dumps, including
+   `data/C64/chargen-901225-01.bin`, the standard C64 character ROM.
+   Verified against a known glyph (screen code 1, lowercase charset,
+   should render as the letter "a") before trusting it. Decoded the
+   `.petmate` file's first 11 character rows (row 11 turned out to be a
+   separate "IDreamtIn8Bits.com" byline in white-on-white, invisible,
+   correctly excluded once found) into a 216x88 pixel grid, merged
+   same-colour runs into 55 rectangles, then halved the resolution to
+   108x40 (every coordinate happened to come out exactly even for this
+   particular font's glyphs, so no precision was lost) to keep the table
+   a reasonable size. This is the table actually shipped -- see
+   `splash_view.c`'s `logo_rects[]` doc comment for the condensed
+   version of this writeup at the point of use.
+
+**Round 7**: a large batch of gameplay/UX feedback after the first real
+play-test with an AI opponent, addressed together since most of it
+turned out to share one underlying fix.
+
+- **Iconbar click must ask for player details first.** SELECT-clicking
+  the iconbar icon used to call `game_view_open()` directly, silently
+  starting a default (all-human, unnamed) game -- per explicit report
+  ("clicking on taskbar icon a game starts without asking game
+  details"). Fixed with a new `game_view_has_started()` flag, set the
+  first time `game_view_new_game()` actually runs (i.e. via
+  `setup_view.c`'s Start button): `main.c`'s iconbar handler now opens
+  `setup_view` instead of `game_view` until that's happened once, then
+  reverts to the normal "reopen the game in progress" behaviour.
+- **A menu inside the game window, not just the iconbar.** Per report
+  ("do not see a menu bar in the main game screen yet") -- RISC OS
+  convention is that a MENU click *inside* an app's own window opens its
+  menu too, not only the iconbar icon. `main.c`'s dispatch now checks
+  `wimp_CLICK_MENU` first, before routing by window, and opens the same
+  shared menu regardless of which of this task's own windows (iconbar,
+  game, setup, splash) the click landed in -- `Wimp_Poll` only ever
+  reports a `Mouse_Click` for a window this task owns, so there's no risk
+  of hijacking a click meant for another application.
+- **AI turns needed their own pacing, not a fixed timer.** The prior
+  design (`advance_ai_turns()`, a tight loop with a ~0.6s
+  `pace_delay()` busy-wait between each roll/move) had two problems: no
+  dice-roll animation at all, and no way for the human to actually pause
+  it -- per explicit report ("AI play does not have any dice throw
+  animation, nor waits for advancing" / "activate other button, reading
+  continue, and only continue after pressing that"). Rebuilt as an
+  explicit `turn_step` state machine (`STEP_IDLE` / `STEP_AWAIT_CONTINUE`
+  / `STEP_ROLLING` / `STEP_MOVING`) driven by `Wimp_Poll`'s own
+  `Null_Reason_Code` idle events (routed from `main.c` to a new
+  `game_view_poll_idle()`) rather than a blocking busy-wait -- each
+  animation tick is a non-blocking "has enough real time passed since the
+  last tick" check, so the Wimp stays fully responsive (Continue clicks,
+  window dragging, etc.) throughout. Whenever it's an AI-controlled
+  player's turn, the Throw icon relabels itself "Continue" (same
+  physical button, never two -- per explicit follow-up request) and
+  every single step of that turn -- including the very first roll --
+  waits for a click before proceeding, rather than only the *start* of
+  the turn needing one.
+- **Dice-roll and pawn-move animation.** `start_roll_animation()` rolls
+  the die immediately (the real result is already determined, exactly as
+  before) but holds the displayed face on a short cosmetic 1-6 cycle
+  (`STEP_ROLLING`, ~0.5s) before revealing it. `start_move_animation()`
+  likewise applies the move immediately but holds the pawn's *drawn*
+  position at its old cell, sliding it to the new one by linear
+  interpolation over a few redraws (`STEP_MOVING`) instead of the
+  previous instant jump -- per explicit request ("animate the pawns
+  actually moving to the new placement location"). Both apply uniformly
+  to human and AI turns; only the single pawn actually mid-move gets the
+  interpolated treatment in `plot_pawn()`, everything else draws
+  normally.
+- **AI status wording, not blank/stale text.** Per explicit request
+  ("show the status messages for AI play like throw again etc."),
+  `refresh_status()` now branches on `player_is_ai[]` throughout rather
+  than only ever describing a human's turn -- "Click Continue" instead
+  of "Click Throw", "AI is moving..." while its chosen pawn animates,
+  and the same "Pawn released!"/"Throw again" wording a human would see
+  on the equivalent roll.
+- **Highlighting legal moves and a hover preview.** Per explicit
+  request ("if multiple pawns are able to move, suggest a way to
+  highlight possible moves. On hover over possible moves, highlight the
+  destination"): `game_view_redraw()` now draws an outline ring around
+  every currently-movable pawn whenever a human has more than one legal
+  choice (single-choice rolls still auto-move immediately, so there's
+  nothing to highlight then); a new `preview_destination()` helper
+  mirrors `board_pawn_cell()`'s own steps-to-cell math read-only, and
+  `game_view_poll_idle()` polls `Wimp_GetPointerInfo` at a coarser
+  interval (throttled separately from the animation ticks) to detect
+  when the pointer sits over one of those movable pawns and highlight
+  the square it would land on.
+- **Splash screen polish**, per explicit follow-up requests: text lines
+  had zero gap between them ("too cramped without any pixel whiteline"),
+  fixed with a `TEXT_LINE_GAP` added into each icon's vertical spacing;
+  the version line was truncated to `major.minor.patch` ("would prefer
+  full version string including timestamp"), now shows `VERSION` in
+  full; the logo now sits on its own dark-grey card
+  (`LOGO_BG_PAD`-sized rectangle plotted behind it) rather than directly
+  on the window's light background, since the pastel brand colours read
+  poorly against it -- a black *outline* around the logo itself was
+  tried and rejected first (see the outline-comparison mockups from that
+  round): 1px looked clean, but the user preferred no outline once the
+  dark card made contrast unnecessary.
+
+**Round 7.1**: follow-up polish after the first real play-test of Round
+7's animation/Continue-button rework.
+
+- **"Continue" clipped inside the Throw button.** `THROW_WIDTH` (120)
+  was sized only for "Throw" (5 characters); "Continue" (8 characters)
+  needs more room at the system font's fixed 16-units/character width.
+  Bumped to 168, still comfortably inside `PANEL_WIDTH` (260).
+- **Animations were re-plotting the *entire* board every tick.**
+  `redraw_now()` always does a full `Wimp_RedrawWindow` pass re-running
+  *all* of `game_view_redraw()`'s drawing code (121 cell markers, every
+  pawn, the swatch, the die) -- fine for a one-off state change, but
+  wasteful called on every single `ROLL_ANIM_TICKS`/`MOVE_ANIM_STEPS`
+  animation tick, and visibly slow per report ("dice animation does
+  redraw of whole window every scene instead of just the dice redraw" /
+  "pawn movement also seems to do redraw every frame... only local
+  redraw?"). Fixed with two new synchronous-but-narrow-scope redraw
+  paths: `redraw_dice_now()` (used for every `STEP_ROLLING` tick) skips
+  straight to `plot_dice()`, nothing else; `redraw_move_animation_area()`
+  (used for every `STEP_MOVING` tick) computes the small bounding box of
+  grid cells the moving pawn's path can touch (its old cell, new cell,
+  plus a one-cell margin) and calls a new shared `draw_board_region()`
+  helper -- the same cell-marker/pawn drawing code `game_view_redraw()`
+  itself now calls (with the *whole* board as its range), just restricted
+  to that box. Wimp_RedrawWindow itself has no "redraw just this
+  rectangle" input (it always reports whatever's currently exposed on
+  screen), so the saving here is entirely in how much drawing *code* runs
+  per exposed rectangle, not in the number of rectangles -- correct and
+  effective all the same, since the expensive part was always the ~150
+  `os_plot` primitive calls, not the SWI dispatch itself. A deliberate
+  scope limit: a *second* pawn's position changing as a side effect of
+  the animating one's move (a capture sent home, a six-release) is
+  outside the localized region and only reappears once the animation
+  finishes and `after_settle()` does its own full redraw -- acceptable,
+  since nothing asked for those to animate too.
+- **Player-colour swatch got a black outline**, matching `plot_pawn()`'s
+  existing outline technique (a slightly larger black rectangle plotted
+  first, the colour on top) -- yellow in particular read poorly against
+  the panel's light background with no border.
+- **"A full menu bar with all of GEOS's menu options" -- checked, mostly
+  already equivalent or not applicable.** Read
+  `/home/xahmol/git/ludo/GEOS/src/main.c`'s `menuMain`/`menuGame`/
+  `menuGEOS`/`menuFile` trees and their handler functions in full before
+  answering rather than guessing from the item names alone:
+  - `(Re)Start` (`gameRestart()`) re-prompts for player names via the
+    same `inputofnames()` GEOS's initial start uses -- this is exactly
+    what ArchiLudo's existing "New Game" already does, not a distinct
+    "quick restart, same players" feature as the name might suggest.
+  - `Color` (`gameColor()`) is a monochrome/colour *hardware* toggle,
+    working around 8-bit machines that can't all guarantee colour
+    output -- VIDC gives every real Archimedes model full colour under
+    RISC OS 3.10 unconditionally, so there's nothing for an equivalent
+    option to toggle (this exact reasoning is already recorded in this
+    doc's GeoLudo->Wimp mapping table, under `monochromeflag`).
+  - `Credits` (`informationCredits()`) and GEOS's own startup splash
+    screen are, per `menus.c`'s `ShowCredits()`, *literally the same
+    function* -- title, description, version, author, two URLs, an OK
+    button -- with no separate deeper attribution list. ArchiLudo's
+    `splash_view.c` already plays exactly that dual role (shown at
+    startup, reachable again via the "About" menu entry), so adding a
+    separate "Credits" entry would just duplicate it with no new
+    content, not add real parity.
+  - `Load`/`Save`/`Autosave` (the `File` submenu) are the one genuine
+    gap: ArchiLudo has no save/load of any kind yet (`Directory
+    layout`/Roadmap above already flags "Drag-based save/load still not
+    done"). Per the GeoLudo->Wimp mapping table, the intended RISC OS
+    equivalent is drag-and-drop `Message_DataSave`/`DataSaveAck` plus a
+    Save dialogue, not GEOS's own directory-listing file picker -- a
+    real feature to design and build, not something a menu entry alone
+    can provide. Not added this round; flagged here for a deliberate,
+    separate decision on when to build it, rather than adding a menu
+    item that does nothing yet.
+
+**Round 7.2**: drag-and-drop save/load, per explicit user request after
+Round 7.1's GEOS-menu-parity review flagged it as the one genuine gap.
+New `src/save_view.c`/`include/save_view.h` (two small dialogue windows,
+Save and Load, each with a writable pathname icon -- type a path and
+click Save/Load or press Return, exactly like a standard RISC OS Save
+box's pathname field, no dragging required); the Save dialogue also has
+a draggable "File" icon (button type `CLICK_DRAG`, per the RISC OS 3
+PRM's icon button-type table -- a plain click reports `wimp_CLICK_SELECT`
+same as any button, but holding it past the ~0.2s drag threshold reports
+`wimp_DRAG_SELECT` instead, which is what actually starts the
+`Wimp_DragBox` outline) for the idiomatic drag-to-Filer flow. Both
+directions of the standard `Message_DataSave`/`DataSaveAck`/`DataLoad`/
+`DataLoadAck` handshake (`riscos_wimp_reference.md`'s "Save protocol"/
+"Load protocol" sections, curated from the PRM before writing any of
+this) are implemented: dragging the File icon onto a Filer window (or
+any other task's window) sends `Message_DataSave`; the reply's pathname
+is where the file actually gets written; dragging an existing save's
+Filer icon onto ArchiLudo's *game* window the other way triggers an
+unsolicited `Message_DataLoad` (`your_ref == 0`), loaded directly with
+no dialogue needed at all. `main.c` gained a `wimp_USER_DRAG_BOX` case
+and routes every `wimp_USER_MESSAGE`/`_RECORDED` through
+`save_view_message_received()` (a no-op for actions that aren't part of
+this handshake).
+
+The save format itself (`game_view_save_to_path()`/
+`game_view_load_from_path()`, `src/game_view.c`) is a small fixed-layout
+binary snapshot -- every player's configured name/AI setting plus every
+field of `ludo_game` -- packed/unpacked byte-by-byte rather than a raw
+`fwrite(&game, ...)` struct dump, since struct padding isn't part of any
+documented contract. Uses the generic `&FFD` ("Data") RISC OS filetype
+rather than a registered one, since double-click-to-open (`Message_
+DataOpen`) would need `!Boot`-time filetype/application registration
+this project doesn't set up -- dragging onto an already-running
+ArchiLudo's game window works regardless and was judged sufficient for
+this round; noted as a known limitation in `save_view.h`'s doc comment
+rather than silently unsupported.
+
+Checked against the actual GEOS menu handlers
+(`fileLoad`/`fileSave`/`fileAutosaveToggle`, `GEOS/src/main.c`) before
+writing anything: GEOS's own `Autosave` toggle has no ArchiLudo
+equivalent yet (not asked for, and "autosave on every move" is a
+separate design decision from "can save/load at all" -- left for later
+if wanted, not assumed).
+
+**Round 7.3**: the real cause of Round 7.1's local-redraw work still
+visibly breaking, found in the PRM rather than guessed at, plus a
+follow-up animation-quality request.
+
+- **The actual bug: `Wimp_RedrawWindow` clears its own rectangles.**
+  Per explicit user report ("animation now wipes the whole board without
+  redraw"): the RISC OS 3 PRM states plainly that `Wimp_RedrawWindow`/
+  `Wimp_GetRectangle` **automatically clear every returned rectangle to
+  the window's background colour** before handing control back to the
+  app ("the areas to be redrawn are automatically cleared... by the
+  Wimp"). Round 7.1's `redraw_dice_now()`/`redraw_move_animation_area()`
+  were calling exactly that SWI -- so every single animation tick first
+  blanked the *entire* exposed window (there's no caller-supplied clip
+  rectangle, see `draw_board_region()`'s doc comment) to light grey, and
+  only that tick's narrow `plot_dice()`/`draw_board_region()` call ever
+  got repainted, leaving the rest of the board blank until the next full
+  redraw. The fix is `Wimp_UpdateWindow` instead -- the PRM's own
+  documented use case is "temporary changes to the window, for example,
+  when dragging objects," exactly this scenario -- which does not clear,
+  preserving whatever was already on screen so the narrow per-tick
+  drawing calls are genuinely enough. `game_view_redraw()` itself (the
+  real `Redraw_Window_Request` handler) still correctly uses
+  `Wimp_RedrawWindow`, where the auto-clear is the *wanted* behaviour
+  (start from a clean slate after real window exposure).
+- **Sprites investigated as an alternative, not adopted.** Before this
+  fix was confirmed, the user asked whether switching the pawn/die art
+  from `os_plot` primitives back to sprites might sidestep the wipe
+  problem, and asked for research into a pixel-exact 17-sprite set (4
+  pawns x 4 players + 1 die). Findings: sprites don't avoid the
+  underlying issue -- `OS_SpriteOp`/`Wimp_SpriteOp` plotting still goes
+  through the exact same `Wimp_RedrawWindow`/`UpdateWindow` protocol and
+  still needs the same "redraw what's underneath" handling when a sprite
+  moves (the same technique this project already uses for its `os_plot`
+  circles); plotting sprites *outside* that protocol, directly to the
+  screen on a timer, would violate RISC OS's cooperative-multitasking
+  contract (another window/menu could legally be on top at any moment,
+  and only the Wimp's redraw protocol coordinates who's allowed to touch
+  which screen pixels when). More importantly, this project has three
+  separate, still-unexplained sprite-plotting failures on record (see
+  `docs/GRAPHICS_TOOLING.md`'s "Round 6.1"/"6.3"/"6.4" -- pawns solid
+  black regardless of player, dice visibly cropped, markers too narrow,
+  all independently verified correct offline every time) whose symptoms
+  don't match this bug's signature (background-colour blanking) at all,
+  meaning switching to sprites now would very likely reintroduce a
+  *different*, still-unsolved risk for no benefit, since the actual wipe
+  bug is already fixed independent of primitives vs. sprites. Sprites
+  remain a legitimate Phase 2 investigation (see that section's "worth
+  revisiting with a cleaner test harness" note) but weren't pursued this
+  round.
+- **Pawn-move animation now follows the real board track.** Per explicit
+  follow-up request ("is it possible to follow the valid spaces track?"
+  -- the previous straight-line interpolation cut diagonally across the
+  board on longer moves instead of visibly hopping along the ring/home
+  column). `start_move_animation()` now captures the pawn's steps count
+  *before* calling `ludo_move_pawn()`, and builds a `move_anim_path[]` --
+  one board cell per intervening step, via a new `cell_for_steps()`
+  helper (the same ring/home-column dispatch `board_pawn_cell()` uses,
+  generalised to an arbitrary explicit steps value rather than a pawn's
+  own current one; `preview_destination()` -- the hover-highlight
+  helper, round 7's own addition -- now just calls it too instead of
+  duplicating the same logic). The animation interpolates through each
+  segment of that path in turn (`MOVE_ANIM_TICKS_PER_CELL` ticks per
+  square) rather than one straight line between just the two endpoints,
+  so a six-square move visibly traces the actual track. The localized
+  redraw region (`redraw_move_animation_area()`) now bounds *all* path
+  cells, not just the two endpoints.
+
+**Round 7.4**: a "Load" button added to `setup_view.c`'s "New Game"
+dialogue, per explicit request ("the new game dialogue needs a button to
+optionally load a previously saved game"). Doesn't duplicate any load
+logic -- clicking it just closes the setup dialogue and opens
+`save_view.c`'s existing Load dialogue instead, which already restores
+its own player names/AI settings from the save file
+(`game_view_load_from_path()`), so there's nothing setup-specific left
+to configure once a save is loaded. Widened the dialogue's `WINDOW_WIDTH`
+calculation to take the max of the player-rows width and the (now
+three-button) Start/Load/Cancel row's width, rather than the previous
+fixed width that only accounted for the rows above.
+
+**Round 7.5**: Round 7.3's `Wimp_UpdateWindow` fix turned out to be
+wrong too -- per explicit follow-up report ("animation is not visible
+anymore, only end and begin state"), it silently produced no visible
+intermediate frames at all (start and end states came from other,
+unrelated full redraws -- `resolve_roll()`'s fallback path and
+`after_settle()` -- not from the animation itself). Rather than guess a
+*third* time at which synchronous `Wimp_RedrawWindow`/`Wimp_UpdateWindow`
+call is "the right one," per the user's explicit request ("research
+alternatives: sprites or a real animation that does not completely
+redraw on every frame") this was rethought from the actual RISC OS Wimp
+architecture rather than patched again:
+
+- **Sprites don't change this problem.** However the pawn/die art is
+  drawn, moving it still requires redrawing whatever's underneath the
+  old position -- sprites carry no "moves without needing a repaint"
+  property, and plotting them *outside* the Wimp's redraw protocol
+  (e.g. directly on a timer) would violate RISC OS's cooperative-
+  multitasking contract, since another window or menu can legally be on
+  top of any part of the screen at any moment and only the Wimp's own
+  redraw protocol coordinates who's allowed to touch which pixels when.
+- **The actual fix: stop calling Wimp_RedrawWindow/Wimp_UpdateWindow
+  directly from inside a tick at all.** Both of Round 7.1's and 7.3's
+  attempts tried to synchronously force a redraw pass mid-tick -- fighting
+  the Wimp's protocol from two different wrong angles (auto-clear
+  scoped too broadly; then a call whose real behaviour didn't match what
+  the animation needed). The correct, PRM-standard technique -- and one
+  this exact codebase already used successfully *before* any of this
+  animation work existed, for `try_move_pawn()`'s panel-only redraw --
+  is `Wimp_ForceRedraw` with a small work-area rectangle, then letting
+  the Wimp deliver a genuine `Redraw_Window_Request` back through the
+  normal `Wimp_Poll` loop on its own schedule, handled by
+  `game_view_redraw()` completely unchanged. `Wimp_RedrawWindow`'s
+  auto-clear (Round 7.3's finding, still correct) is exactly right for a
+  *genuine* redraw request -- the OS, not this code, decides how much of
+  the window that pass actually needs to touch, clipped to the
+  requested rectangle when nothing's obscuring it. `game_view_redraw()`
+  can keep drawing the whole board's worth of `os_plot` calls every
+  time without that being expensive for a small forced rectangle, since
+  plot calls for content outside whatever VDU graphics window the Wimp
+  sets up are cheap no-ops. `redraw_move_animation_area()`/
+  `redraw_dice_now()` were replaced with `mark_move_animation_area_dirty()`/
+  `mark_dice_area_dirty()` -- both now just call `wimp_force_redraw()`
+  with a computed work-area box (a new `cell_range_to_work_box()` helper
+  converts a board-cell range to that box, the inverse of
+  `cell_centre()`'s per-cell math) and return immediately; the actual
+  drawing happens on the next `Wimp_Poll` iteration, which given this
+  project's tight poll loop is imperceptibly fast, not a visible delay.
+
+**Round 7.6**: the Save dialogue's draggable icon (Round 7.2) turned out
+not to be discoverable -- per explicit report ("thought we were going to
+implement icon dragging and dropping? It now asks just the full
+filepath"). The drag functionality itself was already implemented and
+correct (re-verified against the code, not just assumed); the real
+problem was presentation: a plain 40-unit-square icon labelled "File"
+doesn't read as "drag me" at a glance, and at that width even that
+short label was clipped. Relabelled "Drag" and widened to 64 units so
+the label actually fits and the intent is legible.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
@@ -567,16 +961,20 @@ ArchiLudo/
     game_logic.c     -- rules engine (portable)
     board_layout.c    -- board geometry (portable)
     ai.c               -- AI opponent move selection (portable, see docs/AI.md)
-    game_view.c         -- the game window: creation, redraw, clicks
+    game_view.c         -- the game window: creation, redraw, clicks, animation
     setup_view.c         -- the "New Game" dialogue: names, Human/AI per player
-    main.c                 -- WIMP shell (task lifecycle, iconbar, dispatch)
+    splash_view.c          -- the startup/About window (idi8b logo, version, author)
+    save_view.c              -- Save/Load dialogues + drag-and-drop file transfer
+    main.c                     -- WIMP shell (task lifecycle, iconbar, dispatch)
   include/
     game_logic.h      -- rules engine API + full rules writeup
     board_layout.h     -- board geometry API
     ai.h                -- AI API
     game_view.h          -- game window API
     setup_view.h          -- setup dialogue API
-    archiludo.h            -- WIMP shell shared declarations
+    splash_view.h           -- splash/About window API
+    save_view.h               -- Save/Load dialogue + drag-and-drop API
+    archiludo.h                 -- WIMP shell shared declarations
   tests/
     test_game_logic.c   -- host-side automated test suite (`make test`)
     test_board_layout.c  -- ditto, for board_layout.c
@@ -624,8 +1022,9 @@ strategy for the UI layer once it's built:
 | `fieldcoords[40][2]`/`homedestcoords[4][8][2]` (board geometry) | `board_layout.c`'s ring/home-column/home-base tables (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)) | Ported directly (coordinate-converted), not redesigned -- the user explicitly wanted the same board |
 | `struct menu` tree (`menuGEOS`/`menuGame`/`menuFile`) | `wimp_menu` tree via `Wimp_CreateMenu` | Direct structural match |
 | `DlgBoxGetString`/`DlgBoxYesNo`/`DlgBoxOk`/`DlgBoxOkCancel` | A small reusable dialogue-window helper built on plain Wimp windows | Wimp has no built-in dialogue-box kernel call like GEOS does |
-| `SaveFile`/`GetFile` (GEOS's directory-listing file picker) | RISC OS-native Save box + drag-and-drop (`Message_DataSave`/`DataSaveAck`, `Message_DataOpen`) | Idiomatic RISC OS UX, not a literal port |
+| `SaveFile`/`GetFile` (GEOS's directory-listing file picker) | `save_view.c`'s Save/Load dialogues (typed pathname) + drag-and-drop (`Message_DataSave`/`DataSaveAck`/`DataLoad`) -- see "Round 7.2" below | Idiomatic RISC OS UX, not a literal port -- `Message_DataOpen` (double-click-to-open) not implemented, see `save_view.h`'s doc comment |
 | `throwicon`/`nexticon` (`struct icontab`) | Ordinary `wimp_icon`s inside the game window | Direct conceptual match |
+| `informationCredits()`/`ShowCredits()` (splash and Credits menu item are literally the same screen, see "Round 7.1" below) | `splash_view.c`'s About window -- shown at startup and reachable again via the "About" menu entry, same dual role | Direct conceptual match, no separate "Credits" needed -- see "Round 7.1" below for why one wasn't added |
 | `computerchoosepawn()` (AI move choice) | `ai.c`'s `ludo_ai_choose_pawn()` | Assessed and reused as the basis (score every legal move, pick the highest), not a literal port -- see [AI.md](AI.md) for what carried over, what changed to fit this project's own rules, and what was fixed rather than faithfully copied |
 | `inputofnames()` (name entry + AI count, `DlgBoxGetString`) | `setup_view.c`'s "New Game" dialogue: one writable name icon + one click-to-toggle Human/AI icon per player | More granular than GEOS's single "how many AI players" count -- per-player choice, not just a count, per explicit request |
 | Custom per-platform bitmap/colour-card plotting (`interface.c`, `geoscore.s`) | RISC OS Sprites (`OS_SpriteOp`) in a window redraw handler | GEOS needed hand-written pixel code per 8-bit machine; RISC OS's sprite plotter is uniform |

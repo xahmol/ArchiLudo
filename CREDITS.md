@@ -86,6 +86,25 @@ to -- this file consolidates all of it in one place.
   `docs/AI.md` for exactly what carried over and what changed.
   `https://github.com/xahmol/ludo`
 
+## Branding
+
+- **"idi8b" (I Dream In 8 Bits) logo** -- the maintainer's own brand
+  identity, shown on ArchiLudo's splash/about window
+  (`src/splash_view.c`). Source artwork
+  (`idi8b-logo-lowercase.png`/`.ans`/`.petmate`) from the private
+  `idreamtin8bits-astro` repo, checked out locally at
+  `/home/xahmol/git/idreamtin8bits-astro`; reproduced as a hand-extracted
+  grid of flat `os_plot` rectangles rather than a sprite -- see
+  `docs/ARCHITECTURE.md`'s "Round 6.9" notes for why and how. By Xander
+  Mol, the author of this project.
+- **C64 character ROM dump** (`chargen-901225-01.bin`) -- used one-off,
+  offline, to decode the `.petmate` PETSCII source above into an exact
+  pixel bitmap (see `docs/ARCHITECTURE.md`'s "Round 6.9"); not shipped
+  with or built into ArchiLudo itself. Original ROM copyright Commodore
+  Business Machines; this dump found in a local VICE source checkout's
+  test-suite data (`~/svn-mirror/vice/data/C64/`), not distributed by
+  the Debian/Ubuntu `vice` package itself.
+
 ## Updating this file
 
 Add an entry here whenever a new external tool, library, module, or
