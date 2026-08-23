@@ -80,7 +80,10 @@ to -- this file consolidates all of it in one place.
   `docs/GRAPHICS_TOOLING.md`'s "Round 6: reusing GeoLudo's own art" and
   "Round 6.3". (The board-entry direction markers, `bm_{g,r,b,y}start.gbm`,
   were also tried this way but are drawn programmatically instead as of
-  round 6.1 -- see that section for why.)
+  round 6.1 -- see that section for why.) ArchiLudo's AI opponent
+  (`src/ai.c`) is likewise assessed from, not a literal port of,
+  GeoLudo's `computerchoosepawn()` (`GEOS/src/main.c`) -- see
+  `docs/AI.md` for exactly what carried over and what changed.
   `https://github.com/xahmol/ludo`
 
 ## Updating this file

@@ -4,11 +4,13 @@
 #include "oslib/wimp.h"
 #include "archiludo.h"
 #include "game_view.h"
+#include "setup_view.h"
 
 wimp_t task_handle;
 
-#define ICONBAR_MENU_ITEMS 1
-#define ICONBAR_MENU_QUIT  0
+#define ICONBAR_MENU_ITEMS    2
+#define ICONBAR_MENU_NEW_GAME 0
+#define ICONBAR_MENU_QUIT     1
 
 static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
 
@@ -38,9 +40,10 @@ static void create_iconbar_icon(void)
 
 /*
  * Function: build_iconbar_menu
- * Summary: Build the (fixed, never rebuilt) iconbar menu: just "Quit"
- *          for this Phase 1 milestone -- see docs/ARCHITECTURE.md's
- *          Roadmap for the credits/options entries planned later.
+ * Summary: Build the (fixed, never rebuilt) iconbar menu: "New Game"
+ *          (opens src/setup_view.c's player-configuration dialogue) and
+ *          "Quit" -- see docs/ARCHITECTURE.md's Roadmap for the credits
+ *          entry planned later.
  */
 static void build_iconbar_menu(void)
 {
@@ -52,6 +55,14 @@ static void build_iconbar_menu(void)
 	iconbar_menu.width = 200;
 	iconbar_menu.height = wimp_MENU_ITEM_HEIGHT;
 	iconbar_menu.gap = wimp_MENU_ITEM_GAP;
+
+	iconbar_menu.entries[ICONBAR_MENU_NEW_GAME].menu_flags = 0;
+	iconbar_menu.entries[ICONBAR_MENU_NEW_GAME].sub_menu = wimp_NO_SUB_MENU;
+	iconbar_menu.entries[ICONBAR_MENU_NEW_GAME].icon_flags = wimp_ICON_TEXT | wimp_ICON_FILLED
+	                                                        | wimp_ICON_VCENTRED
+	                                                        | (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT)
+	                                                        | (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT);
+	strncpy(iconbar_menu.entries[ICONBAR_MENU_NEW_GAME].data.text, "New Game", 12);
 
 	iconbar_menu.entries[ICONBAR_MENU_QUIT].menu_flags = wimp_MENU_LAST;
 	iconbar_menu.entries[ICONBAR_MENU_QUIT].sub_menu = wimp_NO_SUB_MENU;
@@ -70,6 +81,7 @@ void archiludo_initialise(const char *argv0)
 	create_iconbar_icon();
 	build_iconbar_menu();
 	game_view_initialise(argv0);
+	setup_view_initialise();
 }
 
 /*
@@ -89,6 +101,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 	case wimp_REDRAW_WINDOW_REQUEST:
 		if (block->redraw.w == game_view_window_handle())
 			game_view_redraw(&block->redraw);
+		else if (block->redraw.w == setup_view_window_handle())
+			setup_view_redraw(&block->redraw);
 		break;
 
 	case wimp_OPEN_WINDOW_REQUEST:
@@ -112,11 +126,27 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 				game_view_open();
 		} else if (block->pointer.w == game_view_window_handle()) {
 			game_view_click(&block->pointer);
+		} else if (block->pointer.w == setup_view_window_handle()) {
+			setup_view_click(&block->pointer);
 		}
 		break;
 
+	case wimp_KEY_PRESSED:
+		/* Only src/setup_view.c's "New Game" dialogue has writable icons
+		 * (player name entry) -- everywhere else, just pass the key
+		 * straight through so the Wimp's own default key handling still
+		 * runs (e.g. Tab/caret movement in whichever window currently has
+		 * the input focus, even if it isn't one of ours). */
+		if (block->key.w == setup_view_window_handle())
+			setup_view_key_pressed(&block->key);
+		else
+			wimp_process_key(block->key.c);
+		break;
+
 	case wimp_MENU_SELECTION:
-		if (block->selection.items[0] == ICONBAR_MENU_QUIT)
+		if (block->selection.items[0] == ICONBAR_MENU_NEW_GAME)
+			setup_view_open();
+		else if (block->selection.items[0] == ICONBAR_MENU_QUIT)
 			return true;
 		break;
 

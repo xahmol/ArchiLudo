@@ -16,6 +16,7 @@
 #include "game_view.h"
 #include "game_logic.h"
 #include "board_layout.h"
+#include "ai.h"
 
 /* Round 6: redesigned to match GeoLudo's own screen layout (board on the
  * left, a status/controls panel on the right -- see
@@ -121,6 +122,12 @@ static const int player_rgb[LUDO_PLAYERS][3] = {
 	{ 230, 200, 30 },  /* 3: yellow */
 };
 static const char *player_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLOW" };
+
+/* Per-player configuration from src/setup_view.c's "New Game" dialogue --
+ * see game_view_configure_players(). configured_name[n][0]=='\0' means
+ * "no custom name set", falling back to player_name[n] above. */
+static char configured_name[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
+static int player_is_ai[LUDO_PLAYERS];
 
 static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
@@ -315,13 +322,25 @@ static void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2)
  *          PANEL_WIDTH at the system font's fixed 16-OS-units/character
  *          width.
  */
+/*
+ * Function: player_display_name
+ * Summary: A player's configured name (see game_view_configure_players()),
+ *          falling back to their fixed colour name if none was set.
+ */
+static const char *player_display_name(int player)
+{
+	if (configured_name[player][0] != '\0')
+		return configured_name[player];
+	return player_name[player];
+}
+
 static void refresh_status(void)
 {
 	if (game.winner != -1) {
-		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_name[game.winner]);
+		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_display_name(game.winner));
 		snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
 	} else {
-		snprintf(name_text, NAME_TEXT_LEN, "%s", player_name[game.current_player]);
+		snprintf(name_text, NAME_TEXT_LEN, "%s", player_display_name(game.current_player));
 
 		if (game.last_roll == 0) {
 			snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
@@ -347,12 +366,102 @@ static void refresh_status(void)
 	}
 }
 
+void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+                                  const int is_ai[LUDO_PLAYERS])
+{
+	int player;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		strncpy(configured_name[player], names[player], GAME_VIEW_NAME_LEN - 1);
+		configured_name[player][GAME_VIEW_NAME_LEN - 1] = '\0';
+		player_is_ai[player] = is_ai[player];
+	}
+}
+
+/*
+ * Function: redraw_now
+ * Summary: Redraw the whole game window immediately, synchronously --
+ *          not via wimp_force_redraw(), which only *schedules* a
+ *          Redraw_Window_Request for the next Wimp_Poll and so wouldn't
+ *          show anything until this whole function returns. Needed by
+ *          advance_ai_turns() so each AI roll/move actually becomes
+ *          visible one at a time rather than only the final state ever
+ *          appearing on screen. This is the same
+ *          Wimp_RedrawWindow/Wimp_GetRectangle call
+ *          main_dispatch()'s wimp_REDRAW_WINDOW_REQUEST case makes in
+ *          response to a genuine Wimp-issued request -- Wimp_RedrawWindow
+ *          doesn't care why the app is asking, only which window.
+ */
+static void redraw_now(void)
+{
+	wimp_draw redraw;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	redraw.w = window_handle;
+	game_view_redraw(&redraw);
+}
+
+/*
+ * Function: pace_delay
+ * Summary: A short deliberate busy-wait (same technique as
+ *          flash_throw_button()'s press-flash, see that function's doc
+ *          comment) so an AI-controlled player's rolls and moves are
+ *          visible one at a time rather than flashing past instantly.
+ */
+static void pace_delay(int centiseconds)
+{
+	os_t start = os_read_monotonic_time();
+
+	while (os_read_monotonic_time() - start < centiseconds)
+		;
+}
+
+/*
+ * Function: advance_ai_turns
+ * Summary: Play out consecutive AI-controlled turns automatically,
+ *          starting from whoever g.current_player is right now, stopping
+ *          as soon as it's a human player's turn (or the game has been
+ *          won). Called after anything that might have changed whose
+ *          turn it is: a human's move, an AI's own move finishing a
+ *          six-bonus chain and ending their turn, or a fresh game
+ *          starting -- see game_view_configure_players()'s doc comment.
+ *          Each roll and each move gets its own redraw_now() +
+ *          pace_delay() so a human watching can actually follow what an
+ *          AI opponent did, rather than only ever seeing the final state
+ *          once several turns have already happened.
+ */
+static void advance_ai_turns(void)
+{
+	while (game.winner == -1 && player_is_ai[game.current_player]) {
+		ludo_roll(&game, 0);
+		refresh_status();
+		redraw_now();
+		pace_delay(60);
+
+		if (!game.just_released) {
+			unsigned movable = ludo_movable_pawns(&game);
+
+			if (movable != 0) {
+				int pawn = ludo_ai_choose_pawn(&game, movable, LUDO_AI_NORMAL);
+
+				ludo_move_pawn(&game, pawn);
+				refresh_status();
+				redraw_now();
+				pace_delay(60);
+			}
+		}
+	}
+}
+
 void game_view_new_game(void)
 {
 	ludo_init(&game);
 	refresh_status();
 	if (window_handle != (wimp_w) -1)
 		wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+	advance_ai_turns();
 }
 
 void game_view_initialise(const char *argv0)
@@ -792,6 +901,12 @@ static void try_move_pawn(int col, int row)
 			debug_log("  MOVED pawn %d\n", pawn);
 			refresh_status();
 			wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+			/* The player after this human's move might be AI-controlled
+			 * (this move may have ended the turn, or chained through a
+			 * six onto the same player who might themselves be AI in a
+			 * mixed setup -- game_view_configure_players() puts no
+			 * restriction on which players are AI). */
+			advance_ai_turns();
 			return;
 		}
 	}
@@ -879,6 +994,11 @@ void game_view_click(wimp_pointer *pointer)
 				}
 			}
 		}
+		/* Whoever's turn it is now (possibly still this same player, on
+		 * a six) might be AI-controlled -- see game_view_configure_players().
+		 * Harmless no-op if game_view_new_game() (winner branch, above)
+		 * already resolved this. */
+		advance_ai_turns();
 		refresh_status();
 		return;
 	}

@@ -50,12 +50,12 @@ decision below via an explicit choice):
 | Phase | Goal | Status |
 |---|---|---|
 | 0 | Build environment: ArchieSDK, Arculator profiles, `game_logic.c` + tests, docs set, PRM/wimp-prog mirrors | done |
-| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop done, first round of real-hardware-emulator feedback applied, **needs another round of manual Arculator verification**; name-entry/restart-confirm dialogues and drag-based save/load not yet done (deferred to polish alongside Phase 5) |
-| 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done |
-| 2 | Real board/pawn/dice art via the tooling above, replacing the current flat-colour-rectangle placeholder cells with actual board artwork (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!)) -- the board *shape* itself is already the real one as of Phase 1 (ported from the GEOS edition, see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), so this phase is about art, not layout | not started |
+| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop, click handling, and rules bugs (own-pawn ring collision, finished-pawn placement) all fixed across six-plus rounds of real-hardware-emulator feedback -- see "Phase 1 implementation notes" below. Drag-based save/load still not done |
+| 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done, though round 6.3/6.4 dropped sprite *plotting* in the running game in favour of `os_plot` primitives after repeated unexplained rendering failures -- the tooling itself stays for Phase 2, see `docs/GRAPHICS_TOOLING.md`'s "Round 6.4" |
+| 2 | Real board/pawn/dice art via the tooling above, replacing the current flat-colour/`os_plot`-primitive placeholder cells with actual board artwork (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!)) -- the board *shape* itself is already the real one as of Phase 1 (ported from the GEOS edition, see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), so this phase is about art, not layout. Also where round 6.4's sprite-plotting mystery should get a proper second look | not started |
 | 3 | Audio: `lib/qtm.c`/`docs/QTM.md` wrapper (see [[archiludo-riscos-project]] memory / `CREDITS.md` for why QTM over archieklang), bundle `QTMModule`, background MOD + dice-roll/capture/win sound effects | not started |
 | 4 | Enhanced graphics: full-screen double-buffered gameplay view (see "Graphics architecture: hybrid" below), smooth pawn/dice animation | not started |
-| 5 | AI difficulty, credits/options dialogues, `!Sprites`/`!Boot`/`!Run` app-directory packaging | not started |
+| 5 | AI difficulty, credits/options dialogues, `!Sprites`/`!Boot`/`!Run` app-directory packaging | **player setup (names, Human/AI per player) and a first AI opponent done early** -- see [AI.md](AI.md) and "Phase 1 implementation notes" below, "Round 6.8". Difficulty levels beyond the one implemented, and credits/options dialogues, still not started |
 | 6 | Release: versioned zip, README/screenshots, both Arculator profiles verified | not started |
 | 7 (future, unscheduled) | Expand beyond this one "Mens Erger Je Niet" variant to support multiple Pachisi/Ludo/Mens Erger Je Niet house-rule variants, selectable by the player | not started -- see note below |
 
@@ -509,6 +509,42 @@ press/release-synchronised highlight with zero app code, but colour-swap
 highlighting rather than the specific slab-out/slab-in bevel switch that
 was asked for, so weren't used here.
 
+**Round 6.7**: fixed a genuine rules bug, not a misunderstanding -- a
+finished pawn was rendering at an invented shared centre cell (5,5),
+which the user correctly flagged as "plain wrong in rules". Checked
+against GEOS's actual `homedestcoords[player][0..7]` (8 slots per
+player: 0-3 home base, 4-7 home column, nothing beyond) rather than
+assuming: there is no separate "finished" destination in the original
+game at all -- a finished pawn simply stays on its home column's last
+square. `board_pawn_cell()` fixed to clamp there instead of dispatching
+to a `board_finished_cell()` that's now been removed entirely. Also
+bumped `DICE_SIZE` and widened pip spacing for a reported "overlapping
+pips" complaint on face 6.
+
+**Round 6.8**: implemented player setup and a first AI opponent, per
+explicit request (assess GeoLudo's own AI, feel free to improve, prepare
+for future difficulty levels and rule variants). `src/setup_view.c` is a
+new "New Game" dialogue window (writable name icon + click-to-toggle
+Human/AI icon per player, Start/Cancel), reachable from a new "New Game"
+iconbar menu entry; `src/ai.c` is a new, host-testable module (see
+[AI.md](AI.md)) providing `ludo_ai_choose_pawn()`, adapted from
+GeoLudo's `computerchoosepawn()` -- same overall shape (score every
+legal move, pick the highest) but with the "landing on your own pawn"
+scoring changed to match this project's own rule (round 6.5: sends the
+earlier pawn home, not illegal like in GEOS), the danger/escape scoring
+recomputed with real ring-square distance instead of GEOS's same-lap
+coordinate shortcut (which isn't actually valid except by coincidence),
+and an exact rather than proxied "is this the winning move" check.
+`game_view.c` gained `game_view_configure_players()` and
+`advance_ai_turns()`, which plays out consecutive AI turns automatically
+(with a short pace_delay() and an immediate `redraw_now()` -- not
+`wimp_force_redraw()`, which only schedules a redraw for the next
+`Wimp_Poll` rather than showing anything right away -- after each roll
+and each move, so a human watching can actually follow what an AI
+opponent did) whenever it becomes an AI-controlled player's turn.
+`LUDO_AI_EASY`/`LUDO_AI_HARD` are declared but not yet distinct from
+`LUDO_AI_NORMAL` -- placeholders for later difficulty levels, see AI.md.
+
 ### Board layout: ported from the GEOS edition, not invented
 
 The Phase 1 board shape now comes directly from
@@ -530,29 +566,39 @@ ArchiLudo/
   src/
     game_logic.c     -- rules engine (portable)
     board_layout.c    -- board geometry (portable)
-    game_view.c        -- the game window: creation, redraw, clicks
-    main.c               -- WIMP shell (task lifecycle, iconbar, dispatch)
+    ai.c               -- AI opponent move selection (portable, see docs/AI.md)
+    game_view.c         -- the game window: creation, redraw, clicks
+    setup_view.c         -- the "New Game" dialogue: names, Human/AI per player
+    main.c                 -- WIMP shell (task lifecycle, iconbar, dispatch)
   include/
     game_logic.h      -- rules engine API + full rules writeup
     board_layout.h     -- board geometry API
+    ai.h                -- AI API
     game_view.h          -- game window API
+    setup_view.h          -- setup dialogue API
     archiludo.h            -- WIMP shell shared declarations
   tests/
     test_game_logic.c   -- host-side automated test suite (`make test`)
     test_board_layout.c  -- ditto, for board_layout.c
+    test_ai.c              -- ditto, for ai.c
   tools/
-    riscos_sprite.py  -- PNG <-> RISC OS Sprite converter (host-side, Python)
+    riscos_sprite.py  -- PNG <-> RISC OS Sprite converter (host-side, Python;
+                          not currently consumed by the running game -- see
+                          docs/GRAPHICS_TOOLING.md's "Round 6.4")
   assets/
-    geos_source/                  -- local copies of the GeoLudo .gbm bitmaps reused below
-    generate_placeholder_art.py -- recolours/resizes them into Phase 1 art (reproducible)
-    pawn0.png .. pawn3.png        -- generated source images (home base pawn)
-    start0.png .. start3.png      -- generated source images (ring entry marker)
-    Sprites                       -- packed sprite file the game loads
+    geos_source/                  -- local copies of the GeoLudo .gbm bitmaps
+    generate_placeholder_art.py -- recolours/resizes/packs them (reproducible;
+                                    output currently unused by the game, kept
+                                    for Phase 2 -- see above)
+    pawn0.png .. pawn3.png        -- generated source images
+    dice1.png .. dice6.png         -- generated source images
+    Sprites                        -- packed sprite file (currently unused)
   docs/
     ARCHITECTURE.md    -- this file
     BUILDCHAIN.md       -- ArchieSDK/Makefile/toolchain manual
     GAME_LOGIC.md        -- rules engine manual
     BOARD_LAYOUT.md       -- board geometry manual
+    AI.md                   -- AI opponent manual
     OSLIB.md                -- how this project uses OSLib
     LIBARCHIE.md             -- ArchieSDK's bundled helper library
     GRAPHICS_TOOLING.md      -- the sprite converter and RISC OS sprite format
@@ -580,6 +626,8 @@ strategy for the UI layer once it's built:
 | `DlgBoxGetString`/`DlgBoxYesNo`/`DlgBoxOk`/`DlgBoxOkCancel` | A small reusable dialogue-window helper built on plain Wimp windows | Wimp has no built-in dialogue-box kernel call like GEOS does |
 | `SaveFile`/`GetFile` (GEOS's directory-listing file picker) | RISC OS-native Save box + drag-and-drop (`Message_DataSave`/`DataSaveAck`, `Message_DataOpen`) | Idiomatic RISC OS UX, not a literal port |
 | `throwicon`/`nexticon` (`struct icontab`) | Ordinary `wimp_icon`s inside the game window | Direct conceptual match |
+| `computerchoosepawn()` (AI move choice) | `ai.c`'s `ludo_ai_choose_pawn()` | Assessed and reused as the basis (score every legal move, pick the highest), not a literal port -- see [AI.md](AI.md) for what carried over, what changed to fit this project's own rules, and what was fixed rather than faithfully copied |
+| `inputofnames()` (name entry + AI count, `DlgBoxGetString`) | `setup_view.c`'s "New Game" dialogue: one writable name icon + one click-to-toggle Human/AI icon per player | More granular than GEOS's single "how many AI players" count -- per-player choice, not just a count, per explicit request |
 | Custom per-platform bitmap/colour-card plotting (`interface.c`, `geoscore.s`) | RISC OS Sprites (`OS_SpriteOp`) in a window redraw handler | GEOS needed hand-written pixel code per 8-bit machine; RISC OS's sprite plotter is uniform |
 | `monochromeflag`, `VDC_CLR0..4`, `Switch4080` | One fixed screen mode | VIDC gives every Archimedes the same colour capability under RISC OS 3.10 |
 | Overlay/VLIR loading (`loadoverlay`/`openVLIR`/`closeVLIR`) | None -- program stays resident | 1MB+ RAM makes this unnecessary |

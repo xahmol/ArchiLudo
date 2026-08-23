@@ -70,7 +70,7 @@ ELF      = build/$(APPNAME).elf
 TARGET   = build/$(APPNAME),ff8
 ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
 
-TEST_BINS = build/test_game_logic build/test_board_layout
+TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
 .SUFFIXES:
 .PHONY: all clean asm zip docs check-hostfs deploy test assets
@@ -123,6 +123,9 @@ build/test_game_logic: tests/test_game_logic.c src/game_logic.c include/game_log
 
 build/test_board_layout: tests/test_board_layout.c src/board_layout.c src/game_logic.c include/board_layout.h include/game_logic.h | build
 	$(HOSTCC) -Wall -Wextra -std=c99 -Iinclude -o $@ tests/test_board_layout.c src/board_layout.c src/game_logic.c
+
+build/test_ai: tests/test_ai.c src/ai.c src/game_logic.c include/ai.h include/game_logic.h | build
+	$(HOSTCC) -Wall -Wextra -std=c99 -Iinclude -o $@ tests/test_ai.c src/ai.c src/game_logic.c
 
 docs: README.pdf
 

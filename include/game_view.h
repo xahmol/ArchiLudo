@@ -2,6 +2,14 @@
 #define GAME_VIEW_H
 
 #include "oslib/wimp.h"
+#include "game_logic.h"
+
+/* Max characters (including the terminator) in a configured player name
+ * -- see game_view_configure_players(). Deliberately short: the name
+ * line's panel width only comfortably fits about a dozen characters at
+ * the system font's fixed 16-units/character width (see game_view.c's
+ * PANEL_WIDTH). */
+#define GAME_VIEW_NAME_LEN 12
 
 /*
  * ArchiLudo game view
@@ -49,12 +57,40 @@ void game_view_open(void);
 /*
  * Function: game_view_new_game
  * Summary: Reset the game to a fresh start (all pawns home, player 0 to
- *          move) and force a redraw of the window if it's open.
+ *          move), force a redraw of the window if it's open, and play
+ *          out any leading AI turns (see game_view_configure_players())
+ *          immediately -- so if player 0 is AI-controlled, their first
+ *          turn happens without the human needing to click anything.
  * Syntax:  void game_view_new_game(void);
  * Input:   none.
  * Output:  none.
  */
 void game_view_new_game(void);
+
+/*
+ * Function: game_view_configure_players
+ * Summary: Set each player's display name and whether they're
+ *          human-controlled or AI-controlled, per src/setup_view.c's
+ *          "New Game" dialogue. Takes effect immediately (the name/AI
+ *          status is read live wherever it's needed -- the panel's name
+ *          line, and whether a turn should be played automatically) but
+ *          does *not* itself reset the game in progress -- call
+ *          game_view_new_game() afterwards for that (setup_view.c's
+ *          Start button does both).
+ * Syntax:  void game_view_configure_players(
+ *              const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+ *              const int is_ai[LUDO_PLAYERS]);
+ * Input:   names - one GAME_VIEW_NAME_LEN-byte buffer per player; an
+ *                  empty string leaves that player's default colour name
+ *                  (e.g. "GREEN") in place rather than showing blank.
+ *          is_ai - one flag per player: 0 = human (waits for Throw/board
+ *                  clicks as normal), non-zero = AI-controlled (see
+ *                  include/ai.h; plays automatically via
+ *                  ludo_ai_choose_pawn() whenever it becomes their turn).
+ * Output:  none.
+ */
+void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+                                  const int is_ai[LUDO_PLAYERS]);
 
 /*
  * Function: game_view_window_handle
