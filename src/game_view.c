@@ -37,12 +37,16 @@
  * PAWN_SIZE (kept in sync manually, one's Python and one's C). Board
  * entry markers (round 6.1) are drawn programmatically instead of from a
  * sprite -- see plot_start_marker(). */
-#define PAWN_SIZE     40
+#define PAWN_SIZE     48
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
- * action status, and the Throw button -- laid out top-to-bottom on the
- * right of the board, Throw positioned lower rather than at the very
- * top, again matching the GEOS reference. */
+ * action status, the current die face (round 6.3 -- GEOS's own
+ * dice1..6.gbm, see plot_dice(); previously nothing showed the roll's
+ * outcome at all, per repeated user request), and the Throw button --
+ * laid out top-to-bottom on the right of the board, Throw positioned
+ * lower rather than at the very top, again matching the GEOS reference.
+ * The die sits in the gap between the status text and Throw, which is
+ * otherwise empty. */
 #define PANEL_GAP     16
 #define PANEL_WIDTH  260
 #define NAME_HEIGHT   40
@@ -51,6 +55,9 @@
 #define SWATCH_Y1     (-(MARGIN + (NAME_HEIGHT - SWATCH_SIZE) / 2))
 #define STATUS_GAP     8
 #define STATUS_HEIGHT 40
+#define DICE_SIZE     56
+#define DICE_CENTRE_X (PANEL_X0 + PANEL_WIDTH / 2)
+#define DICE_CENTRE_Y (-260)
 #define THROW_WIDTH  160
 #define THROW_HEIGHT  48
 
@@ -559,6 +566,40 @@ static void plot_start_marker(int player, int cx, int cy)
 	              base_x - perp_x * half_base, base_y - perp_y * half_base);
 }
 
+/*
+ * Function: plot_dice
+ * Summary: Draw the die face matching the current roll (GEOS's own
+ *          dice1..6 icons, see assets/generate_placeholder_art.py) in
+ *          the panel gap between the status line and the Throw button --
+ *          added in round 6.3 since nothing previously showed the roll's
+ *          actual outcome anywhere on screen (per repeated user report:
+ *          "no dice are shown still, nor outcome of the dice throw").
+ *          Draws nothing before the first throw of a turn
+ *          (`game.last_roll == 0`). Falls back to nothing at all (rather
+ *          than a placeholder shape) if assets/Sprites failed to load --
+ *          the status text already states the roll in words in that
+ *          case is not true any more (round 6 dropped the roll number
+ *          from the status text once this was drawn instead), so a
+ *          missing die face there is a purely cosmetic degradation, not
+ *          a loss of information the player needs -- Throw remains fully
+ *          usable either way.
+ */
+static void plot_dice(int origin_x, int origin_y)
+{
+	char name[13];
+	int x, y;
+
+	if (game.last_roll == 0 || !sprites_loaded)
+		return;
+
+	x = origin_x + DICE_CENTRE_X - DICE_SIZE / 2;
+	y = origin_y + DICE_CENTRE_Y - DICE_SIZE / 2;
+	snprintf(name, sizeof(name), "dice%d", game.last_roll);
+	xosspriteop_put_sprite_user_coords(osspriteop_USER_AREA, sprite_area,
+	                                    (osspriteop_id) name, x, y,
+	                                    os_ACTION_OVERWRITE + os_ACTION_USE_MASK);
+}
+
 void game_view_redraw(wimp_draw *redraw)
 {
 	osbool more;
@@ -621,6 +662,8 @@ void game_view_redraw(wimp_draw *redraw)
 			fill_rect(x0, y1 - SWATCH_SIZE, x0 + SWATCH_SIZE, y1);
 		}
 
+		plot_dice(origin_x, origin_y);
+
 		more = wimp_get_rectangle(redraw);
 	}
 }
@@ -659,20 +702,36 @@ static void try_move_pawn(int col, int row)
 
 void game_view_click(wimp_pointer *pointer)
 {
+	/* Unconditional entry log -- the user reports clicks on the board not
+	 * registering at all, and every prior round of click-side logging
+	 * (inside the wimp_ICON_WINDOW branch below) has come back completely
+	 * empty, which is only possible if either this function is never being
+	 * reached for those clicks, or pointer->i isn't matching
+	 * wimp_ICON_WINDOW (0xFFFFFFFF) the way it should for an ordinary
+	 * background click. This line fires for literally every click in the
+	 * window regardless of which icon (or none) it lands on, to settle
+	 * that question definitively. */
+	debug_log("game_view_click: entered, pointer->i=%d (ICON_THROW=%d "
+	          "ICON_NAME=%d ICON_STATUS=%d wimp_ICON_WINDOW=%d)\n",
+	          pointer->i, ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
+
 	if (pointer->i == ICON_THROW) {
 		if (game.winner != -1) {
 			game_view_new_game();
 		} else {
 			ludo_roll(&game, 0);
-			/* Only a six that releases a home pawn changes anything on the
-			 * board itself (the released pawn appears on the ring) -- an
-			 * ordinary roll only changes the status text, which
-			 * refresh_status() below already redraws via
-			 * wimp_set_icon_state(). Forcing a full-window redraw on every
-			 * single throw caused a visible flash each time for no visual
-			 * benefit. */
+			/* A six that releases a home pawn changes the board itself
+			 * (the released pawn appears on the ring), so needs a full
+			 * redraw; every roll changes the die face (round 6.3's
+			 * plot_dice(), part of the custom-drawn panel, not a plain
+			 * WIMP icon refresh_status() can redraw on its own) but not
+			 * the board, so redraw just the panel -- forcing a full-window
+			 * redraw on every single throw regardless caused a visible
+			 * flash each time for no visual benefit. */
 			if (game.just_released)
 				wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
+			else
+				wimp_force_redraw(window_handle, PANEL_X0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 		}
 		refresh_status();
 		return;

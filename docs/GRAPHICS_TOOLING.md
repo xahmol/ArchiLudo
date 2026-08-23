@@ -270,6 +270,39 @@ decoded now. Not implemented yet -- scope deferred rather than folded
 into this round's fixes; revisit alongside Phase 2's real art pass or
 Phase 5's menu/dialogue work.
 
+## Round 6.3: pawn colour-blend bug, and dice added
+
+A round-6.2 screenshot showed pawns rendering too small and washed-out --
+"colour fill does not show, all colours look the same". Root cause: the
+`recolour_and_squish()` composite (`Image.paste(solid, box, resized_mask)`)
+blends *every* channel, including RGB, by the mask's strength against the
+destination image's starting colour -- which was fully transparent black
+(`(0,0,0,0)`). A half-opaque edge pixel (common after `Image.LANCZOS`
+resizing a hard-edged mask) therefore came out at roughly half
+*brightness*, not full colour at half *alpha*. On a canvas this small
+(20x10 raw pixels for a pawn at the time) most of the visible shape *is*
+antialiased edge, so nearly the whole sprite washed out toward grey/black
+regardless of which player it belonged to. Fixed by setting every
+pixel's RGB to the flat player colour unconditionally and driving only
+alpha from the mask (`Image.new(..., colour + (0,))` then
+`img.putalpha(resized_mask)`), so a partially-opaque edge pixel is a
+partially-transparent *true-coloured* pixel. Confirmed by re-rendering
+and comparing all four players' pawns side by side -- clearly distinct,
+saturated colours, no washing out. `PAWN_SIZE` was also bumped 40 -> 48
+OS units (24x12 raw pixels) alongside the fix, for a bolder, clearer
+shape at this still-small canvas resolution.
+
+Also added: `dice1..6.gbm` (GEOS's own die-face icons -- black
+outline/pips, no player-colour tinting needed) reused via the same
+`recolour_and_squish()` pipeline (colour hardcoded to black), displayed
+in the panel gap between the status line and Throw
+(`src/game_view.c`'s `plot_dice()`) -- addressing a repeated request
+("no dice are shown still, nor outcome of the dice throw"). Shows
+nothing before the first throw of a turn, and nothing at all if
+`assets/Sprites` failed to load (the status text doesn't restate the roll
+number any more since round 6 -- this is a cosmetic-only fallback, Throw
+remains fully usable regardless).
+
 ## How the format was verified
 
 Rather than trust the PRM's prose alone for the trickier parts (the

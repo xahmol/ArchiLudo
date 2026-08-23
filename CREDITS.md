@@ -73,12 +73,14 @@ to -- this file consolidates all of it in one place.
   engine (`src/game_logic.c`) is a clean reimplementation of the rules
   documented there, not a line-for-line port (see `docs/GAME_LOGIC.md`
   for why). Its board geometry (`src/board_layout.c`) and, as of Phase
-  1's round 6, its **actual pawn/board-entry-marker artwork** are direct
-  reuses, not just references: `assets/geos_source/*.gbm` are local
-  copies of `GEOS/assets/bm_pawn.gbm` and `bm_{g,r,b,y}start.gbm`,
-  recoloured and resized for RISC OS by
-  `assets/generate_placeholder_art.py` -- see
-  `docs/GRAPHICS_TOOLING.md`'s "Round 6: reusing GeoLudo's own art".
+  1's round 6, its **actual pawn/die-face artwork** are direct reuses,
+  not just references: `assets/geos_source/*.gbm` are local copies of
+  `GEOS/assets/bm_pawn.gbm` and `dice1..6.gbm`, recoloured and resized
+  for RISC OS by `assets/generate_placeholder_art.py` -- see
+  `docs/GRAPHICS_TOOLING.md`'s "Round 6: reusing GeoLudo's own art" and
+  "Round 6.3". (The board-entry direction markers, `bm_{g,r,b,y}start.gbm`,
+  were also tried this way but are drawn programmatically instead as of
+  round 6.1 -- see that section for why.)
   `https://github.com/xahmol/ludo`
 
 ## Updating this file

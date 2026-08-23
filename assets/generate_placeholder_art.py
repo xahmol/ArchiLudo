@@ -3,14 +3,14 @@
 ArchiLudo placeholder art generator
 ====================================
 
-Summary: Generates ArchiLudo's Phase 1 placeholder pawn art (see
-docs/ARCHITECTURE.md's Roadmap) by recolouring and resizing the pawn
-bitmap from this game's own prior GEOS port, rather than drawing a new
-shape from scratch -- the user's call: reuse the existing GeoLudo artwork
-properly resized until bespoke Phase 2 art is designed, instead of
-inventing placeholder shapes. Source bitmap is a local copy (see
-assets/geos_source/bm_pawn.gbm) of
-/home/xahmol/git/ludo/GEOS/assets/bm_pawn.gbm -- see CREDITS.md and
+Summary: Generates ArchiLudo's Phase 1 placeholder art (see
+docs/ARCHITECTURE.md's Roadmap) by recolouring and resizing bitmaps from
+this game's own prior GEOS port, rather than drawing new shapes from
+scratch -- the user's call: reuse the existing GeoLudo artwork properly
+resized until bespoke Phase 2 art is designed, instead of inventing
+placeholder shapes. Source bitmaps are local copies (see
+assets/geos_source/) of the matching files under
+/home/xahmol/git/ludo/GEOS/assets/ -- see CREDITS.md and
 docs/GRAPHICS_TOOLING.md's "Round 6: reusing GeoLudo's own art" for the
 full writeup of what was reused and why. (The board-entry direction
 markers this round *also* first tried reusing -- bm_gstart/rstart/bstart/
@@ -18,14 +18,18 @@ ystart.gbm -- are drawn programmatically in src/game_view.c instead as of
 round 6.1; see that file's plot_start_marker() and
 docs/GRAPHICS_TOOLING.md's "Round 6.1" for why. The .gbm files themselves
 are left in assets/geos_source/ in case they're useful again later.)
+dice1..6.gbm (GEOS's own die-face icons) were added in round 6.3 to give
+the Throw button's outcome an actual on-screen face, per repeated user
+request -- see game_view.c's plot_dice().
 
 Then converts+packs the result into a single RISC OS Sprite file via
 tools/riscos_sprite.py.
 
 Syntax:  python3 assets/generate_placeholder_art.py
 
-Output:  assets/pawn0.png .. assets/pawn3.png (recoloured source images,
-         kept for reference/regeneration) and assets/Sprites (the packed
+Output:  assets/pawn0.png .. assets/pawn3.png, assets/dice1.png ..
+         assets/dice6.png (recoloured source images, kept for
+         reference/regeneration) and assets/Sprites (the packed
          RISC OS sprite file the game actually loads, filetype &FF9 --
          see docs/GRAPHICS_TOOLING.md).
 """
@@ -66,9 +70,10 @@ PLAYER_COLOURS = [
 # MODES_BY_BPP for the matching old-style sprite mode per bpp.
 MODE15_OS_UNITS_PER_PIXEL = (2, 4)  # (x, y)
 
-# On-screen size in OS units (square) -- must match src/game_view.c's
-# PAWN_SIZE.
-PAWN_SIZE = 40
+# On-screen sizes in OS units (square) -- must match src/game_view.c's
+# PAWN_SIZE / DICE_SIZE.
+PAWN_SIZE = 48
+DICE_SIZE = 56
 
 HERE = Path(__file__).parent
 GEOS_SOURCE = HERE / "geos_source"
@@ -126,10 +131,23 @@ def recolour_and_squish(mask_img, colour, target_pixel_size):
              target_pixel_size - (width, height) in raw pixels.
     Output:  a Pillow RGBA image at target_pixel_size.
     """
+    # Round 6.3 fix: the previous version built this via Image.paste(solid,
+    # box, resized_mask) -- for LANCZOS-resized (i.e. partially transparent
+    # at the edges) mask pixels, paste() *blends* every channel including
+    # RGB by the mask strength against the destination's starting colour
+    # (0,0,0,0), so a half-opaque edge pixel came out at roughly half
+    # brightness, not full colour at half alpha. On a canvas this small
+    # (20x10 raw pixels for a pawn) most of the visible shape *is*
+    # antialiased edge, so this washed almost the whole sprite out toward
+    # grey/black regardless of player colour -- exactly the "colour fill
+    # doesn't show, all colours look the same" report. Fixed by setting
+    # every pixel's RGB to the flat player colour unconditionally and
+    # driving only the alpha channel from the mask, so a partially-opaque
+    # edge pixel is a partially-transparent *true-coloured* pixel, not a
+    # dimmed one.
     resized_mask = mask_img.resize(target_pixel_size, Image.LANCZOS)
-    solid = Image.new("RGBA", target_pixel_size, colour + (255,))
-    img = Image.new("RGBA", target_pixel_size, (0, 0, 0, 0))
-    img.paste(solid, (0, 0), resized_mask)
+    img = Image.new("RGBA", target_pixel_size, colour + (0,))
+    img.putalpha(resized_mask)
     return img
 
 
@@ -138,6 +156,8 @@ def main():
 
     pawn_pixel_size = (PAWN_SIZE // MODE15_OS_UNITS_PER_PIXEL[0],
                         PAWN_SIZE // MODE15_OS_UNITS_PER_PIXEL[1])
+    dice_pixel_size = (DICE_SIZE // MODE15_OS_UNITS_PER_PIXEL[0],
+                        DICE_SIZE // MODE15_OS_UNITS_PER_PIXEL[1])
 
     spr_paths = []
     for i, colour in enumerate(PLAYER_COLOURS):
@@ -147,6 +167,19 @@ def main():
         spr_path = HERE / f"pawn{i}.spr"
         subprocess.run([sys.executable, str(TOOL), "from-png", str(png_path),
                          str(spr_path), "--name", f"pawn{i}", "--bpp", "4"],
+                        check=True)
+        spr_paths.append(spr_path)
+
+    # dice1..6 -- GEOS's own die-face icons (black pips/outline), reused
+    # plain rather than recoloured (there's no player colour involved).
+    for face in range(1, 7):
+        dice_mask = decode_gbm(GEOS_SOURCE / f"dice{face}.gbm")
+        png_path = HERE / f"dice{face}.png"
+        recolour_and_squish(dice_mask, (0, 0, 0), dice_pixel_size).save(png_path)
+        print(f"wrote {png_path}")
+        spr_path = HERE / f"dice{face}.spr"
+        subprocess.run([sys.executable, str(TOOL), "from-png", str(png_path),
+                         str(spr_path), "--name", f"dice{face}", "--bpp", "4"],
                         check=True)
         spr_paths.append(spr_path)
 
