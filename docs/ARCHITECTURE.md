@@ -198,11 +198,63 @@ surfaced a regression and two more real bugs from a second screenshot:
   into -- from the Wimp's perspective there was nothing to resize.
   Lowered both to half the natural size.
 
+**Round 3** surfaced a harder-to-explain report: the ring path and two of
+the four home columns weren't visible in a third screenshot, plus a
+reported "endless loop of rerolls" after throwing a six with no pawn
+movement happening. Unlike rounds 1-2, a careful re-read of
+`build_cell_kinds()`/`game_view_redraw()`/`try_move_pawn()` against
+`board_layout.c` (already unit-tested correct -- 169/169 checks, including
+a distinctness check across every used cell) found no code-level
+explanation for a partial-render pattern selective to specific
+rows/columns -- every candidate hypothesis (colour contrast, redraw
+rectangle clipping, draw-order overwrite, degenerate rectangle geometry)
+either didn't fit the reported pattern or couldn't be confirmed from static
+code alone. Given the project's own documented fallback for exactly this
+situation ("file-based logging via `fopen`/`fprintf` is the fallback for
+non-interactive tracing", see this file's Testing section and
+`CLAUDE.md`), added a temporary `debug_log()` helper
+(`src/game_view.c`) that appends to a plain-text `Log` file next to the
+running app (same relative-path resolution as `assets/Sprites`), logging:
+`build_cell_kinds()`'s per-kind cell counts (expect 40 ring / 16 home
+column / 16 home base / 1 centre), every redraw's rectangle count and
+bounds plus a per-kind count of cells actually drawn, and every board
+click's computed work-area coordinates, resulting cell, the current
+player's movable-pawn mask, and whether a move was found. **Remove this
+logging once the round-3 bug is confirmed fixed** -- it's diagnostic
+scaffolding, not permanent instrumentation.
+
+Two independent, high-confidence fixes went in alongside the logging
+(neither depends on the log's findings, so no reason to hold them back):
+
+- **Ring cell colour was too close to the window background.**
+  `wimp_COLOUR_VERY_LIGHT_GREY` (the window's `work_bg`) and the ring
+  cells' chosen RGB (220,220,220) are close enough to plausibly render as
+  near-invisible against each other on some palettes. Darkened the ring
+  fill to (150,150,150) for real contrast regardless of exact palette.
+- **The six-mandatory-release status message was indistinguishable from a
+  genuine stuck-reroll state.** `ludo_roll()` on a six with a home pawn
+  available performs a release, not a move -- `ludo_movable_pawns()`
+  correctly returns 0 for *that* roll (the release *was* the action), so
+  the old code fell into the generic `"%s rolled %d: Throw again"` branch,
+  identical wording to what a genuinely-stuck player would see. Several
+  sixes in a row (releasing up to 4 pawns before the player ever gets to
+  pick one) is valid per the rules but reads exactly like an "endless
+  reroll loop" with wording that gives no hint anything happened. Added a
+  `game.just_released`-gated branch with distinct wording ("pawn out,
+  Throw again") so a run of sixes is legible as forward progress, not a
+  stuck state. Whether there's *also* a genuine pawn-movement bug (the
+  "no movement of actual pawns done" part of the report) is exactly what
+  the click-side logging above is for -- `try_move_pawn()`'s coordinate
+  math was re-checked against `game_view_redraw()`'s and found
+  self-consistent, but that's not proof against a runtime-only issue.
+
 **Still not fully verified** -- these are all high-confidence fixes for
 concretely-identified bugs (a real screenshot each round, not a
 guess-and-hope pass), but the redraw origin/click-coordinate arithmetic in
 particular can still only be truly confirmed by looking at it running
-again in Arculator.
+again in Arculator. For round 3 specifically, the `Log` file's contents
+after a test run are needed to either confirm the two fixes above resolved
+everything or narrow down what's actually happening at runtime.
 
 ### Board layout: ported from the GEOS edition, not invented
 

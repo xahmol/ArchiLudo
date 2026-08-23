@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #include "oslib/wimp.h"
 #include "oslib/colourtrans.h"
@@ -75,6 +76,32 @@ static osspriteop_area *sprite_area = (osspriteop_area *) sprite_area_buffer;
 static int sprites_loaded = 0;
 
 /*
+ * Function: debug_log
+ * Summary: Append one line to a plain text file "Log" in the app's current
+ *          selected directory (same relative-path resolution already
+ *          confirmed working for "Sprites" -- see game_view_initialise()).
+ *          TEMPORARY diagnostic added while chasing a partial-board-render
+ *          bug reported from Arculator screenshots that couldn't be
+ *          explained by static code review alone -- see
+ *          docs/ARCHITECTURE.md's Phase 1 implementation notes and
+ *          CLAUDE.md's documented file-logging fallback for non-interactive
+ *          WIMP tracing. Remove once that bug is confirmed fixed.
+ */
+static void debug_log(const char *fmt, ...)
+{
+	FILE *f = fopen("Log", "a");
+	va_list args;
+
+	if (f == NULL)
+		return;
+
+	va_start(args, fmt);
+	vfprintf(f, fmt, args);
+	va_end(args);
+	fclose(f);
+}
+
+/*
  * Function: build_cell_kinds
  * Summary: Precompute, once, which board_layout.c grid cell holds which
  *          kind of board feature (and which player owns it, for the
@@ -111,6 +138,23 @@ static void build_cell_kinds(void)
 	{
 		board_cell centre = board_finished_cell();
 		cell_kinds[centre.col][centre.row] = CELL_CENTRE;
+	}
+
+	{
+		int n_ring = 0, n_col = 0, n_base = 0, n_centre = 0;
+
+		for (r = 0; r < BOARD_GRID_SIZE; r++)
+			for (c = 0; c < BOARD_GRID_SIZE; c++)
+				switch (cell_kinds[c][r]) {
+				case CELL_RING:        n_ring++;  break;
+				case CELL_HOME_COLUMN: n_col++;   break;
+				case CELL_HOME_BASE:   n_base++;  break;
+				case CELL_CENTRE:      n_centre++; break;
+				default: break;
+				}
+
+		debug_log("build_cell_kinds: ring=%d home_column=%d home_base=%d centre=%d "
+		          "(expect 40/16/16/1)\n", n_ring, n_col, n_base, n_centre);
 	}
 }
 
@@ -157,6 +201,17 @@ static void refresh_status(void)
 	} else if (ludo_movable_pawns(&game) != 0) {
 		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: pick a pawn",
 		         player_name[game.current_player], game.last_roll);
+	} else if (game.just_released) {
+		/* A six with a home pawn available is a mandatory release, not a
+		 * move -- the roll that released the pawn has nothing left to pick,
+		 * and the player throws again next. Distinct wording from the
+		 * generic "Throw again" below so this doesn't read as the same
+		 * no-op repeating (see docs/ARCHITECTURE.md's Phase 1 notes on the
+		 * "endless reroll" confusion this was reported as). Kept within the
+		 * same ~32-char budget as the other status strings (see
+		 * MIN_CONTENT_WIDTH above). */
+		snprintf(status_text, STATUS_TEXT_LEN, "%s: pawn out, Throw again",
+		         player_name[game.current_player]);
 	} else {
 		snprintf(status_text, STATUS_TEXT_LEN, "%s rolled %d: Throw again",
 		         player_name[game.current_player], game.last_roll);
@@ -309,12 +364,22 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 void game_view_redraw(wimp_draw *redraw)
 {
 	osbool more;
+	int rect_index = 0;
+	int drawn_ring = 0, drawn_col = 0, drawn_base = 0, drawn_centre = 0;
 
 	more = wimp_redraw_window(redraw);
+	debug_log("redraw: window box=(%d,%d,%d,%d) work_bg=%d sprites_loaded=%d\n",
+	          redraw->box.x0, redraw->box.y0, redraw->box.x1, redraw->box.y1,
+	          (int) wimp_COLOUR_VERY_LIGHT_GREY, sprites_loaded);
+
 	while (more) {
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 		int col, row, player, pawn;
+
+		debug_log("  rect[%d]: clip=(%d,%d,%d,%d) origin=(%d,%d)\n",
+		          rect_index++, redraw->clip.x0, redraw->clip.y0,
+		          redraw->clip.x1, redraw->clip.y1, origin_x, origin_y);
 
 		for (row = 0; row < BOARD_GRID_SIZE; row++) {
 			for (col = 0; col < BOARD_GRID_SIZE; col++) {
@@ -329,23 +394,27 @@ void game_view_redraw(wimp_draw *redraw)
 
 				switch (kind) {
 				case CELL_RING:
-					set_gcol(220, 220, 220);
+					set_gcol(150, 150, 150);
+					drawn_ring++;
 					break;
 				case CELL_HOME_COLUMN:
 					player = cell_owner[col][row];
 					set_gcol((player_rgb[player][0] + 255 * 3) / 4,
 					         (player_rgb[player][1] + 255 * 3) / 4,
 					         (player_rgb[player][2] + 255 * 3) / 4);
+					drawn_col++;
 					break;
 				case CELL_HOME_BASE:
 					player = cell_owner[col][row];
 					set_gcol(player_rgb[player][0] * 3 / 4,
 					         player_rgb[player][1] * 3 / 4,
 					         player_rgb[player][2] * 3 / 4);
+					drawn_base++;
 					break;
 				case CELL_CENTRE:
 				default:
 					set_gcol(255, 215, 0);
+					drawn_centre++;
 					break;
 				}
 
@@ -359,6 +428,11 @@ void game_view_redraw(wimp_draw *redraw)
 
 		more = wimp_get_rectangle(redraw);
 	}
+
+	debug_log("redraw done: %d rect(s), cells drawn ring=%d home_column=%d "
+	          "home_base=%d centre=%d (expect 40/16/16/1 if 1 rect covered "
+	          "the whole window)\n", rect_index, drawn_ring, drawn_col,
+	          drawn_base, drawn_centre);
 }
 
 /*
@@ -371,19 +445,26 @@ static void try_move_pawn(int col, int row)
 	unsigned movable = ludo_movable_pawns(&game);
 	int pawn;
 
+	debug_log("try_move_pawn: click at (%d,%d) player=%d movable_mask=0x%x\n",
+	          col, row, game.current_player, movable);
+
 	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
 		board_cell cell;
 
 		if (!(movable & (1u << pawn)))
 			continue;
 		cell = board_pawn_cell(&game, game.current_player, pawn);
+		debug_log("  candidate pawn %d at (%d,%d)\n", pawn, cell.col, cell.row);
 		if (cell.col == col && cell.row == row) {
 			ludo_move_pawn(&game, pawn);
+			debug_log("  MOVED pawn %d\n", pawn);
 			refresh_status();
 			wimp_force_redraw(window_handle, 0, -WINDOW_HEIGHT, WINDOW_WIDTH, 0);
 			return;
 		}
 	}
+
+	debug_log("  no match -- no pawn moved\n");
 }
 
 void game_view_click(wimp_pointer *pointer)
@@ -410,7 +491,13 @@ void game_view_click(wimp_pointer *pointer)
 		col = (work_x - BOARD_ORIGIN_X) / CELL;
 		row = (BOARD_ORIGIN_Y - work_y) / CELL;
 
+		debug_log("click: pos=(%d,%d) visible.x0=%d visible.y1=%d work=(%d,%d) "
+		          "cell=(%d,%d)\n", pointer->pos.x, pointer->pos.y,
+		          state.visible.x0, state.visible.y1, work_x, work_y, col, row);
+
 		if (col >= 0 && col < BOARD_GRID_SIZE && row >= 0 && row < BOARD_GRID_SIZE)
 			try_move_pawn(col, row);
+		else
+			debug_log("  click outside board grid range\n");
 	}
 }
