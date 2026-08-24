@@ -673,6 +673,34 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
 }
 
 /*
+ * Function: cell_centre_work
+ * Summary: Same as cell_centre(), but in WORK AREA coordinates (no
+ *          origin_x/origin_y applied) -- what Wimp_PlotIcon needs for an
+ *          icon's bounding box. Round 7.18 fix: Wimp_PlotIcon's icon
+ *          block "is the same format as that used by Wimp_CreateIcon...
+ *          this being implicitly the window which is currently being
+ *          redrawn or updated" (PRM, wimp.html) -- i.e. work-area
+ *          coordinates, exactly like any other icon's fixed extent,
+ *          NOT the absolute screen coordinates os_plot calls need.
+ *          Confirmed against ro-chess's own real, working code: its
+ *          BOARD[]/icon_update() never applies any origin/scroll offset
+ *          to an icon's `.box` before calling wimp_ploticon(), and even
+ *          passes that same untranslated box straight to
+ *          Wimp_UpdateWindow's own (also work-area) box parameter.
+ *          plot_pawn() originally used cell_centre() (screen-absolute)
+ *          for the icon's extent too, by mistake -- this placed every
+ *          pawn icon at the wrong screen location entirely (off the
+ *          visible window whenever the window wasn't at OS-unit
+ *          position (0,0)), which is why pawns stopped rendering at all
+ *          once the sprite pivot shipped.
+ */
+static void cell_centre_work(int col, int row, int *wx, int *wy)
+{
+	*wx = BOARD_ORIGIN_X + col * CELL + CELL / 2;
+	*wy = BOARD_ORIGIN_Y - row * CELL - CELL / 2;
+}
+
+/*
  * Function: plot_pawn
  * Summary: Draw one pawn -- home base, ring, home column, or finished --
  *          wherever board_pawn_cell() says it currently is. Plots the
@@ -704,7 +732,9 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
  */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
-	int cx, cy;
+	int wx, wy;  /* work-area coordinates -- see cell_centre_work(); the
+	              * only ones Wimp_PlotIcon's icon extent should use. */
+	int cx, cy;  /* absolute screen coordinates -- os_plot fallback only. */
 	int body_radius = PAWN_SIZE * 5 / 16;
 	int head_radius = PAWN_SIZE * 3 / 16;
 	/* Outline thickness -- drawn as a slightly larger black circle behind
@@ -735,24 +765,26 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 			seg = segments - 1;
 		seg_progress = tick - seg * MOVE_ANIM_TICKS_PER_CELL;
 
-		cell_centre(move_anim_path[seg].col, move_anim_path[seg].row, origin_x, origin_y, &fx, &fy);
-		cell_centre(move_anim_path[seg + 1].col, move_anim_path[seg + 1].row, origin_x, origin_y, &tx, &ty);
-		cx = fx + (tx - fx) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
-		cy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+		cell_centre_work(move_anim_path[seg].col, move_anim_path[seg].row, &fx, &fy);
+		cell_centre_work(move_anim_path[seg + 1].col, move_anim_path[seg + 1].row, &tx, &ty);
+		wx = fx + (tx - fx) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+		wy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
 	} else {
 		board_cell cell = board_pawn_cell(&game, player, pawn_index);
 
-		cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+		cell_centre_work(cell.col, cell.row, &wx, &wy);
 	}
+	cx = origin_x + wx;
+	cy = origin_y + wy;
 
 	if (pawn_sprites_loaded) {
 		wimp_icon icon;
 		int half = PAWN_SIZE / 2;
 
-		icon.extent.x0 = cx - half;
-		icon.extent.y0 = cy - half;
-		icon.extent.x1 = cx + half;
-		icon.extent.y1 = cy + half;
+		icon.extent.x0 = wx - half;
+		icon.extent.y0 = wy - half;
+		icon.extent.x1 = wx + half;
+		icon.extent.y1 = wy + half;
 		icon.flags = wimp_ICON_SPRITE | wimp_ICON_INDIRECTED |
 		             wimp_ICON_HCENTRED | wimp_ICON_VCENTRED;
 		/* size=13: 12-character max sprite name + terminator, matching

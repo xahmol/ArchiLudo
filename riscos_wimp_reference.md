@@ -456,6 +456,29 @@ literally.
   name-block-length means "this is a sprite *name* pointer", zero means
   "this is a literal `os_sprite*` pointer" (useful for plotting one of
   several pre-decoded board-square sprites directly without a name lookup).
+- **`Wimp_PlotIcon`'s icon `extent` is WORK AREA coordinates, not
+  screen-absolute — a genuinely easy mistake inside a redraw loop that
+  also does `os_plot` drawing.** The PRM (`wimp.html`) says the icon
+  block passed to `Wimp_PlotIcon` "is the same format as that used by
+  Wimp_CreateIcon... this being implicitly the window which is currently
+  being redrawn" — i.e. a plain fixed icon extent, exactly like any
+  other icon, never translated by scroll/origin the way `os_plot`
+  coordinates need to be. Confirmed against real, shipped code
+  (`github.com/marutan/ro-chess`'s `BOARD[]`/`icon_update()`): it never
+  applies any origin offset to an icon's `.box`, and passes that same
+  untranslated box straight to `Wimp_UpdateWindow`'s own (also
+  work-area) box parameter too. Inside a redraw/update loop that also
+  plots `os_plot` primitives at `origin_x + work_x, origin_y + work_y`
+  (the standard pattern — see "Animating a small region..." above), it's
+  tempting to reuse that same already-translated screen-absolute
+  coordinate for an icon's extent too, since it's right there — don't;
+  build the icon's box from the untranslated work-area coordinate
+  instead, or every icon plots at the wrong absolute screen location
+  (silently — no error, it just doesn't appear where expected, which
+  can look exactly like "nothing renders at all" if the true location
+  ends up off-window). ArchiLudo hit this for real (round 7.18): pawns
+  stopped rendering entirely on first live test of a
+  `Wimp_PlotIcon`-based pawn sprite for exactly this reason.
 - 8bpp (256-colour) sprites don't work through `Wimp_PlotIcon`'s
   *automatic* colour translation — per the PRM's sprite-bpp table
   (`wimp.html`), that auto-translation (onto the 16 fixed Wimp colours)

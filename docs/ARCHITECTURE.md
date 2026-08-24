@@ -11,14 +11,17 @@ everything below: round 7.16 in `docs/GRAPHICS_TOOLING.md`, round 7.17
 just above in this file's Phase 1 notes, and the
 [[archiludo-sprite-pivot-plan]] memory.)*
 
-**The sprite pivot itself is implemented and deployed, but not yet
-live-confirmed by the user in Arculator.** `plot_pawn()` now plots a
-real pawn icon sprite via `Wimp_PlotIcon` (falling back to the original
-`os_plot` circles if `assets/PawnSprites` didn't load), built/deployed
-cleanly with zero warnings. **Do not treat this as finished until the
-user has actually seen it render live** -- next session, check whether
-they've reported back on how it looks (colour, size, position, any
-mode-dependent issue) before doing anything else with pawn rendering.
+**The sprite pivot is implemented, deployed, and had one real bug found
++ fixed on first live Arculator contact (round 7.18: pawns weren't
+rendering at all) -- still not yet RE-confirmed live by the user after
+that fix.** `plot_pawn()` plots a real pawn icon sprite via
+`Wimp_PlotIcon` (falling back to the original `os_plot` circles if
+`assets/PawnSprites` didn't load), builds/deploys cleanly with zero
+warnings. See round 7.18 below for the bug (icon extent was in the
+wrong coordinate space). **Do not treat this as finished until the user
+has confirmed the fix actually shows pawns correctly** -- next session,
+check whether they've reported back before doing anything else with
+pawn rendering.
 
 **Also pending, not blocking the above**: the user liked the flat
 16-colour pawn design but asked to see a smoother, gradient-shaded
@@ -1496,6 +1499,43 @@ and reviewing an inspiration set of pixel-art chess-pawn references.
   larger, not-yet-built `OS_SpriteOp 52` + precomputed `ColourTrans`
   table path instead). Decision on whether to pursue that is pending
   the user's live-Arculator evaluation of the 16-colour version first.
+
+**Round 7.18**: first live Arculator contact with the sprite pivot --
+per explicit user report, pawns rendered *nothing at all* (not even the
+`os_plot` fallback -- consistent with `pawn_sprites_loaded` having been
+set, so `Wimp_PlotIcon` was being called, just plotting somewhere
+invisible). Root cause: `plot_pawn()`'s icon `extent` was built from
+`cx`/`cy` -- the *absolute screen* coordinates `cell_centre()` computes
+for `os_plot` calls (`origin_x`/`origin_y`-adjusted) -- but
+`Wimp_PlotIcon`'s icon block is documented as "the same format as that
+used by Wimp_CreateIcon... this being implicitly the window which is
+currently being redrawn" (PRM `wimp.html`), i.e. plain **work-area**
+coordinates, exactly like any other icon's fixed extent -- never
+translated by scroll/origin. Confirmed against ro-chess's own real,
+shipped code: its `BOARD[]`/`icon_update()` never applies any origin
+offset to an icon's `.box` before calling `wimp_ploticon()`, and passes
+that same untranslated box straight to `Wimp_UpdateWindow`'s own box
+parameter too. Every pawn icon was therefore being plotted at the wrong
+absolute location -- off the visible window entirely whenever the
+window wasn't sitting at OS-unit position (0,0), which in practice is
+always.
+
+Fixed with a new `cell_centre_work()` (work-area coordinates, no
+`origin_x`/`origin_y`) alongside the existing `cell_centre()`
+(screen-absolute); `plot_pawn()` now computes both a `wx`/`wy` pair
+(work-area, used for the icon's `extent`) and a `cx`/`cy` pair
+(screen-absolute, `= origin_x + wx`/`origin_y + wy`, used only by the
+`os_plot` fallback) instead of one pair serving both purposes. The
+move-animation interpolation math moved to work-area space too (was
+interpolating between two `cell_centre()`-computed screen points).
+**Lesson for any future icon-plotting code in this project**: `os_plot`
+calls and `Wimp_PlotIcon`'s icon extent are NOT interchangeable
+coordinate spaces inside the same redraw loop, even though both are
+computed from the same `origin_x`/`origin_y`-carrying redraw context --
+worth double-checking against a real working example (not just the PRM
+prose) before assuming a coordinate convention here, since this is
+exactly the kind of assumption that produces "renders nothing, no error
+either" rather than an obviously-wrong result.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
