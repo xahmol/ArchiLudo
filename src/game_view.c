@@ -737,7 +737,7 @@ static void plot_dice(int origin_x, int origin_y)
  * Function: draw_board_region
  * Summary: Draw cell markers and pawns restricted to a rectangular range
  *          of board grid cells (inclusive) -- shared by game_view_redraw()
- *          (called with the whole board) and mark_move_animation_area_dirty()
+ *          (called with the whole board) and update_move_animation_area()
  *          (called with just the few cells a pawn-move animation's
  *          current frame touches), so a move animation doesn't have to
  *          re-plot the *entire* board -- roughly 150 os_plot primitives
@@ -835,50 +835,63 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
 }
 
 /*
- * Function: mark_move_animation_area_dirty
- * Summary: Mark just the board cells a pawn-move animation's current
- *          frame can touch (every cell of its path -- see
- *          move_anim_path[] -- plus a one-cell margin so outline/marker
- *          radii spilling slightly past a cell's own boundary aren't
- *          clipped) as needing a redraw, via Wimp_ForceRedraw -- used
+ * Function: update_move_animation_area
+ * Summary: Synchronously redraw just the board cells a pawn-move
+ *          animation's current frame can touch (every cell of its path
+ *          -- see move_anim_path[] -- plus a one-cell margin so
+ *          outline/marker radii spilling slightly past a cell's own
+ *          boundary aren't clipped) via Wimp_UpdateWindow -- used
  *          instead of a full redraw_now() on every STEP_MOVING tick.
  *
- *          This replaced an earlier attempt (see docs/ARCHITECTURE.md's
- *          Round 7.3) that called Wimp_RedrawWindow/Wimp_UpdateWindow
- *          directly and *synchronously* from inside the tick -- that
- *          approach fought the Wimp's own redraw protocol on both sides:
- *          Wimp_RedrawWindow auto-clears every rectangle it returns to
- *          the window's background colour first (which blanked the
- *          whole board, since a manually-invoked RedrawWindow always
- *          reports the *entire* currently-exposed window, not a
- *          caller-supplied clip), and Wimp_UpdateWindow, called the same
- *          synchronous way, produced no visible frames at all. Marking a
- *          small rectangle dirty with Wimp_ForceRedraw and letting the
- *          Wimp deliver a genuine Redraw_Window_Request back through the
- *          normal Wimp_Poll loop (handled by game_view_redraw() below,
- *          completely unchanged) is the same technique this codebase
- *          already used successfully for the panel-only redraw in
- *          try_move_pawn() before any of this animation work existed --
- *          proven, and the standard, PRM-documented way a Wimp app is
- *          meant to ask for a scoped redraw. Wimp_RedrawWindow's
- *          auto-clear is exactly what's wanted for a genuine
- *          Redraw_Window_Request (start from a clean slate), and the OS
- *          itself, not this code, decides how much of the window that
- *          actually covers (clipped to the requested rectangle when the
- *          window isn't obscured) -- os_plot calls for content outside
- *          whatever VDU graphics window the Wimp sets up are cheap
- *          no-ops, so game_view_redraw() can keep drawing the whole
- *          board's worth of primitives every time without that being
- *          expensive for a small forced rectangle. Any *other* pawn's
- *          position change this same move triggered (a capture sent
- *          home, a six-release) is outside this animation's scope and
- *          only appears once resolve_move() -> after_settle() does its
- *          own full redraw once the animation finishes -- an
- *          acceptable, deliberate limit (nothing asked for those to
- *          animate too, only the moving pawn itself).
+ *          Third attempt at this (see docs/ARCHITECTURE.md's Rounds
+ *          7.3/7.5/7.10 for the full history). Round 7.3's direct
+ *          synchronous Wimp_RedrawWindow call auto-cleared the *entire*
+ *          exposed window to background colour every tick (a manually
+ *          invoked RedrawWindow always reports the whole window, not a
+ *          caller-supplied clip). Round 7.5's fix -- Wimp_ForceRedraw +
+ *          letting a genuine Redraw_Window_Request arrive back through
+ *          the normal Wimp_Poll loop -- was correct and is still what
+ *          game_view_redraw() uses for real window-exposure redraws
+ *          below, but Wimp_RedrawWindow's auto-clear-then-repaint is
+ *          itself a visible two-step flash on real/emulated ARM2/ARM3
+ *          speeds, seen on every single animation tick (per explicit
+ *          user report, and confirmed by research citing the RISC OS 3
+ *          PRM's Wimp_UpdateWindow entry, ~/riscos-dev/prm-mirror/wimp.html:
+ *          "the rectangles to be updated are not cleared by the Wimp
+ *          first... this can be called at any time, not just in
+ *          response to a Redraw_Window_Request").
+ *
+ *          Wimp_UpdateWindow was tried once already (Round 7.3) and
+ *          produced no visible frames at all -- the actual bug, found by
+ *          this round's research: unlike Wimp_RedrawWindow (where only
+ *          `.w` is meaningful on entry, and the Wimp computes the
+ *          rectangle itself), Wimp_UpdateWindow takes the rectangle as
+ *          *input* (`w, x0, y0, x1, y1`) -- the earlier attempt left
+ *          `redraw.box` as uninitialised stack garbage before the call,
+ *          so the Wimp had no valid area to report back, and the
+ *          `while (more)` loop's drawing call never ran. Confirmed
+ *          against real, shipped example code (not just the PRM
+ *          description): `github.com/marutan/ro-chess`'s `icon_update()`
+ *          helper sets its redraw block's box to the icon's own
+ *          work-area bounds before calling Wimp_UpdateWindow, then plots
+ *          inline in the same `while (more)` loop -- exactly the
+ *          pattern used here. Direct screen plotting outside this
+ *          protocol entirely was considered and rejected: the PRM
+ *          explicitly warns that in-window dragging "must use
+ *          Wimp_UpdateWindow... rather than drawing directly on the
+ *          screen" (window occlusion/multitasking correctness).
+ *
+ *          Any *other* pawn's position change this same move triggered
+ *          (a capture sent home, a six-release) is outside this
+ *          animation's scope and only appears once resolve_move() ->
+ *          after_settle() does its own full redraw once the animation
+ *          finishes -- an acceptable, deliberate limit (nothing asked
+ *          for those to animate too, only the moving pawn itself).
  */
-static void mark_move_animation_area_dirty(void)
+static void update_move_animation_area(void)
 {
+	wimp_draw redraw;
+	osbool more;
 	int col0, row0, col1, row1, i, x0, y0, x1, y1;
 
 	if (window_handle == (wimp_w) -1)
@@ -899,31 +912,54 @@ static void mark_move_animation_area_dirty(void)
 	row1++; if (row1 >= BOARD_GRID_SIZE) row1 = BOARD_GRID_SIZE - 1;
 
 	cell_range_to_work_box(col0, row0, col1, row1, &x0, &y0, &x1, &y1);
-	wimp_force_redraw(window_handle, x0, y0, x1, y1);
+
+	redraw.w = window_handle;
+	redraw.box.x0 = x0;
+	redraw.box.y0 = y0;
+	redraw.box.x1 = x1;
+	redraw.box.y1 = y1;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
+		more = wimp_get_rectangle(&redraw);
+	}
 }
 
 /*
- * Function: mark_dice_area_dirty
- * Summary: Mark just the die face's box as needing a redraw, via
- *          Wimp_ForceRedraw -- used instead of a full redraw_now() on
- *          every STEP_ROLLING tick. See
- *          mark_move_animation_area_dirty()'s doc comment for why this
- *          is Wimp_ForceRedraw + the normal Redraw_Window_Request path
- *          rather than a direct synchronous Wimp_RedrawWindow/
- *          Wimp_UpdateWindow call.
+ * Function: update_dice_area
+ * Summary: Synchronously redraw just the die face's box via
+ *          Wimp_UpdateWindow -- used instead of a full redraw_now() on
+ *          every STEP_ROLLING tick. See update_move_animation_area()'s
+ *          doc comment for the full history of why Wimp_UpdateWindow
+ *          (not Wimp_ForceRedraw, not a direct Wimp_RedrawWindow call)
+ *          and exactly how it needs to be called.
  */
-static void mark_dice_area_dirty(void)
+static void update_dice_area(void)
 {
-	int x0, y0, x1, y1;
+	wimp_draw redraw;
+	osbool more;
 
 	if (window_handle == (wimp_w) -1)
 		return;
 
-	x0 = DICE_CENTRE_X - DICE_SIZE / 2;
-	x1 = DICE_CENTRE_X + DICE_SIZE / 2;
-	y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
-	y1 = DICE_CENTRE_Y + DICE_SIZE / 2;
-	wimp_force_redraw(window_handle, x0, y0, x1, y1);
+	redraw.w = window_handle;
+	redraw.box.x0 = DICE_CENTRE_X - DICE_SIZE / 2;
+	redraw.box.x1 = DICE_CENTRE_X + DICE_SIZE / 2;
+	redraw.box.y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
+	redraw.box.y1 = DICE_CENTRE_Y + DICE_SIZE / 2;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
+		plot_dice(origin_x, origin_y);
+		more = wimp_get_rectangle(&redraw);
+	}
 }
 
 /*
@@ -1081,7 +1117,7 @@ static void start_move_animation(int player, int pawn_index)
 	move_anim_next_tick = os_read_monotonic_time() + MOVE_ANIM_STEP_CS;
 	hover_active = 0;
 	step = STEP_MOVING;
-	mark_move_animation_area_dirty();
+	update_move_animation_area();
 }
 
 /*
@@ -1198,7 +1234,7 @@ static void start_roll_animation(void)
 	roll_anim_next_tick = os_read_monotonic_time() + ROLL_ANIM_TICK_CS;
 	hover_active = 0;
 	step = STEP_ROLLING;
-	mark_dice_area_dirty();
+	update_dice_area();
 }
 
 /*
@@ -1229,11 +1265,11 @@ void game_view_poll_idle(void)
 		roll_anim_ticks_done++;
 		if (roll_anim_ticks_done >= ROLL_ANIM_TICKS) {
 			dice_display_face = game.last_roll;
-			mark_dice_area_dirty();
+			update_dice_area();
 			resolve_roll();
 		} else {
 			dice_display_face = (dice_display_face % 6) + 1;
-			mark_dice_area_dirty();
+			update_dice_area();
 			roll_anim_next_tick = now + ROLL_ANIM_TICK_CS;
 		}
 		return;
@@ -1246,10 +1282,10 @@ void game_view_poll_idle(void)
 			return;
 		move_anim_tick++;
 		if (move_anim_tick >= total_ticks) {
-			mark_move_animation_area_dirty();
+			update_move_animation_area();
 			resolve_move();
 		} else {
-			mark_move_animation_area_dirty();
+			update_move_animation_area();
 			move_anim_next_tick = now + MOVE_ANIM_STEP_CS;
 		}
 		return;

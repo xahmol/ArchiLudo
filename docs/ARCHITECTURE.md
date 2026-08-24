@@ -1103,6 +1103,76 @@ re-reading the code, not just re-asserting it was already correct:
   handed straight to a SWI -- fixed with a `memset` before filling in
   the fields that matter.
 
+**Round 7.10**: the animation flash still visible after Round 7.5's fix
+-- per explicit follow-up report ("animation was already a lot better,
+but you still see brief redraw of all windows") and a request to
+research whether flicker-free small-region WIMP animation is possible
+at all, checking tutorials and stardot.org.uk.
+
+Researched properly this time (a research agent, checking the local
+PRM/wimp-prog mirrors, Steve Fryatt's site, stardot.org.uk, and reading
+the actual source of a real RISC OS board game,
+`github.com/marutan/ro-chess`, rather than guessing) rather than trying
+a third variant blind. Findings:
+
+- **`Wimp_UpdateWindow` is the correct, PRM-sanctioned technique for
+  exactly this** ("the rectangles to be updated are not cleared by the
+  Wimp first... this can be called at any time, not just in response to
+  a Redraw_Window_Request" -- ~/riscos-dev/prm-mirror/wimp.html). The
+  PRM explicitly warns *against* the alternative (plotting directly to
+  the screen outside the redraw protocol entirely) for exactly this
+  drag/animation scenario, for window-occlusion/multitasking-correctness
+  reasons.
+- **Round 7.3's earlier attempt at this failed for a findable, mundane
+  reason, not because the technique doesn't work**: unlike
+  `Wimp_RedrawWindow` (where only `.w` is meaningful on entry -- the
+  Wimp computes the rectangle itself), `Wimp_UpdateWindow` takes the
+  rectangle as *input* (`w, x0, y0, x1, y1`). That attempt left
+  `redraw.box` as uninitialised stack garbage before the call, so the
+  Wimp had no valid area to report back and the drawing call inside
+  `while (more)` never ran -- read as "no visible frames at all," which
+  is exactly what happened.
+- **Confirmed against real, shipped example code**: `ro-chess`'s
+  `icon_update()` helper sets its redraw block's box to the icon's own
+  work-area bounds before calling `Wimp_UpdateWindow`, then plots
+  inline in the same `while (more)` loop -- the exact pattern now used
+  here. `ro-chess` uses this for its own periodic small-region animation
+  (a flashing selected-square highlight, driven by a ~50-centisecond
+  timer) and, tellingly, never calls `Wimp_ForceRedraw` anywhere in its
+  source at all.
+- **stardot.org.uk turned up nothing relevant** -- the matching threads
+  are all BBC Micro/Electron bare-metal screen-memory double-buffering
+  discussions, not WIMP desktop programming. Reported as a genuine
+  "nothing found," not a gap in the search.
+- **A second candidate fix was found and rejected**: a window's
+  `work_bg` colour can be set to `wimp_COLOUR_TRANSPARENT`, which
+  disables the Wimp's auto-clear for *all* redraws of that window,
+  requiring no other code change. Rejected after checking
+  `draw_board_region()` directly: it explicitly skips `CELL_EMPTY`
+  cells (`if (kind == CELL_EMPTY) continue;`) -- the home-base corners
+  and gaps between board cells -- relying entirely on the Wimp's own
+  background clear to keep those areas correctly grey. Going
+  transparent would leave them showing stale content (whatever was
+  underneath before) the next time a real window exposure happens, e.g.
+  another window dragged across and away -- a real correctness
+  regression for a flicker fix that only needed to apply to two small,
+  specific animation-tick paths anyway.
+
+Fixed by properly reimplementing `Wimp_UpdateWindow` usage in both
+animation-tick functions (renamed `mark_dice_area_dirty()`/
+`mark_move_animation_area_dirty()` -> `update_dice_area()`/
+`update_move_animation_area()`, since they now redraw synchronously
+again rather than merely marking a rectangle dirty for later): the
+work-area box is computed exactly as before (`cell_range_to_work_box()`,
+`DICE_CENTRE_X`/`DICE_SIZE`) but now assigned into `redraw.box` as
+*input* before the call, with the actual drawing (`draw_board_region()`/
+`plot_dice()`) done inline in the `while (more)` loop, mirroring
+`game_view_redraw()`'s existing structure and ro-chess's real pattern.
+`game_view_redraw()` itself (the genuine `Redraw_Window_Request`
+handler) is untouched, still correctly using `Wimp_RedrawWindow` --
+its auto-clear is exactly what's needed there, for the empty-cell gaps
+`draw_board_region()` doesn't paint itself.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

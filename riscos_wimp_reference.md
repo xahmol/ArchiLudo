@@ -139,6 +139,93 @@ work on windows the calling task owns (error "Access to window denied"
 otherwise) — and only while the task is in the foreground (i.e. really
 inside its `Wimp_Poll` turn, not from an interrupt).
 
+## Animating a small region of a window without flicker
+
+The naive way to redraw one small changed area of a window many times a
+second (a die face, a moving token, a flashing highlight — anything that
+isn't a genuine window-exposure `Redraw_Window_Request`) is to call
+`Wimp_ForceRedraw` with a small rectangle and let the resulting
+`Redraw_Window_Request` arrive back through the normal `Wimp_Poll` loop,
+handled the ordinary way via `Wimp_RedrawWindow`/`Wimp_GetRectangle`.
+This is *correct* (the standard, PRM-documented way to request a scoped
+redraw — and the same technique any panel-only/partial redraw already
+uses) but visibly flickers on real/emulated ARM2/ARM3 speeds: per the
+PRM, `Wimp_RedrawWindow`/`Wimp_GetRectangle` **automatically clear every
+rectangle they return to the window's background colour** before
+handing control back to draw the real content — a genuine two-step
+"flash background, then repaint" cycle each tick, and a manually
+invoked `Wimp_RedrawWindow` always reports the window's *entire*
+currently-exposed area regardless of how small a rectangle was forced
+dirty, since there's no caller-supplied clip on that SWI.
+
+**`Wimp_UpdateWindow` is the correct tool for repeated small-region
+redraws instead** — same `wimp_draw`-shaped block and
+`Wimp_GetRectangle`-continuation loop as `Wimp_RedrawWindow`, but "the
+rectangles to be updated are **not** cleared by the Wimp first" and "this
+can be called **at any time**, not just in response to a
+`Redraw_Window_Request`." The critical difference from
+`Wimp_RedrawWindow`, easy to get wrong: **`Wimp_UpdateWindow` takes the
+rectangle as *input*** (`w, x0, y0, x1, y1`, all in work-area OS units),
+not output — only `.w` is meaningful on entry to `Wimp_RedrawWindow`,
+where the Wimp computes the redraw rectangle itself, but
+`Wimp_UpdateWindow` needs the caller to supply `.box` (and, per OSLib's
+`wimp_draw` struct, that's the same field `Wimp_RedrawWindow` treats as
+output-only) *before* the call. Leaving it as uninitialised stack
+garbage produces a nonsense "rectangle" and the SWI reports nothing to
+redraw — `more` comes back false immediately, and the drawing call
+inside the loop never runs at all, which reads exactly like "nothing
+happens," not an obvious "wrong input" error. The correct shape:
+
+```c
+wimp_draw redraw;
+osbool more;
+
+redraw.w = window_handle;
+redraw.box.x0 = ...; redraw.box.y0 = ...;  /* work-area coords, INPUT */
+redraw.box.x1 = ...; redraw.box.y1 = ...;
+
+more = wimp_update_window(&redraw);
+while (more) {
+    int origin_x = redraw.box.x0 - redraw.xscroll;
+    int origin_y = redraw.box.y1 - redraw.yscroll;
+    /* draw the small changed area here, inline, every iteration --
+     * there is no later Redraw_Window_Request coming for this call */
+    more = wimp_get_rectangle(&redraw);
+}
+```
+
+Confirmed against real, shipped example code, not just the PRM's
+one-line description: `github.com/marutan/ro-chess`'s `icon_update()`
+helper (a general-purpose small-region updater used for every
+piece/square change, including its own flashing-highlight animation
+driven by a periodic timer) sets its redraw block's box to the changed
+icon's own work-area bounds before calling `Wimp_UpdateWindow`, then
+plots inline in the same `while (more)` loop — exactly the pattern
+above — and never calls `Wimp_ForceRedraw` anywhere in its source at
+all.
+
+The PRM explicitly discourages the seemingly-simpler alternative (just
+plotting directly to the screen whenever, bypassing the redraw protocol
+entirely): in-window dragging "must use `Wimp_UpdateWindow`... rather
+than drawing directly on the screen," for window-occlusion/
+multitasking-correctness reasons — another window can legally be on top
+of the animated area at any moment, and only the Wimp's own redraw
+protocol (which `Wimp_UpdateWindow` is still part of, just without the
+auto-clear) coordinates who's allowed to touch which pixels when.
+
+A window's `work_bg` colour can also be set to `wimp_COLOUR_TRANSPARENT`
+to disable the auto-clear for *all* redraws of that window (no other
+code change needed) — tempting as an even simpler fix, but only safe if
+the window's own redraw handler unconditionally repaints every pixel of
+its extent on every call. If any code path relies on the Wimp's own
+background clear for correctness (e.g. skipping cells/areas that have
+no content of their own, expecting them to just show background) that
+reliance breaks silently — those areas keep showing stale content from
+whatever was there before on the next genuine exposure redraw (another
+window dragged across and away). Worth doing only after checking the
+redraw handler paints unconditionally everywhere, not just where the
+current animation happens to touch.
+
 ## Icons: flags, validation strings, sprite+text
 
 (Pinknoise `Wimp/Icons.html`, `Wimp/ValidStrs.html`)
