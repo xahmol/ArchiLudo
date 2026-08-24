@@ -485,9 +485,12 @@ literally.
 (Pinknoise `Wimp/Colours.html`)
 
 The Wimp's 16 logical "Wimp colours" are looked up through a translation
-table so that a fixed palette convention (grey ramp 0-7, yellow 8, blue 9,
-green 10, red 11, title-bar shades 12-14, desktop background 15) works
-uniformly across every screen mode/depth — **applications should not set the
+table so that a fixed palette convention (grey ramp 0-7 white->black, 8
+dark blue, 9 yellow, 10 green, 11 red, 12 cream, 13 army green, 14
+orange, 15 light blue — corrected 2026-08-24 against the PRM directly,
+`wimp.html`'s own "Colour handling" table; an earlier version of this
+paragraph had 8 and 9 swapped) works uniformly across every screen
+mode/depth — **applications should not set the
 palette**, and should express colours as Wimp colours (`Wimp_SetColour`,
 `Wimp_TextColour`) rather than raw GCOL wherever a value is going into a
 window/icon definition. Sprites plotted with 1/2/4bpp are translated through

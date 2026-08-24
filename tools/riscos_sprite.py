@@ -24,6 +24,7 @@ Syntax:
     riscos_sprite.py to-png <spritefile> <sprite-name> <output.png>
     riscos_sprite.py from-png <input.png> <output-spritefile> --name NAME
                      [--bpp {1,2,4,8}] [--mode N] [--mask-alpha-threshold N]
+                     [--wimp-palette]
     riscos_sprite.py pack <output-spritefile> <input-spritefile>...
 
 See docs/GRAPHICS_TOOLING.md for the full writeup of the format and the
@@ -65,6 +66,50 @@ MODES_BY_BPP = {
 }
 
 SPRITE_CB_FIXED_SIZE = 44  # bytes: next_offset, name(12), 6 more u32 fields
+
+# The 16 standard "Wimp colours" (RISC OS 3 PRM, wimp.html's "Colour
+# handling" section: 0-7 grey scale white->black, 8 dark blue, 9 yellow,
+# 10 green, 11 red, 12 cream, 13 army green, 14 orange, 15 light blue --
+# corrected here 2026-08-24 after finding riscos_wimp_reference.md's own
+# paraphrase had 8/9 swapped; verified directly against the PRM table,
+# not a paraphrase). Wimp_PlotIcon auto-translates a 1/2/4bpp indirected
+# sprite icon's colour indices onto these fixed 16 regardless of the
+# sprite's own embedded palette (see docs/ARCHITECTURE.md's "Resume
+# here" point 4) -- so a sprite meant for icon plotting should be
+# quantised against exactly these colours (see build_palette()'s
+# `fixed_palette` parameter), not an adaptive per-sprite palette, or the
+# two will disagree about what each index means.
+#
+# RGB values here are close approximations of RISC OS's well-known
+# default desktop palette (not independently re-derived from a primary
+# source in this project's local mirrors, which don't give the literal
+# RGB triples) -- but exact precision doesn't matter for this tool's
+# purpose: they're only used for *nearest-colour-match* assignment while
+# quantising source art, and this project's own sprite art uses
+# maximally distinct, fully-saturated target hues (a pure outline
+# black, a pure highlight white, one clearly-player-coloured fill, one
+# clearly grey shadow) that can't plausibly nearest-match the wrong Wimp
+# colour even with an approximate reference RGB. The actual on-screen
+# colour is always whatever RISC OS's real Wimp palette renders for
+# that index at display time, regardless of this approximation.
+WIMP_COLOURS = [
+    (255, 255, 255),  # 0 white
+    (221, 221, 221),  # 1
+    (187, 187, 187),  # 2
+    (153, 153, 153),  # 3
+    (119, 119, 119),  # 4
+    (85, 85, 85),     # 5
+    (51, 51, 51),     # 6
+    (0, 0, 0),        # 7 black
+    (0, 0, 153),      # 8 dark blue
+    (238, 238, 0),    # 9 yellow
+    (0, 153, 0),      # 10 green
+    (221, 0, 0),      # 11 red
+    (255, 255, 187),  # 12 cream
+    (85, 119, 0),     # 13 army green
+    (255, 153, 0),    # 14 orange
+    (0, 187, 255),    # 15 light blue
+]
 
 
 def read_sprite_file(path):
@@ -226,37 +271,60 @@ def cmd_to_png(args):
     print(f"wrote {args.output}")
 
 
-def build_palette(image, n_colours):
+def build_palette(image, n_colours, fixed_palette=None):
     """
     Function: build_palette
-    Summary: Quantise an RGBA image to at most n_colours using Pillow's
-             adaptive (median-cut) palette, matching how real RISC OS
-             sprite-creation tools embed a bespoke palette per sprite
-             rather than forcing a single fixed 16/256-colour scheme.
-    Syntax:  quantised, palette = build_palette(image, n_colours)
-    Input:   image     - a Pillow RGBA image.
-             n_colours - target palette size (2, 4, 16, or 256).
+    Summary: Quantise an RGBA image to at most n_colours, either with
+             Pillow's adaptive (median-cut) palette -- matching how real
+             RISC OS sprite-creation tools embed a bespoke palette per
+             sprite -- or, if `fixed_palette` is given, by nearest-colour
+             matching against that exact fixed set instead (see
+             WIMP_COLOURS -- needed for any sprite that will be plotted
+             as a Wimp icon, since Wimp_PlotIcon ignores a 1/2/4bpp
+             sprite's own embedded palette and always translates through
+             the fixed 16 Wimp colours regardless of what's stored here;
+             an adaptive palette would silently disagree with that
+             translation and render the wrong colours).
+    Syntax:  quantised, palette = build_palette(image, n_colours, fixed_palette=None)
+    Input:   image         - a Pillow RGBA image.
+             n_colours     - target palette size (2, 4, 16, or 256).
+             fixed_palette - optional list of (r, g, b) tuples to
+                             quantise against exactly (e.g. WIMP_COLOURS,
+                             or a slice of it matching a lower bpp); the
+                             first n_colours entries are used. None (the
+                             default) uses Pillow's adaptive palette.
     Output:  (quantised, palette) -- quantised is a Pillow "P"-mode image
              indexed into palette, a list of (r, g, b) tuples of length
-             n_colours (padded with black if the image used fewer).
+             n_colours (padded with black if the image used fewer, or if
+             fixed_palette had fewer than n_colours entries).
     """
     rgb = image.convert("RGB")
-    quantised = rgb.quantize(colors=n_colours, method=Image.MEDIANCUT)
-    raw_palette = quantised.getpalette()[:n_colours * 3]
-    palette = [tuple(raw_palette[i:i + 3]) for i in range(0, len(raw_palette), 3)]
+    if fixed_palette is not None:
+        target = fixed_palette[:n_colours]
+        pal_img = Image.new("P", (1, 1))
+        flat = [c for rgb_triple in target for c in rgb_triple]
+        pal_img.putpalette(flat + [0, 0, 0] * (256 - len(target)))
+        quantised = rgb.quantize(palette=pal_img, dither=Image.NONE)
+        palette = list(target)
+    else:
+        quantised = rgb.quantize(colors=n_colours, method=Image.MEDIANCUT)
+        raw_palette = quantised.getpalette()[:n_colours * 3]
+        palette = [tuple(raw_palette[i:i + 3]) for i in range(0, len(raw_palette), 3)]
     while len(palette) < n_colours:
         palette.append((0, 0, 0))
     return quantised, palette
 
 
-def write_sprite_file(path, name, image, bpp, mode, mask_alpha_threshold):
+def write_sprite_file(path, name, image, bpp, mode, mask_alpha_threshold,
+                       wimp_palette=False):
     """
     Function: write_sprite_file
     Summary: Write a single sprite (built from a Pillow image) out as a
              complete, standalone RISC OS old-style sprite file -- ready
              to *SLoad/Wimp_SpriteOp-merge on RISC OS, or to be combined
              with others via this tool's `pack` command.
-    Syntax:  write_sprite_file(path, name, image, bpp, mode, mask_alpha_threshold)
+    Syntax:  write_sprite_file(path, name, image, bpp, mode,
+                                mask_alpha_threshold, wimp_palette=False)
     Input:   path                  - output file path.
              name                  - sprite name (max 12 ASCII characters).
              image                 - a Pillow RGBA image to convert.
@@ -267,12 +335,23 @@ def write_sprite_file(path, name, image, bpp, mode, mask_alpha_threshold):
              mask_alpha_threshold  - alpha values below this are made
                                       transparent in the sprite's mask;
                                       pass None to omit the mask entirely.
+             wimp_palette          - if True, quantise against the fixed
+                                      16 Wimp colours (WIMP_COLOURS)
+                                      instead of an adaptive per-sprite
+                                      palette -- required for any sprite
+                                      that will be plotted via
+                                      Wimp_PlotIcon (see build_palette()).
+                                      Only meaningful at bpp<=4 (8bpp
+                                      icons don't go through the Wimp's
+                                      automatic translation at all --
+                                      see docs/ARCHITECTURE.md).
     Output:  none. Writes the file at `path`.
     """
     if len(name) > 12:
         sys.exit(f"sprite name {name!r} is longer than 12 characters")
     n_colours = 1 << bpp
-    quantised, palette = build_palette(image, n_colours)
+    fixed_palette = WIMP_COLOURS if wimp_palette else None
+    quantised, palette = build_palette(image, n_colours, fixed_palette)
 
     width, height = image.size
     pixels_per_word = 32 // bpp
@@ -325,8 +404,11 @@ def cmd_from_png(args):
     bpp = args.bpp or {0: 1, 8: 2, 12: 4, 15: 8, 4: 1, 1: 2, 9: 4, 13: 8}.get(args.mode, 4)
     mode = args.mode if args.mode is not None else MODES_BY_BPP[bpp]
     image = Image.open(args.input).convert("RGBA")
-    write_sprite_file(args.output, args.name, image, bpp, mode, args.mask_alpha_threshold)
-    print(f"wrote {args.output}: {args.name!r} {image.width}x{image.height} {bpp}bpp mode={mode}")
+    write_sprite_file(args.output, args.name, image, bpp, mode,
+                       args.mask_alpha_threshold, wimp_palette=args.wimp_palette)
+    palette_note = " (Wimp palette)" if args.wimp_palette else ""
+    print(f"wrote {args.output}: {args.name!r} {image.width}x{image.height} "
+          f"{bpp}bpp mode={mode}{palette_note}")
 
 
 def cmd_pack(args):
@@ -383,6 +465,10 @@ def main():
     p.add_argument("--mask-alpha-threshold", type=int, default=128,
                     help="alpha below this is transparent in the mask; "
                          "pass a negative number to omit the mask")
+    p.add_argument("--wimp-palette", action="store_true",
+                    help="quantise against the fixed 16 Wimp colours instead of "
+                         "an adaptive per-sprite palette -- required for a sprite "
+                         "that will be plotted via Wimp_PlotIcon (see WIMP_COLOURS)")
     p.set_defaults(func=cmd_from_png)
 
     p = sub.add_parser("pack", help="merge single-sprite files into one sprite area")
