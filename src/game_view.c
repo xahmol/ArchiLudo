@@ -3,6 +3,7 @@
  * See include/game_view.h for the module overview and API docs.
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -10,8 +11,14 @@
 #include "oslib/wimp.h"
 #include "oslib/colourtrans.h"
 #include "oslib/wimpspriteop.h" /* wimpspriteop_AREA, for def.sprite_area only --
-                                  * round 6.3 dropped sprite plotting itself, see
-                                  * plot_pawn()'s doc comment */
+                                  * see load_pawn_sprites()/plot_pawn() for the
+                                  * project's OWN private sprite area, loaded
+                                  * separately and unrelated to this one */
+#include "oslib/osspriteop.h" /* xosspriteop_load_sprite_file() -- see
+                                * load_pawn_sprites() (round 7.17, the
+                                * Wimp_PlotIcon sprite pivot -- see
+                                * docs/ARCHITECTURE.md's "Resume here"/Round
+                                * 7.17 for the full background) */
 
 #include "game_view.h"
 #include "game_logic.h"
@@ -336,6 +343,80 @@ static void debug_log(const char *fmt, ...)
 	fclose(f);
 }
 
+/* Round 7.17 pawn icon sprites -- see load_pawn_sprites()/plot_pawn().
+ * pawn_sprite_area is this program's OWN private sprite area (loaded
+ * from assets/PawnSprites, malloc()'d once at startup), entirely
+ * separate from wimpspriteop_AREA (the Wimp's shared pool, still used
+ * for def.sprite_area) -- one named sprite per player, "pawn0".."pawn3"
+ * in game_logic.c's player-index order. pawn_sprites_loaded stays 0 if
+ * the file can't be found/loaded, in which case plot_pawn() falls back
+ * to the original os_plot circles -- per this project's established
+ * "the game must stay playable if a sprite approach fails again"
+ * caution (see docs/ARCHITECTURE.md's round 6.3/6.4 notes). */
+static osspriteop_area *pawn_sprite_area = NULL;
+static int pawn_sprites_loaded = 0;
+static const char *pawn_sprite_names[LUDO_PLAYERS] = { "pawn0", "pawn1", "pawn2", "pawn3" };
+
+/*
+ * Function: load_pawn_sprites
+ * Summary: Load assets/PawnSprites (see assets/generate_icon_sprites.py)
+ *          into a freshly malloc()'d private sprite area, so plot_pawn()
+ *          can plot each player's pawn via Wimp_PlotIcon. Called once
+ *          from game_view_initialise(). Leaves pawn_sprites_loaded at 0
+ *          (its safe default) on any failure -- a missing/corrupt/
+ *          unreadable sprite file is not fatal, just falls back to the
+ *          existing os_plot circles.
+ */
+static void load_pawn_sprites(void)
+{
+	char path[APP_DIR_LEN + 20];
+	FILE *f;
+	long size;
+	os_error *err;
+
+	resource_path(path, sizeof(path), "PawnSprites");
+	f = fopen(path, "rb");
+	if (f == NULL) {
+		debug_log("load_pawn_sprites: fopen failed for \"%s\"\n", path);
+		return;
+	}
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fclose(f);
+	if (size <= 0) {
+		debug_log("load_pawn_sprites: \"%s\" is empty or unreadable (size=%ld)\n",
+		          path, size);
+		return;
+	}
+
+	/* +4: the in-memory area control block has a leading "total size"
+	 * word the sprite FILE itself omits -- see tools/riscos_sprite.py's
+	 * module docstring / docs/GRAPHICS_TOOLING.md for the same
+	 * offset-minus-4 convention on the reading side. */
+	pawn_sprite_area = malloc((size_t) size + 4);
+	if (pawn_sprite_area == NULL) {
+		debug_log("load_pawn_sprites: malloc(%ld) failed\n", size + 4);
+		return;
+	}
+	pawn_sprite_area->size = (int) size + 4;
+	pawn_sprite_area->sprite_count = 0;
+	pawn_sprite_area->first = 16;
+	pawn_sprite_area->used = 16;
+
+	err = xosspriteop_load_sprite_file(osspriteop_USER_AREA, pawn_sprite_area, path);
+	if (err != NULL) {
+		debug_log("load_pawn_sprites: OS_SpriteOp LoadFile failed for \"%s\": %s\n",
+		          path, err->errmess);
+		free(pawn_sprite_area);
+		pawn_sprite_area = NULL;
+		return;
+	}
+
+	pawn_sprites_loaded = 1;
+	debug_log("load_pawn_sprites: loaded \"%s\" ok, %d sprite(s)\n",
+	          path, pawn_sprite_area->sprite_count);
+}
+
 /*
  * Function: build_cell_kinds
  * Summary: Precompute, once, which board_layout.c grid cell holds which
@@ -594,30 +675,32 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
 /*
  * Function: plot_pawn
  * Summary: Draw one pawn -- home base, ring, home column, or finished --
- *          wherever board_pawn_cell() says it currently is: two
- *          overlapping filled circles (a wider "body" below a narrower
- *          "head"), giving a simple pawn-like silhouette.
+ *          wherever board_pawn_cell() says it currently is. Plots the
+ *          real pawn icon sprite (see load_pawn_sprites(),
+ *          assets/generate_icon_sprites.py) via Wimp_PlotIcon when it
+ *          loaded successfully; falls back to two overlapping filled
+ *          circles (a wider "body" below a narrower "head") otherwise.
  *
- *          Round 6.3: this used to plot the recoloured GEOS pawn sprite
- *          (see assets/generate_placeholder_art.py) via
- *          xosspriteop_put_sprite_user_coords(). Three separate small
- *          sprites in a row rendered wrong in Arculator in ways that
- *          never reproduced in any offline check (the packed sprite's
- *          own metadata, and a locally-simulated 2x/4x stretch, both
- *          looked correct every time): round 6.1's board-entry markers
- *          (too narrow), round 6.3's dice (cropped), and this pawn sprite
- *          itself (rendering solid black regardless of player, despite
- *          the packed sprite file's palette and pixel data both verified
- *          correct offline -- see docs/GRAPHICS_TOOLING.md's "Round
- *          6.4"). Given `os_plot` primitives (circles, rectangles,
- *          triangles) have been reliable in every single round so far
- *          with zero unexplained failures, standardised on them for both
- *          pawns and dice rather than keep chasing a sprite-rendering
- *          bug with no diagnosable cause -- correctness over the
- *          authentic GEOS silhouette shape for this Phase 1 placeholder
- *          pass. Revisit real sprite art in Phase 2 with more time to
- *          debug properly (or a different underlying mechanism, e.g. an
- *          explicit ColourTrans_GenerateTable translation table).
+ *          Round 6.3 dropped sprite plotting entirely after three
+ *          separate small sprites rendered wrong in Arculator in ways
+ *          that never reproduced in any offline check (round 6.1's
+ *          board-entry markers too narrow, round 6.3's dice cropped,
+ *          this pawn sprite solid black regardless of player) -- see
+ *          docs/GRAPHICS_TOOLING.md's "Round 6.4". Round 7.16/7.17
+ *          research found the actual, specific, documented cause: the
+ *          old code used `OS_SpriteOp 34`
+ *          (xosspriteop_put_sprite_user_coords), which the PRM states
+ *          outright is undefined for a sprite whose mode doesn't match
+ *          the current screen mode -- not an unexplained platform
+ *          mystery after all. `Wimp_PlotIcon` goes through
+ *          `PutSpriteScaled` with a proper scale/translation table
+ *          instead, confirmed against real, shipped example code
+ *          (`github.com/marutan/ro-chess`'s `icon_update()`) -- see
+ *          docs/ARCHITECTURE.md's "Resume here"/round history for the
+ *          full writeup. The `os_plot` fallback stays in place
+ *          regardless (this project's established "the game must stay
+ *          playable" caution) for whenever load_pawn_sprites() didn't
+ *          find/load assets/PawnSprites.
  */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
@@ -661,6 +744,28 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 
 		cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
 	}
+
+	if (pawn_sprites_loaded) {
+		wimp_icon icon;
+		int half = PAWN_SIZE / 2;
+
+		icon.extent.x0 = cx - half;
+		icon.extent.y0 = cy - half;
+		icon.extent.x1 = cx + half;
+		icon.extent.y1 = cy + half;
+		icon.flags = wimp_ICON_SPRITE | wimp_ICON_INDIRECTED |
+		             wimp_ICON_HCENTRED | wimp_ICON_VCENTRED;
+		/* size=13: 12-character max sprite name + terminator, matching
+		 * pawn_sprite_names[]'s own longest entry ("pawn0".."pawn3",
+		 * well within that, but 13 is the conventional buffer size for
+		 * an old-style sprite name regardless). */
+		icon.data.indirected_sprite.id = (osspriteop_id) pawn_sprite_names[player];
+		icon.data.indirected_sprite.area = pawn_sprite_area;
+		icon.data.indirected_sprite.size = 13;
+		wimp_plot_icon(&icon);
+		return;
+	}
+
 	body_y = cy - body_radius * 2 / 5;
 	head_y = cy + body_radius * 4 / 5;
 
@@ -2042,6 +2147,7 @@ void game_view_initialise(const char *argv0)
 	set_app_dir(argv0);
 	build_cell_kinds();
 	ludo_init(&game);
+	load_pawn_sprites();
 
 	def.visible.x0 = 100;
 	def.visible.y0 = 100;

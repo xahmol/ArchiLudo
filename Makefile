@@ -103,10 +103,15 @@ check-hostfs:
 
 deploy: check-hostfs $(TARGET)
 	cp $(TARGET) "$(ARCULATOR_HOSTFS)/"
-	# Round 6.3 dropped sprite plotting entirely (see src/game_view.c's
-	# plot_pawn() doc comment) -- remove any stale Sprites,ff9 left over
-	# from an earlier deploy so it can't be mistaken for something the
-	# running game still reads.
+	# Round 7.17: the Wimp_PlotIcon sprite pivot -- load_pawn_sprites()
+	# reads this at startup (see src/game_view.c) via resource_path(),
+	# i.e. from the app's own directory, filetype &FF9 so RISC OS/hostfs
+	# recognises it as a sprite file.
+	cp assets/PawnSprites "$(ARCULATOR_HOSTFS)/PawnSprites,ff9"
+	# Round 6.3 dropped the OLDER assets/Sprites plotting attempt (see
+	# src/game_view.c's plot_pawn() doc comment for the full history) --
+	# remove any stale Sprites,ff9 left over from an earlier deploy so it
+	# can't be mistaken for something the running game still reads.
 	rm -f "$(ARCULATOR_HOSTFS)/Sprites,ff9"
 
 zip: $(TARGET)
@@ -114,6 +119,7 @@ zip: $(TARGET)
 
 assets:
 	python3 assets/generate_placeholder_art.py
+	python3 assets/generate_icon_sprites.py
 
 test: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "=== $$t ==="; ./$$t || exit 1; done
