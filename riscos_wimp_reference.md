@@ -456,9 +456,29 @@ literally.
   name-block-length means "this is a sprite *name* pointer", zero means
   "this is a literal `os_sprite*` pointer" (useful for plotting one of
   several pre-decoded board-square sprites directly without a name lookup).
-- 8bpp (256-colour) sprites are **not legal as Wimp icons** — keep dice/pawn
-  sprites at 1/2/4 bpp if they're going to be window icons; sprites plotted
-  directly in a redraw handler via `OS_SpriteOp` don't have this restriction.
+- 8bpp (256-colour) sprites don't work through `Wimp_PlotIcon`'s
+  *automatic* colour translation — per the PRM's sprite-bpp table
+  (`wimp.html`), that auto-translation (onto the 16 fixed Wimp colours)
+  is only defined for 1/2/4bpp; for 8bpp it says outright "translation
+  table is undefined." Keep dice/pawn/icon sprites at 1/2/4bpp if
+  they're going through `Wimp_PlotIcon`. This is **not** a ceiling on
+  sprites in general, though — `sprites.html` is explicit: "Use
+  ColourTrans if you want to plot the sprite using the best
+  approximation to its actual colours. This works for sprites in a
+  256-colour mode as well." Full 256-colour sprites plotted *directly*
+  in a redraw handler via `OS_SpriteOp 52` (PutSpriteScaled) with your
+  own ColourTrans-generated pixel translation table (built once via
+  `ColourTrans_ReturnColourNumber` per palette entry for a genuine
+  256-entry-palette sprite, or `ColourTrans_SelectTable` for <=64-entry
+  palettes) have no such restriction — this still runs inside the same
+  `Wimp_UpdateWindow`/`Wimp_RedrawWindow` erase-and-redraw loop as any
+  other scoped redraw (see "Animating a small region..." above), it's
+  just a different `OS_SpriteOp` reason code than what `Wimp_PlotIcon`
+  uses internally, not the "draw directly to the screen, bypassing the
+  redraw protocol" case the PRM warns against elsewhere. For a single
+  fixed target mode (as opposed to a portable app that must cope with
+  the user's desktop mode changing), the translation table only needs
+  building once, at sprite-load time.
 
 ## Colours / ColourTrans
 

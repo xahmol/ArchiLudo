@@ -1,5 +1,101 @@
 # ArchiLudo Architecture
 
+## Resume here
+
+*(Delete/replace this section once the in-progress work below is done and
+its own "Round" writeup is in place -- it exists purely so a session that
+starts cold, with no conversation history, knows exactly where things
+stood and what to do next. Last updated 2026-08-24, commit `72ace6a`.)*
+
+**In progress, confirmed with the user, not yet started:** pivot pawn/
+dice rendering from `os_plot` primitives (`plot_pawn()`/`plot_dice()` in
+`src/game_view.c`) to real sprites plotted via `Wimp_PlotIcon`, per
+explicit user instruction ("Yes, do sprite pivot"). A dedicated research
+pass (this session, round 7.15's follow-up) already answered the two
+open questions and reached firm conclusions -- **do not re-research
+these, they're settled**:
+
+1. **No rework needed of the redraw architecture just built** (rounds
+   7.13/7.15's segment-scoped animation redraw, snapshot-diff settle
+   redraw, flashing highlights). Every redraw path calls through one
+   leaf function, `plot_pawn()` (via `draw_board_region()`), which is
+   the *only* place that changes -- `Wimp_PlotIcon` is explicitly
+   designed by the PRM to be called inside exactly this kind of
+   `Wimp_UpdateWindow` loop, and ro-chess's real `icon_update()` does
+   precisely that. Proceed directly to the sprite work below; nothing
+   needs undoing first.
+2. **A real bug was found in `tools/riscos_sprite.py` before it shipped
+   this way**: `build_palette()` uses Pillow's adaptive median-cut
+   quantizer, embedding a bespoke per-sprite palette (e.g. a red pawn's
+   palette index 0 is literal RGB `(220,30,30)`). But the Wimp ignores
+   an icon sprite's own embedded palette entirely and remaps 4bpp
+   indices onto RISC OS's 16 *fixed* desktop Wimp colours instead (PRM
+   `wimp.html`, ~line 1256: 0-7 greyscale, 8=dark blue, 9=yellow,
+   10=green, 11=red, 12=cream, 13=army green, 14=orange, 15=light
+   blue). Plotting the current `assets/Sprites` via `Wimp_PlotIcon`
+   today would render with wrong colours -- the same failure class as
+   the original, already-diagnosed `OS_SpriteOp 34` attempt, just from
+   a different cause. **Fix needed first**: add a fixed-Wimp-palette
+   quantization mode to `build_palette()`/`write_sprite_file()` (e.g. a
+   `--wimp-palette` flag on `from-png`, using
+   `Image.quantize(palette=<a P-mode image built from the 16 Wimp RGB
+   triples>)` instead of `MEDIANCUT`).
+3. **The 4bpp/16-Wimp-colour limit above is specific to `Wimp_PlotIcon`'s
+   *automatic* colour translation, not a ceiling on sprites in
+   general.** Per the PRM (`wimp.html`, the sprite-bpp table): that
+   auto-translation is only *defined* for 1/2/4bpp sprites (mapped onto
+   the 16 fixed desktop Wimp colours, so small icons look consistent
+   regardless of the user's colour scheme); for 8bpp it says outright
+   "translation table is undefined." But `sprites.html` is explicit that
+   full 256-colour sprites ARE fully supported for accurate display:
+   "Use ColourTrans if you want to plot the sprite using the best
+   approximation to its actual colours. This works for sprites in a
+   256-colour mode as well" -- via building your own pixel translation
+   table (`ColourTrans_ReturnColourNumber` per palette entry for a
+   genuine 256-entry-palette sprite, or `ColourTrans_SelectTable` for
+   <=64 entries) and calling `OS_SpriteOp 52` (PutSpriteScaled) directly
+   yourself, still inside the same `Wimp_UpdateWindow` loop `plot_pawn()`
+   already uses -- just a different `OS_SpriteOp` reason code than
+   `Wimp_PlotIcon` takes internally, not "drawing directly to the
+   screen" in the sense the PRM warns against elsewhere. Since ArchiLudo
+   targets one fixed mode (15) on real hardware, that translation table
+   can be built once at sprite-load time and cached, not recomputed per
+   redraw. **Practical split**: 4bpp + `Wimp_PlotIcon` stays the right
+   *first step* below (pawns/dice -- small, no colour-matching code
+   needed, proven via ro-chess); full 8bpp + `OS_SpriteOp 52` + a
+   precomputed ColourTrans table is the documented route for Phase 2's
+   "real board/pawn/dice art" goal once fancier, full-colour art is
+   actually wanted.
+4. **Multi-resolution sprite support is not worth building.** RISC OS's
+   actual mechanism for this (`!Sprites22`/`!Sprites23` suffixed files,
+   PRM `wimp.html` #86114 "Alternate Resolution Icons") is for an app's
+   *persistent filer/iconbar* icon set across different desktop pixel
+   densities -- unrelated to a sprite plotted at runtime inside a game
+   window, which already auto-scales to whatever mode is current via
+   `PutSpriteScaled`'s own scale factors, no tooling needed. ArchiLudo
+   targets one fixed mode (15) on specific real hardware, so there's no
+   scenario here that needs it. Don't build this.
+
+**Recommended concrete next steps** (from the earlier sprite-pivot
+research agent's own step-by-step, still the plan): fix the palette
+quantization bug above; regenerate one pawn sprite only (4bpp, Wimp
+palette, masked, mode 12, drawn square -- drop the mode-15
+pixel-aspect pre-squishing for sprite art specifically, since
+`PutSpriteScaled` handles that now); plot it as one static indirected
+sprite icon in the existing redraw loop, in `plot_pawn()`, alongside
+the existing `os_plot` pawns for direct comparison; verify size/colour
+correct in Arculator before extending to all four pawns, then the die;
+keep the `os_plot` fallback behind a flag until sprites are confirmed
+working, per this project's established "the game must stay playable"
+caution from the original sprite-plotting failure.
+
+**Also still open, not blocking the above:** building a proper
+`!ArchiLudo` application directory (per explicit earlier user request)
+-- blocked on an explicit `AskUserQuestion` consultation on design
+choices (app icon, `!Boot`/`!Run`/`!Help` scope, save-file filetype
+registration, Makefile `deploy`/`zip` changes) that has not happened
+yet; do not build this without asking first, per that instruction.
+
 ## Layering
 
 ArchiLudo is deliberately split into two layers that never mix:
