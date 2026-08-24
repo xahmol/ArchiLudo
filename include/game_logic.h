@@ -58,8 +58,29 @@
  * simpler to reason about, print for debugging, and unit test:
  *
  *   steps == 0 .. LUDO_RING_LENGTH-1   pawn is on the shared 40-square ring
- *   steps == LUDO_RING_LENGTH .. TOTAL-1   pawn is in its own home column
- *   steps == LUDO_TOTAL_STEPS          pawn has finished
+ *   steps == LUDO_RING_LENGTH .. LUDO_TOTAL_STEPS-1   pawn is in its home
+ *                                       column, not yet at the very end
+ *   steps == LUDO_TOTAL_STEPS          pawn is in the *last* home column
+ *                                       square, and simultaneously finished
+ *                                       -- landing there is what finishes
+ *                                       it, there is no separate square
+ *                                       beyond it to travel to first
+ *
+ * Round 7.13 correction: LUDO_TOTAL_STEPS used to be defined one higher
+ * than this (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH), treating
+ * "finished" as a square *past* the home column's own
+ * LUDO_HOME_COLUMN_LENGTH squares -- reported live as a pawn one square
+ * from the true end being allowed to move on a roll that should have
+ * overshot. Re-checked against the actual GEOS source
+ * (`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s `turngeneric()`,
+ * `if(vn>7) { gv=1; }`) rather than trusting an earlier docs summary:
+ * GEOS's home-track positions are 4..7 (4 squares, `homedestcoords[
+ * player][4..7]`), and a destination beyond 7 is explicitly rejected as
+ * not a legal move -- position 7 itself, the last of the 4 squares, is
+ * both reachable *and* the win condition, with nothing beyond it. This
+ * header's own home-column square count (LUDO_HOME_COLUMN_LENGTH == 4)
+ * was already correct and unchanged; only where "finished" sits
+ * relative to it was off by one.
  *
  * A player's start square on the ring is (player_index * 10), so the same
  * steps counter plus the player index is all that's needed to derive the
@@ -70,7 +91,11 @@
 #define LUDO_PAWNS               4
 #define LUDO_RING_LENGTH        40
 #define LUDO_HOME_COLUMN_LENGTH  4
-#define LUDO_TOTAL_STEPS        (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH)
+/* The last home-column square is index LUDO_HOME_COLUMN_LENGTH-1 within
+ * the home column, i.e. steps value LUDO_RING_LENGTH +
+ * LUDO_HOME_COLUMN_LENGTH - 1 -- and reaching it *is* finishing (see the
+ * comment above), not a square before finishing. */
+#define LUDO_TOTAL_STEPS        (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH - 1)
 
 /*
  * Type: ludo_pawn

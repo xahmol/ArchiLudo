@@ -1242,6 +1242,79 @@ animation... does not pulsate").
   completely unaffected, still `Wimp_RedrawWindow` via
   `game_view_redraw()`, where the auto-clear is exactly what's wanted.
 
+**Round 7.13**: three more bugs from the same live play-test session,
+per explicit report -- a ghost-pawn rendering regression, a genuine
+rules off-by-one, and (once the first two were fixed and shipped) a
+follow-up report that the move-slide animation still visibly flickered.
+
+- **Ghost pawns from `redraw_now()`'s missing erase step.** Reported as
+  a screenshot: a player with exactly 4 pawns showing 6 red
+  circles on screen -- 4 correctly in the home base plus 2 stale
+  leftovers elsewhere on the board. Root cause: Round 7.12's
+  `redraw_now()` conversion from `Wimp_RedrawWindow` to
+  `Wimp_UpdateWindow` got the same treatment as
+  `update_move_animation_area()`/`update_highlight_area()` *except* the
+  actual `fill_window_background()` call was missed in `redraw_now()`
+  itself -- a plain oversight in that commit, not a new mechanism.
+  Once a pawn is captured or otherwise moved off a ring square,
+  `board_pawn_cell()` never reports that square as occupied again, so
+  nothing ever repaints real content over the old, larger, solid pawn
+  circle -- the thin grey ring-track outline drawn there is too small to
+  cover it. Fixed by adding the same erase call already present in the
+  other two functions.
+- **Home-column finish off-by-one.** Reported via Log: a pawn with only
+  three home-column squares left to travel was allowed to move on a
+  roll of four. `LUDO_TOTAL_STEPS` (`include/game_logic.h`) was defined
+  as `LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH`, treating "finished"
+  as a square *past* the home column's own 4 squares. Re-checked
+  directly against the actual GEOS source this time, rather than
+  trusting an earlier docs summary:
+  `/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s `turngeneric()` move
+  validity check is `if(vn>7) { gv=1; }` -- GEOS's home-track positions
+  are 4..7 (`homedestcoords[player][4..7]`, 4 squares), and anything
+  past 7 is rejected outright, meaning position 7 -- the *last* of the 4
+  squares -- is simultaneously "as far as you can go" and "finished",
+  with no separate square beyond it. This is a distinct bug from Round
+  7.8's (that one was a turn-passing state-machine bug; this one is a
+  fundamentally wrong step-counting boundary, present since the engine
+  was first written) -- confirmed distinct by checking that the reported
+  failure (steps=40, roll=4, reaching steps=44) exactly matched the
+  *old, buggy* `LUDO_TOTAL_STEPS`'s own "exact landing" rule, i.e. the
+  code was internally consistent with a boundary that was simply wrong
+  by one from the start. Fixed by changing the macro to
+  `LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH - 1`; all downstream logic
+  in `game_logic.c`/`ai.c`/`board_layout.c` references the macro
+  symbolically, so needed no code changes, only comment corrections.
+  Per explicit user instruction to update test coverage alongside any
+  logic-flaw fix: every existing test already asserted against
+  `LUDO_TOTAL_STEPS` symbolically (`test_overshoot_not_movable`,
+  `test_pawn_finishes_exactly`, `test_winner_detected_when_all_pawns_finish`,
+  `test_one_short_overshoot_not_movable`, plus both headless full-game
+  simulations' invariants), so no test *logic* needed changing -- `make
+  test` re-run afterwards to confirm all ~10.7 million checks across the
+  three suites still pass against the corrected boundary, which they do.
+- **Move-slide animation redrawing a much larger area than the moving
+  pawn.** Reported after the above two fixes shipped: the slide still
+  visibly flickered, worse than expected for a single small pawn.
+  `update_move_animation_area()` was unioning *every* cell of the whole
+  move's path (`move_anim_path[]`, up to 6 cells for a roll of six) into
+  one bounding box, and erasing/repainting that entire box on every
+  single animation tick -- for a roll that crosses a ring corner this
+  can span a large fraction of one side of the board, not just the
+  pawn's immediate surroundings. But `plot_pawn()`'s own interpolation
+  only ever places the pawn between `move_anim_path[seg]` and
+  `move_anim_path[seg + 1]`, the *current* segment -- every other cell
+  in the path is irrelevant to this frame. Fixed by computing the
+  redraw box from just the current segment's two cells (plus the
+  existing one-cell margin). Confirmed this still fully covers the
+  previous tick's position (which this call's erase step must also
+  cover): within a segment the interpolated position only ever moves
+  between the segment's two endpoints, and at the tick where the
+  segment itself advances, the previous tick's position was already
+  sitting right next to the new segment's own starting cell (at most
+  `1/MOVE_ANIM_TICKS_PER_CELL` of a cell away from it) -- well inside
+  the existing margin.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

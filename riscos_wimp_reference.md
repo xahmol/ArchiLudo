@@ -226,6 +226,41 @@ window dragged across and away). Worth doing only after checking the
 redraw handler paints unconditionally everywhere, not just where the
 current animation happens to touch.
 
+**Two follow-up lessons from real use of this pattern (ArchiLudo round
+7.13), both easy to miss even once the basic loop above is working:**
+
+1. **The caller is responsible for erasing, every single call, not just
+   the first.** Since `Wimp_UpdateWindow` never clears anything, any
+   redraw handler wired onto it needs its own explicit erase step
+   (a solid fill of `redraw.box` in the window's background colour)
+   *before* drawing the real content, every time the loop's inner body
+   runs — not just conceptually "once at the start of the animation."
+   Forgetting this on even one of several `Wimp_UpdateWindow`-based
+   redraw paths in the same codebase (having gotten it right on the
+   others) produces a working-everywhere-except-here ghosting bug that
+   only reveals itself once something moves through the one path that's
+   missing it — in ArchiLudo's case, an old pawn position never being
+   revisited by content that would naturally paint over it, once a
+   converted `Wimp_RedrawWindow`-based function was switched to
+   `Wimp_UpdateWindow` without also picking up the erase step its
+   siblings already had.
+2. **Scope the redraw rectangle to what this *frame* actually touches,
+   not the full extent the animation could *ever* touch.** It's tempting
+   to compute one bounding box up front that covers an entire
+   multi-step animation's whole path (simpler code, computed once) and
+   reuse it for every tick — but that means erasing and repainting the
+   *entire* box on *every* tick, even though any single frame only
+   changes a small part of it. This is both wasted work and, worse,
+   visibly makes the flicker problem this whole pattern exists to solve
+   proportional to the animation's *total* extent rather than to what's
+   actually moving. Recompute the rectangle each tick from only the
+   cells/pixels that frame's content can possibly occupy (current
+   position plus enough margin to cover the *previous* tick's position,
+   which this call's erase step must also clear) — see
+   `update_move_animation_area()` in `src/game_view.c` for a worked
+   example (scoped to the pawn's current path *segment*, not its whole
+   multi-square route).
+
 ## Icons: flags, validation strings, sprite+text
 
 (Pinknoise `Wimp/Icons.html`, `Wimp/ValidStrs.html`)

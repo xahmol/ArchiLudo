@@ -928,19 +928,43 @@ static void update_move_animation_area(void)
 {
 	wimp_draw redraw;
 	osbool more;
-	int col0, row0, col1, row1, i, x0, y0, x1, y1;
+	int col0, row0, col1, row1, x0, y0, x1, y1;
+	int segments, seg;
+	board_cell from_cell, to_cell;
 
 	if (window_handle == (wimp_w) -1)
 		return;
 
-	col0 = row0 = BOARD_GRID_SIZE;
-	col1 = row1 = -1;
-	for (i = 0; i < move_anim_path_len; i++) {
-		if (move_anim_path[i].col < col0) col0 = move_anim_path[i].col;
-		if (move_anim_path[i].col > col1) col1 = move_anim_path[i].col;
-		if (move_anim_path[i].row < row0) row0 = move_anim_path[i].row;
-		if (move_anim_path[i].row > row1) row1 = move_anim_path[i].row;
-	}
+	/* Only the *current segment's* two cells (where the pawn's
+	 * interpolated position -- see plot_pawn() -- can possibly fall this
+	 * tick) need to be touched, not the whole move's path. An earlier
+	 * version of this function unioned every cell of move_anim_path[],
+	 * which for a roll that crosses a ring corner could span most of one
+	 * side of the board; erasing and repainting that whole span on every
+	 * one of the animation's ticks was needless work and was visible as
+	 * flicker across the entire span, not just around the pawn -- per
+	 * explicit user report. Restricting to the segment the pawn is
+	 * actually sliding across right now is sufficient: the previous
+	 * tick's position (which this call's erase step must cover) is
+	 * always within the same or immediately preceding segment, and at a
+	 * segment boundary the previous tick's interpolated position sits
+	 * right next to (not before) the new segment's own start cell -- see
+	 * plot_pawn()'s seg/seg_progress maths -- so it already falls inside
+	 * this box's one-cell margin. */
+	segments = move_anim_path_len - 1;
+	if (segments < 1)
+		segments = 1;
+	seg = move_anim_tick / MOVE_ANIM_TICKS_PER_CELL;
+	if (seg >= segments)
+		seg = segments - 1;
+
+	from_cell = move_anim_path[seg];
+	to_cell = move_anim_path[seg + 1];
+
+	col0 = from_cell.col; if (to_cell.col < col0) col0 = to_cell.col;
+	row0 = from_cell.row; if (to_cell.row < row0) row0 = to_cell.row;
+	col1 = from_cell.col; if (to_cell.col > col1) col1 = to_cell.col;
+	row1 = from_cell.row; if (to_cell.row > row1) row1 = to_cell.row;
 
 	col0--; if (col0 < 0) col0 = 0;
 	row0--; if (row0 < 0) row0 = 0;
@@ -1238,6 +1262,17 @@ static void redraw_now(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
+		/* Erase first -- see fill_window_background()'s doc comment.
+		 * Missed here originally (a direct regression, not just a
+		 * theoretical risk): a captured pawn's *old* ring position is
+		 * never revisited by draw_board_region() with real content (a
+		 * pawn there is now gone -- board_pawn_cell() returns its new
+		 * home-base cell instead), and the thin grey ring-track outline
+		 * redrawn at that cell doesn't cover the much larger solid pawn
+		 * circle that used to be there -- per explicit user report (a
+		 * screenshot showing six red pawns/markers on screen for a
+		 * four-pawn player). */
+		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
 		draw_full_window_content(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
 	}

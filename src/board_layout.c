@@ -61,13 +61,17 @@ board_cell board_pawn_cell(const ludo_game *g, int player, int pawn_index)
 		return board_ring_cell((entry + p->steps) % LUDO_RING_LENGTH);
 	}
 	/* A finished pawn (p->finished) has steps pinned at LUDO_TOTAL_STEPS
-	 * by ludo_move_pawn(), which is LUDO_HOME_COLUMN_LENGTH past the ring
-	 * -- one past the last real home column index -- so clamp back to
-	 * that last index rather than reading past the table. This also
-	 * covers the finished case correctly on its own: a finished pawn
-	 * simply stays on its home column's last square, matching GEOS's own
-	 * homedestcoords[player][0..7] (no separate "finished" slot exists
-	 * there at all -- see docs/BOARD_LAYOUT.md's "Round 6.7 correction"). */
+	 * by ludo_move_pawn(), which (as of round 7.13's off-by-one
+	 * correction -- see game_logic.h) *is* the last real home column
+	 * index, not one past it -- reaching that square is what finishes a
+	 * pawn, matching GEOS's own homedestcoords[player][0..7] (no
+	 * separate "finished" slot exists there at all: position 7, the
+	 * last of 4 home-track squares, is simultaneously "furthest you can
+	 * go" and "finished" -- see docs/BOARD_LAYOUT.md's "Round 6.7
+	 * correction" and game_logic.h's "Round 7.13" note). The clamp below
+	 * is accordingly just a defensive safety net now, not something
+	 * normal play ever exercises -- game_logic.c's overshoot check
+	 * already guarantees p->steps never exceeds LUDO_TOTAL_STEPS. */
 	{
 		int column_index = p->steps - LUDO_RING_LENGTH;
 
