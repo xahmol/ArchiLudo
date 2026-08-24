@@ -5,10 +5,12 @@
 *(Delete/replace this section once the in-progress work below is
 confirmed and settled -- it exists purely so a session that starts
 cold, with no conversation history, knows exactly where things stood
-and what to do next. Last updated 2026-08-24, commit pending -- see
-`git log` for the actual latest. Full background/reasoning for
-everything below: round 7.16 in `docs/GRAPHICS_TOOLING.md`, round 7.17
-just above in this file's Phase 1 notes, and the
+and what to do next. Last updated 2026-08-24, commit `bcf03f4` --
+session paused here for a scheduled Claude usage-limit reset (next
+available Wednesday); everything described below is committed and
+pushed, working tree clean. Full background/reasoning for everything
+below: round 7.16 in `docs/GRAPHICS_TOOLING.md`, rounds 7.17/7.18 just
+above in this file's Phase 1 notes, and the
 [[archiludo-sprite-pivot-plan]] memory.)*
 
 **The sprite pivot is implemented, deployed, and had one real bug found
@@ -25,13 +27,24 @@ pawn rendering.
 
 **Also pending, not blocking the above**: the user liked the flat
 16-colour pawn design but asked to see a smoother, gradient-shaded
-"256 colour depth" alternative too. A preview was generated and shown
-(not wired into the game -- it can't go through `Wimp_PlotIcon` at all,
-see round 7.16 point 4) and looked noticeably closer to their original
-reference images. Whether to actually build the full `OS_SpriteOp 52` +
-`ColourTrans`-table plotting path for this is an open decision, waiting
-on the user's evaluation of the live 16-colour version first -- don't
-start that larger implementation unprompted.
+"256 colour depth" alternative too. A preview
+(`assets/experiments/gradient_preview.py` -- exploratory, NOT wired
+into the game, kept in the repo specifically so this survives a session
+restart) was generated and iterated on twice per direct user feedback
+("too dark" -> "a notch brighter still"), currently at
+`LIGHT_BLEND=0.45`/`DARK_MULT=0.68` (see that script's own "Tuning
+history" docstring for the full sequence) -- run it again
+(`python3 assets/experiments/gradient_preview.py`) to regenerate
+`assets/experiments/pawn_gradient_encoded.png` if further tuning is
+wanted; **the user had not yet given final sign-off on this exact
+iteration when the session paused** -- check for that before assuming
+it's settled. Separately, and not yet decided either way: whether to
+actually build the full `OS_SpriteOp 52` + `ColourTrans`-table plotting
+path needed to ship *any* gradient version for real (it can't go
+through `Wimp_PlotIcon` at all -- 8bpp icon translation is undefined,
+see round 7.16 point 4) is an open decision, waiting on the user's live
+evaluation of the 16-colour version in Arculator first (see the
+paragraph above) -- don't start that larger implementation unprompted.
 
 **Still open, not blocking either of the above:** building a proper
 `!ArchiLudo` application directory (per an earlier explicit user
