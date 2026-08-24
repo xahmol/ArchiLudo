@@ -63,6 +63,19 @@ to -- this file consolidates all of it in one place.
   (Archimedes demo-effect showcases, technique reference only).
   `https://github.com/kieranhj`
 
+## RISC OS WIMP design reference
+
+- **`!Chess`/"Archimedes Chess"** -- a real, shipped RISC OS WIMP board
+  game (Colin Granville's RISC OS front-end for GNU Chess), consulted
+  for design inspiration (per explicit request) on WIMP board-game UI
+  patterns -- confirmed its `Wimp_UpdateWindow` usage as the working
+  precedent behind `docs/ARCHITECTURE.md`'s "Round 7.10" flicker fix,
+  and its `hilite_do()` selected-square flash directly inspired
+  ArchiLudo's own flashing movable-pawn/hover rings ("Round 7.11").
+  Not used as code (different toolchain and licence -- CHESS GPL, not
+  code shared with ArchiLudo), read purely as a reference.
+  `https://github.com/marutan/ro-chess`
+
 ## Porting source
 
 - **Ludo / GeoLudo** -- this game's own prior ports across 8-bit

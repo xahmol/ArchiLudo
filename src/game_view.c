@@ -235,6 +235,17 @@ static int hover_active = 0;
 static board_cell hover_destination;
 static os_t hover_next_poll;
 
+/* Highlight flash state -- the movable-pawn rings and hover-destination
+ * ring pulse on/off rather than sitting static, matching the selected-
+ * square flash technique in a real, shipped RISC OS board game
+ * (github.com/marutan/ro-chess's hilite_do(), which flashes on the same
+ * ~50-centisecond cadence used here) -- per explicit user request after
+ * reviewing that project for inspiration. See draw_highlights(),
+ * update_highlight_area(). */
+static int highlight_flash_on = 1;
+static os_t highlight_next_flash;
+#define HIGHLIGHT_FLASH_CS 50
+
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 
@@ -963,6 +974,140 @@ static void update_dice_area(void)
 }
 
 /*
+ * Function: draw_highlights
+ * Summary: Draw whichever highlight rings currently apply -- the
+ *          movable-pawn rings (only meaningful while genuinely waiting
+ *          for the human player to pick among more than one legal
+ *          choice; single-choice rolls auto-move immediately, see
+ *          resolve_roll(), so there's nothing to highlight then) and the
+ *          hover-destination ring (see game_view_poll_idle()) -- unless
+ *          the flash is currently in its "off" phase, in which case this
+ *          draws nothing at all. Shared by game_view_redraw() (the whole
+ *          board) and update_highlight_area() (just the affected cells,
+ *          on each flash toggle) so both stay in exact agreement about
+ *          what "currently highlighted" means.
+ */
+static void draw_highlights(int origin_x, int origin_y)
+{
+	if (!highlight_flash_on)
+		return;
+
+	if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
+	 && game.last_roll != 0) {
+		unsigned movable = ludo_movable_pawns(&game);
+
+		if (movable != 0 && (movable & (movable - 1)) != 0) {
+			int pawn;
+
+			for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+				board_cell cell;
+				int cx, cy;
+
+				if (!(movable & (1u << pawn)))
+					continue;
+				cell = board_pawn_cell(&game, game.current_player, pawn);
+				cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
+				set_gcol(player_rgb[game.current_player][0],
+				         player_rgb[game.current_player][1],
+				         player_rgb[game.current_player][2]);
+				outline_circle(cx, cy, MOVABLE_HIGHLIGHT_RADIUS);
+			}
+		}
+	}
+
+	if (hover_active) {
+		int cx, cy;
+
+		cell_centre(hover_destination.col, hover_destination.row, origin_x, origin_y, &cx, &cy);
+		set_gcol(0, 0, 0);
+		outline_circle(cx, cy, HOVER_HIGHLIGHT_RADIUS);
+	}
+}
+
+/*
+ * Function: update_highlight_area
+ * Summary: Synchronously redraw just the board cells any currently-shown
+ *          highlight ring touches (every movable pawn's cell, plus the
+ *          hover-destination cell if active, plus a one-cell margin) via
+ *          Wimp_UpdateWindow -- called on each flash toggle
+ *          (game_view_poll_idle()) so the pulse is visible without a
+ *          full-board redraw. The board/pawn content underneath is
+ *          redrawn every single call, flash on or off, since
+ *          Wimp_UpdateWindow doesn't clear anything -- this is what
+ *          erases the previous frame's ring when the flash switches off
+ *          (see docs/ARCHITECTURE.md's Round 7.10 for why
+ *          Wimp_UpdateWindow is used this way at all).
+ */
+static void update_highlight_area(void)
+{
+	wimp_draw redraw;
+	osbool more;
+	int col0, row0, col1, row1, x0, y0, x1, y1, have_any = 0;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	col0 = row0 = BOARD_GRID_SIZE;
+	col1 = row1 = -1;
+
+	if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
+	 && game.last_roll != 0) {
+		unsigned movable = ludo_movable_pawns(&game);
+
+		if (movable != 0 && (movable & (movable - 1)) != 0) {
+			int pawn;
+
+			for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+				board_cell cell;
+
+				if (!(movable & (1u << pawn)))
+					continue;
+				cell = board_pawn_cell(&game, game.current_player, pawn);
+				if (cell.col < col0) col0 = cell.col;
+				if (cell.col > col1) col1 = cell.col;
+				if (cell.row < row0) row0 = cell.row;
+				if (cell.row > row1) row1 = cell.row;
+				have_any = 1;
+			}
+		}
+	}
+
+	if (hover_active) {
+		if (hover_destination.col < col0) col0 = hover_destination.col;
+		if (hover_destination.col > col1) col1 = hover_destination.col;
+		if (hover_destination.row < row0) row0 = hover_destination.row;
+		if (hover_destination.row > row1) row1 = hover_destination.row;
+		have_any = 1;
+	}
+
+	if (!have_any)
+		return;
+
+	col0--; if (col0 < 0) col0 = 0;
+	row0--; if (row0 < 0) row0 = 0;
+	col1++; if (col1 >= BOARD_GRID_SIZE) col1 = BOARD_GRID_SIZE - 1;
+	row1++; if (row1 >= BOARD_GRID_SIZE) row1 = BOARD_GRID_SIZE - 1;
+
+	cell_range_to_work_box(col0, row0, col1, row1, &x0, &y0, &x1, &y1);
+
+	redraw.w = window_handle;
+	redraw.box.x0 = x0;
+	redraw.box.y0 = y0;
+	redraw.box.x1 = x1;
+	redraw.box.y1 = y1;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
+		draw_highlights(origin_x, origin_y);
+		more = wimp_get_rectangle(&redraw);
+	}
+}
+
+/*
  * Function: redraw_now
  * Summary: Redraw the whole game window immediately, synchronously --
  *          not via wimp_force_redraw(), which only *schedules* a
@@ -1211,6 +1356,12 @@ static void resolve_roll(void)
 	/* Multiple choices -- a human clicks a pawn next; nothing more
 	 * automatic happens this step. */
 	step = STEP_IDLE;
+	/* Start the movable-pawn ring flash from a fresh, fully-visible
+	 * phase rather than whatever phase an unrelated previous flash
+	 * cycle happened to be in -- otherwise the ring could flip off
+	 * within a fraction of a second of first appearing. */
+	highlight_flash_on = 1;
+	highlight_next_flash = os_read_monotonic_time() + HIGHLIGHT_FLASH_CS;
 	refresh_status();
 	redraw_now();
 }
@@ -1303,6 +1454,18 @@ void game_view_poll_idle(void)
 			redraw_now();
 		}
 		return;
+	}
+
+	/* Flash the movable-pawn/hover rings on their own steady cadence,
+	 * independent of the hover-poll throttle below -- see
+	 * update_highlight_area(), which is itself a no-op if nothing is
+	 * currently highlighted (matches how ro-chess's own hilite_do()
+	 * keeps a single continuously-running flash toggle regardless of
+	 * whether anything is currently shown). */
+	if (now >= highlight_next_flash) {
+		highlight_flash_on = !highlight_flash_on;
+		highlight_next_flash = now + HIGHLIGHT_FLASH_CS;
+		update_highlight_area();
 	}
 
 	if (now < hover_next_poll)
@@ -1671,45 +1834,9 @@ void game_view_redraw(wimp_draw *redraw)
 	while (more) {
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
-		int pawn;
 
 		draw_board_region(origin_x, origin_y, 0, 0, BOARD_GRID_SIZE - 1, BOARD_GRID_SIZE - 1);
-
-		/* Movable-pawn highlight rings: only meaningful while genuinely
-		 * waiting for the human player to pick among more than one legal
-		 * choice (single-choice rolls auto-move immediately, see
-		 * resolve_roll(), so there's nothing to highlight then) -- per
-		 * explicit user request ("if multiple pawns are able to move,
-		 * suggest a way to highlight possible moves"). */
-		if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
-		 && game.last_roll != 0) {
-			unsigned movable = ludo_movable_pawns(&game);
-
-			if (movable != 0 && (movable & (movable - 1)) != 0) {
-				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
-					board_cell cell;
-					int cx, cy;
-
-					if (!(movable & (1u << pawn)))
-						continue;
-					cell = board_pawn_cell(&game, game.current_player, pawn);
-					cell_centre(cell.col, cell.row, origin_x, origin_y, &cx, &cy);
-					set_gcol(player_rgb[game.current_player][0],
-					         player_rgb[game.current_player][1],
-					         player_rgb[game.current_player][2]);
-					outline_circle(cx, cy, MOVABLE_HIGHLIGHT_RADIUS);
-				}
-			}
-		}
-
-		/* Hover destination preview -- see game_view_poll_idle(). */
-		if (hover_active) {
-			int cx, cy;
-
-			cell_centre(hover_destination.col, hover_destination.row, origin_x, origin_y, &cx, &cy);
-			set_gcol(0, 0, 0);
-			outline_circle(cx, cy, HOVER_HIGHLIGHT_RADIUS);
-		}
+		draw_highlights(origin_x, origin_y);
 
 		/* Player-colour swatch next to the name line -- matches GEOS's own
 		 * reference screenshot, which has a small coloured box beside the

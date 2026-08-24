@@ -1173,6 +1173,31 @@ handler) is untouched, still correctly using `Wimp_RedrawWindow` --
 its auto-clear is exactly what's needed there, for the empty-cell gaps
 `draw_board_region()` doesn't paint itself.
 
+**Round 7.11**: flashing movable-pawn/hover highlight rings, per explicit
+request after reviewing `github.com/marutan/ro-chess`'s source for
+design inspiration (a real, shipped RISC OS board game). Its selected-
+square highlight (`hilite_do()`) pulses on a steady timer rather than
+sitting static -- the same underlying need ArchiLudo's movable-pawn
+rings and hover-destination ring already serve, just drawn once and left
+alone. Implemented with the same `Wimp_UpdateWindow` technique Round
+7.10 just established: `draw_highlights()` (the ring-drawing logic
+itself, extracted out of `game_view_redraw()` unchanged) draws nothing
+at all when a new `highlight_flash_on` flag is momentarily false;
+`update_highlight_area()` (mirroring `update_dice_area()`/
+`update_move_animation_area()`'s shape) redraws just the bounding box
+of every currently-relevant cell -- each movable pawn's cell plus the
+hover-destination cell -- on every flash toggle (`HIGHLIGHT_FLASH_CS`,
+matching ro-chess's own ~50-centisecond cadence), driven from
+`game_view_poll_idle()` alongside the existing hover-poll and animation
+ticks. The board/pawn content underneath is redrawn on every toggle
+regardless of flash phase, on or off -- since `Wimp_UpdateWindow`
+doesn't clear anything, that's what actually erases the previous
+frame's ring when the flash switches off. The flash state resets to a
+fresh, fully-visible phase whenever a new multi-choice highlight
+situation begins (`resolve_roll()`'s "wait for a pawn click" branch),
+rather than continuing whatever phase an unrelated earlier flash cycle
+happened to be in.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
