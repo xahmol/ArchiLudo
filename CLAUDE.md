@@ -126,7 +126,19 @@ aspect (half as many rows as columns) so the mode's own stretch brings it
 back to the intended shape. See `docs/GRAPHICS_TOOLING.md`'s "Round 6
 correction" for the full writeup and `tools/riscos_sprite.py`'s
 `MODES_BY_BPP` for the mode-15-matching old-style sprite mode per bpp
-(1bpp=0, 2bpp=8, 4bpp=12, 8bpp=15). Debugging
+(1bpp=0, 2bpp=8, 4bpp=12, 8bpp=15).
+
+**Multi-mode requirement**: per a real screenshot of Arculator's own
+Mode selector, only modes 12, 15, 27, and 39 are available for this
+project's profile, and ArchiLudo must support all four, not assume 15
+specifically (explicit user instruction). Mode 15 stays the primary
+day-to-day dev/test mode, but spot-check at least one other mode
+(ideally 27, the square-pixel one, since 12/39 share mode 15's own
+non-square aspect and wouldn't catch the same class of bug) before
+considering any graphics-affecting change done. See
+`docs/ARCHITECTURE.md`'s "Resume here" section (while it exists) or its
+Round 7.16-era history for the full mode-geometry table and how this
+interacts with the sprite-pivot work in progress. Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory
 view, disassembly) is the primary tool, since nothing like the Reporter
 module is assumed present on stock RISC OS 3.10; file-based logging via

@@ -5,15 +5,16 @@
 *(Delete/replace this section once the in-progress work below is done and
 its own "Round" writeup is in place -- it exists purely so a session that
 starts cold, with no conversation history, knows exactly where things
-stood and what to do next. Last updated 2026-08-24, commit `72ace6a`.)*
+stood and what to do next. Last updated 2026-08-24, commit `4dbb472`.)*
 
 **In progress, confirmed with the user, not yet started:** pivot pawn/
 dice rendering from `os_plot` primitives (`plot_pawn()`/`plot_dice()` in
 `src/game_view.c`) to real sprites plotted via `Wimp_PlotIcon`, per
-explicit user instruction ("Yes, do sprite pivot"). A dedicated research
-pass (this session, round 7.15's follow-up) already answered the two
-open questions and reached firm conclusions -- **do not re-research
-these, they're settled**:
+explicit user instruction ("Yes, do sprite pivot"). Two dedicated
+research/validation passes this session already answered every open
+question and reached firm conclusions -- **do not re-research these,
+they're settled; see `docs/GRAPHICS_TOOLING.md`'s "Round 7.16" for the
+full validation writeup and [[archiludo-sprite-pivot-plan]] memory**:
 
 1. **No rework needed of the redraw architecture just built** (rounds
    7.13/7.15's segment-scoped animation redraw, snapshot-diff settle
@@ -24,23 +25,44 @@ these, they're settled**:
    `Wimp_UpdateWindow` loop, and ro-chess's real `icon_update()` does
    precisely that. Proceed directly to the sprite work below; nothing
    needs undoing first.
-2. **A real bug was found in `tools/riscos_sprite.py` before it shipped
-   this way**: `build_palette()` uses Pillow's adaptive median-cut
-   quantizer, embedding a bespoke per-sprite palette (e.g. a red pawn's
-   palette index 0 is literal RGB `(220,30,30)`). But the Wimp ignores
-   an icon sprite's own embedded palette entirely and remaps 4bpp
-   indices onto RISC OS's 16 *fixed* desktop Wimp colours instead (PRM
-   `wimp.html`, ~line 1256: 0-7 greyscale, 8=dark blue, 9=yellow,
-   10=green, 11=red, 12=cream, 13=army green, 14=orange, 15=light
-   blue). Plotting the current `assets/Sprites` via `Wimp_PlotIcon`
-   today would render with wrong colours -- the same failure class as
-   the original, already-diagnosed `OS_SpriteOp 34` attempt, just from
-   a different cause. **Fix needed first**: add a fixed-Wimp-palette
-   quantization mode to `build_palette()`/`write_sprite_file()` (e.g. a
-   `--wimp-palette` flag on `from-png`, using
-   `Image.quantize(palette=<a P-mode image built from the 16 Wimp RGB
-   triples>)` instead of `MEDIANCUT`).
-3. **The 4bpp/16-Wimp-colour limit above is specific to `Wimp_PlotIcon`'s
+2. **`tools/riscos_sprite.py` has been thoroughly re-validated against
+   real, external sprite files** (Steve Fryatt's wimp-prog tutorial
+   example downloads, ro-chess's real `Sprites,ff9`) -- per explicit
+   user request, before trusting it further. Found and fixed two real
+   bugs (palette entry count wrongly assumed `1 << bpp` instead of
+   derived from `image_off`, causing crashes/misreads on real sprites
+   with fewer or zero palette entries; four real screen modes -- 25-28,
+   the square-pixel VGA family -- missing from `mode_to_bpp()`'s
+   fallback table). Once fixed: every sprite in every downloaded
+   reference file parses; several genuinely colourful/masked/detailed
+   ones (a real app icon, real chess piece art) decode pixel-correct;
+   round-trips (`from-png` -> `to-png`, re-compared) are **pixel-perfect**
+   for both an 8bpp and a 4bpp real sprite; non-word-aligned widths show
+   no edge artifacts. ArchiLudo's own current `assets/Sprites` also
+   decodes exactly as intended -- **this tool was never the source of
+   the originally-reported "awful... dimension... aspect ratio wrong"
+   sprites**; that remains attributed to the already-diagnosed
+   `OS_SpriteOp 34` display bug below, not the conversion tool. New
+   permanent regression test: `tools/test_riscos_sprite.py` (run via
+   `python3 tools/test_riscos_sprite.py`, no external files needed).
+3. **A separate, real bug still needs fixing before the pivot's own
+   sprites are generated**: `build_palette()` uses Pillow's adaptive
+   median-cut quantizer, embedding a bespoke per-sprite palette (e.g. a
+   red pawn's palette index 0 is literal RGB `(220,30,30)`). But the
+   Wimp ignores an icon sprite's own embedded palette entirely for 4bpp
+   icons and remaps indices onto RISC OS's 16 *fixed* desktop Wimp
+   colours instead (PRM `wimp.html`, ~line 1256: 0-7 greyscale, 8=dark
+   blue, 9=yellow, 10=green, 11=red, 12=cream, 13=army green, 14=orange,
+   15=light blue). Plotting the current `assets/Sprites` via
+   `Wimp_PlotIcon` today would render with wrong colours -- the same
+   failure class as the original, already-diagnosed `OS_SpriteOp 34`
+   attempt, just from a different cause. **Fix needed first**: add a
+   fixed-Wimp-palette quantization mode to `build_palette()`/
+   `write_sprite_file()` (e.g. a `--wimp-palette` flag on `from-png`,
+   using `Image.quantize(palette=<a P-mode image built from the 16 Wimp
+   RGB triples>)` instead of `MEDIANCUT`). This is separate from (and
+   unaffected by) point 2's file-format bug fixes.
+4. **The 4bpp/16-Wimp-colour limit above is specific to `Wimp_PlotIcon`'s
    *automatic* colour translation, not a ceiling on sprites in
    general.** Per the PRM (`wimp.html`, the sprite-bpp table): that
    auto-translation is only *defined* for 1/2/4bpp sprites (mapped onto
@@ -57,42 +79,75 @@ these, they're settled**:
    yourself, still inside the same `Wimp_UpdateWindow` loop `plot_pawn()`
    already uses -- just a different `OS_SpriteOp` reason code than
    `Wimp_PlotIcon` takes internally, not "drawing directly to the
-   screen" in the sense the PRM warns against elsewhere. Since ArchiLudo
-   targets one fixed mode (15) on real hardware, that translation table
-   can be built once at sprite-load time and cached, not recomputed per
-   redraw. **Practical split**: 4bpp + `Wimp_PlotIcon` stays the right
-   *first step* below (pawns/dice -- small, no colour-matching code
-   needed, proven via ro-chess); full 8bpp + `OS_SpriteOp 52` + a
-   precomputed ColourTrans table is the documented route for Phase 2's
-   "real board/pawn/dice art" goal once fancier, full-colour art is
-   actually wanted.
-4. **Multi-resolution sprite support is not worth building.** RISC OS's
-   actual mechanism for this (`!Sprites22`/`!Sprites23` suffixed files,
-   PRM `wimp.html` #86114 "Alternate Resolution Icons") is for an app's
-   *persistent filer/iconbar* icon set across different desktop pixel
-   densities -- unrelated to a sprite plotted at runtime inside a game
-   window, which already auto-scales to whatever mode is current via
-   `PutSpriteScaled`'s own scale factors, no tooling needed. ArchiLudo
-   targets one fixed mode (15) on specific real hardware, so there's no
-   scenario here that needs it. Don't build this.
+   screen" in the sense the PRM warns against elsewhere. That
+   translation table can be built once at sprite-load time and cached
+   per mode, not recomputed per redraw. **Practical split**: 4bpp +
+   `Wimp_PlotIcon` stays the right *first step* below (pawns/dice --
+   small, no colour-matching code needed, proven via ro-chess); full
+   8bpp + `OS_SpriteOp 52` + a precomputed ColourTrans table is the
+   documented route for Phase 2's "real board/pawn/dice art" goal once
+   fancier, full-colour art is actually wanted.
+5. **ArchiLudo must support more than one screen mode -- confirmed from
+   a real Arculator screenshot** of its Mode selector: only 12, 15, 27,
+   and 39 are available for this project's profile, per explicit user
+   instruction to support all four, not assume 15. Checked their
+   geometry against the PRM's Table B: 12/15/39 share mode 15's own
+   2x4-OS-units-per-pixel (non-square) aspect (39 is just a higher-res
+   version of the same ratio); 27 is 2x2 (genuinely square, the same
+   family ro-chess's own sprites use). This is **compatible with, not a
+   complication of**, the in-progress architecture: window/board layout
+   is already entirely in OS units (mode-independent by construction);
+   the manual `os_plot` minimum-fill-thickness rule (>=4 OS units, see
+   the mode-15 pixel-thickness note further down) was chosen as a
+   worst-case bound already covering the largest of these four pixel
+   spacings, so it stays safe on mode 27's smaller spacing too; and
+   `Wimp_PlotIcon`'s automatic scaling (point 1/4 above) computes its
+   factors from the sprite's *own* declared mode against whatever mode
+   is actually current, so one correctly-tagged sprite displays right
+   under all four with no per-mode art variants needed.
+   **Recommendation, supersedes the older mode-15-pre-squish plan**:
+   draw the sprite pivot's actual source art *square* and tag it with
+   mode 27 (2x2, square) rather than continuing the
+   mode-15-specific pre-squished-canvas convention
+   `assets/generate_placeholder_art.py` currently uses -- lets
+   `Wimp_PlotIcon` do 100% of the aspect compensation for every mode
+   (including the awkward non-square ones) via its own scale factors,
+   rather than ArchiLudo doing it by hand for one specific mode.
+6. **The real "multi-resolution sprite" convention (`!Sprites`/
+   `!Sprites11`/`!Sprites22`) applies narrowly, per explicit user
+   instruction to follow it "where applicable" for ArchiLudo's own
+   sprites**: it's for an app's *persistent Filer/iconbar icon*
+   specifically (confirmed by inspecting Fryatt's real example files),
+   not in-game runtime-plotted sprites (point 5 already covers those --
+   `PutSpriteScaled` auto-scales, no stored variants needed). Even for
+   the app icon, only `!Sprites` (base) and `!Sprites22` are relevant
+   on real RISC OS 3.10 -- both are plain old-style sprite mode numbers.
+   **`!Sprites11` uses new-style sprite mode encoding** (confirmed
+   against ArchieSDK's own `oslib/osspriteop.h`, whose neighbouring new-
+   style fields are commented `/*RISC OS Select*/`, a considerably later
+   RISC OS variant), which genuine RISC OS 3.10 on real ARM2/ARM3
+   hardware does not understand -- don't build an `!Sprites11` variant.
+   This applies to the still-not-started `!ArchiLudo` application
+   directory work (point 7 below), not the pawn/dice sprites.
 
-**Recommended concrete next steps** (from the earlier sprite-pivot
-research agent's own step-by-step, still the plan): fix the palette
-quantization bug above; regenerate one pawn sprite only (4bpp, Wimp
-palette, masked, mode 12, drawn square -- drop the mode-15
-pixel-aspect pre-squishing for sprite art specifically, since
-`PutSpriteScaled` handles that now); plot it as one static indirected
-sprite icon in the existing redraw loop, in `plot_pawn()`, alongside
-the existing `os_plot` pawns for direct comparison; verify size/colour
-correct in Arculator before extending to all four pawns, then the die;
-keep the `os_plot` fallback behind a flag until sprites are confirmed
-working, per this project's established "the game must stay playable"
-caution from the original sprite-plotting failure.
+**Recommended concrete next steps**: fix the Wimp-palette quantization
+bug (point 3); draw and regenerate one pawn sprite only (4bpp, Wimp
+palette, masked, drawn *square* and tagged mode 27 per point 5's
+updated recommendation); plot it as one static indirected sprite icon
+in the existing redraw loop, in `plot_pawn()`, alongside the existing
+`os_plot` pawns for direct comparison; verify size/colour correct in
+Arculator across at least two of the four supported modes (one
+square -- 27 -- and one non-square -- 15 -- to catch any mode-dependent
+regression) before extending to all four pawns, then the die; keep the
+`os_plot` fallback behind a flag until sprites are confirmed working,
+per this project's established "the game must stay playable" caution
+from the original sprite-plotting failure.
 
 **Also still open, not blocking the above:** building a proper
-`!ArchiLudo` application directory (per explicit earlier user request)
--- blocked on an explicit `AskUserQuestion` consultation on design
-choices (app icon, `!Boot`/`!Run`/`!Help` scope, save-file filetype
+`!ArchiLudo` application directory (per explicit earlier user request,
+now including the `!Sprites`/`!Sprites22` app-icon pair per point 6) --
+blocked on an explicit `AskUserQuestion` consultation on design choices
+(app icon, `!Boot`/`!Run`/`!Help` scope, save-file filetype
 registration, Makefile `deploy`/`zip` changes) that has not happened
 yet; do not build this without asking first, per that instruction.
 
