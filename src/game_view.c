@@ -388,6 +388,31 @@ static void fill_rect(int x0, int y0, int x1, int y1)
 }
 
 /*
+ * Function: fill_window_background
+ * Summary: Fill a rectangle (absolute screen coordinates) with the
+ *          window's own background colour -- via Wimp_SetColour, not a
+ *          hand-picked RGB approximation, so it stays correct regardless
+ *          of the user's desktop colour scheme (matches
+ *          def.work_bg = wimp_COLOUR_VERY_LIGHT_GREY in
+ *          game_view_initialise()). Needed only by the Wimp_UpdateWindow
+ *          redraw paths (update_move_animation_area(),
+ *          update_highlight_area(), redraw_now()) -- unlike a genuine
+ *          Redraw_Window_Request, handled via Wimp_RedrawWindow in
+ *          game_view_redraw(), Wimp_UpdateWindow does not clear
+ *          anything first (see docs/ARCHITECTURE.md's Round 7.10), so
+ *          without this, a shape drawn between two grid points one tick
+ *          (a pawn mid-slide, a ring at its full radius) is never
+ *          actually erased before the next tick draws over it -- per
+ *          explicit user report ("old pawn position is not restored to
+ *          old state in interim frames").
+ */
+static void fill_window_background(int x0, int y0, int x1, int y1)
+{
+	wimp_set_colour(wimp_COLOUR_VERY_LIGHT_GREY);
+	fill_rect(x0, y0, x1, y1);
+}
+
+/*
  * Function: fill_circle / outline_circle
  * Summary: Plot a filled or outline circle in the current foreground
  *          colour, centred at (cx, cy) with the given radius, all in OS
@@ -935,6 +960,10 @@ static void update_move_animation_area(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
+		/* Erase whatever the previous tick left here first -- see
+		 * fill_window_background()'s doc comment for why this is
+		 * necessary with Wimp_UpdateWindow specifically. */
+		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1101,6 +1130,11 @@ static void update_highlight_area(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
+		/* See fill_window_background()'s doc comment -- the ring's own
+		 * radius extends past the marker/pawn underneath it, so without
+		 * this a thin remnant of the "on" phase ring could survive an
+		 * "off" phase. */
+		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
@@ -1108,28 +1142,105 @@ static void update_highlight_area(void)
 }
 
 /*
+ * Function: draw_full_window_content
+ * Summary: Draw the entire game window's content -- the whole board,
+ *          highlight rings, the player-colour swatch, and the die --
+ *          for one already-clipped redraw rectangle. Shared by
+ *          game_view_redraw() (a genuine Redraw_Window_Request, via
+ *          Wimp_RedrawWindow) and redraw_now() (a manually-triggered
+ *          full update, via Wimp_UpdateWindow) so both stay in exact
+ *          agreement about what the window's content actually is.
+ */
+static void draw_full_window_content(int origin_x, int origin_y)
+{
+	draw_board_region(origin_x, origin_y, 0, 0, BOARD_GRID_SIZE - 1, BOARD_GRID_SIZE - 1);
+	draw_highlights(origin_x, origin_y);
+
+	/* Player-colour swatch next to the name line -- matches GEOS's own
+	 * reference screenshot, which has a small coloured box beside the
+	 * player name/status text. Black outline (same "larger shape
+	 * behind the fill" technique as plot_pawn()'s pawn outline) per
+	 * explicit user request -- yellow in particular read poorly
+	 * against the panel's own light background with no border. */
+	{
+		int player = (game.winner != -1) ? game.winner : game.current_player;
+		int x0 = origin_x + SWATCH_X0;
+		int y1 = origin_y + SWATCH_Y1;
+		/* Mode 15 is 2x4 OS units per physical pixel (non-square --
+		 * see CLAUDE.md's Testing section), so a horizontal edge
+		 * needs at least 4 OS units of thickness to guarantee even
+		 * one physical pixel row; 2 was invisible on the top/bottom
+		 * edges specifically (a vertical edge only needs 2, so those
+		 * happened to still show) -- per explicit user report and
+		 * correctly diagnosed cause ("perhaps as every two OS lines
+		 * is one actual screen line?"). plot_pawn()'s own outline
+		 * (PAWN_SIZE/12 = 4) already satisfied this by coincidence,
+		 * which is why only the swatch showed the problem. */
+		int outline = 4;
+
+		set_gcol(0, 0, 0);
+		fill_rect(x0 - outline, y1 - SWATCH_SIZE - outline, x0 + SWATCH_SIZE + outline, y1 + outline);
+		set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
+		fill_rect(x0, y1 - SWATCH_SIZE, x0 + SWATCH_SIZE, y1);
+	}
+
+	plot_dice(origin_x, origin_y);
+}
+
+/*
  * Function: redraw_now
  * Summary: Redraw the whole game window immediately, synchronously --
  *          not via wimp_force_redraw(), which only *schedules* a
  *          Redraw_Window_Request for the next Wimp_Poll and so wouldn't
- *          show anything until this whole function returns. Needed by
- *          every animation tick (see game_view_poll_idle()) so each
- *          intermediate frame actually becomes visible one at a time
- *          rather than only the final state ever appearing on screen.
- *          This is the same Wimp_RedrawWindow/Wimp_GetRectangle call
- *          main_dispatch()'s wimp_REDRAW_WINDOW_REQUEST case makes in
- *          response to a genuine Wimp-issued request -- Wimp_RedrawWindow
- *          doesn't care why the app is asking, only which window.
+ *          show anything until this whole function returns. Needed
+ *          whenever a known state change (a settled roll, a captured
+ *          pawn, a fresh game) must become visible right away rather
+ *          than waiting for the next genuine window exposure.
+ *
+ *          Uses Wimp_UpdateWindow, not Wimp_RedrawWindow (i.e. does
+ *          *not* delegate to game_view_redraw(), despite drawing the
+ *          exact same content via the same draw_full_window_content())
+ *          -- per explicit user report ("after animation is done, there
+ *          is still a full redraw, is that needed?"). It wasn't:
+ *          Wimp_RedrawWindow's auto-clear-then-repaint is a visible
+ *          flash regardless of how small or large the redrawn area is
+ *          (see docs/ARCHITECTURE.md's Round 7.10), and this function
+ *          runs at the end of essentially every game action, so that
+ *          flash was happening constantly. Wimp_UpdateWindow doesn't
+ *          clear, but draw_full_window_content() already repaints every
+ *          marker/pawn/panel element unconditionally on every call
+ *          regardless of what changed, so nothing is lost by skipping
+ *          the clear -- the window's own extent is supplied as the
+ *          input rectangle (Wimp_UpdateWindow, unlike Wimp_RedrawWindow,
+ *          takes it as input, not output). Genuine window exposure
+ *          (another window dragged away, first open) is unaffected --
+ *          that still goes through main_dispatch()'s
+ *          wimp_REDRAW_WINDOW_REQUEST case -> game_view_redraw() ->
+ *          Wimp_RedrawWindow, completely unchanged, where the auto-clear
+ *          is exactly what's wanted.
  */
 static void redraw_now(void)
 {
 	wimp_draw redraw;
+	osbool more;
 
 	if (window_handle == (wimp_w) -1)
 		return;
 
 	redraw.w = window_handle;
-	game_view_redraw(&redraw);
+	redraw.box.x0 = 0;
+	redraw.box.y0 = -WINDOW_HEIGHT;
+	redraw.box.x1 = WINDOW_WIDTH;
+	redraw.box.y1 = 0;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
+		draw_full_window_content(origin_x, origin_y);
+		more = wimp_get_rectangle(&redraw);
+	}
 }
 
 /*
@@ -1826,6 +1937,7 @@ wimp_w game_view_window_handle(void)
 }
 
 
+
 void game_view_redraw(wimp_draw *redraw)
 {
 	osbool more;
@@ -1835,39 +1947,7 @@ void game_view_redraw(wimp_draw *redraw)
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 
-		draw_board_region(origin_x, origin_y, 0, 0, BOARD_GRID_SIZE - 1, BOARD_GRID_SIZE - 1);
-		draw_highlights(origin_x, origin_y);
-
-		/* Player-colour swatch next to the name line -- matches GEOS's own
-		 * reference screenshot, which has a small coloured box beside the
-		 * player name/status text. Black outline (same "larger shape
-		 * behind the fill" technique as plot_pawn()'s pawn outline) per
-		 * explicit user request -- yellow in particular read poorly
-		 * against the panel's own light background with no border. */
-		{
-			int player = (game.winner != -1) ? game.winner : game.current_player;
-			int x0 = origin_x + SWATCH_X0;
-			int y1 = origin_y + SWATCH_Y1;
-			/* Mode 15 is 2x4 OS units per physical pixel (non-square --
-			 * see CLAUDE.md's Testing section), so a horizontal edge
-			 * needs at least 4 OS units of thickness to guarantee even
-			 * one physical pixel row; 2 was invisible on the top/bottom
-			 * edges specifically (a vertical edge only needs 2, so those
-			 * happened to still show) -- per explicit user report and
-			 * correctly diagnosed cause ("perhaps as every two OS lines
-			 * is one actual screen line?"). plot_pawn()'s own outline
-			 * (PAWN_SIZE/12 = 4) already satisfied this by coincidence,
-			 * which is why only the swatch showed the problem. */
-			int outline = 4;
-
-			set_gcol(0, 0, 0);
-			fill_rect(x0 - outline, y1 - SWATCH_SIZE - outline, x0 + SWATCH_SIZE + outline, y1 + outline);
-			set_gcol(player_rgb[player][0], player_rgb[player][1], player_rgb[player][2]);
-			fill_rect(x0, y1 - SWATCH_SIZE, x0 + SWATCH_SIZE, y1);
-		}
-
-		plot_dice(origin_x, origin_y);
-
+		draw_full_window_content(origin_x, origin_y);
 		more = wimp_get_rectangle(redraw);
 	}
 }

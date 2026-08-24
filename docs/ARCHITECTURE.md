@@ -1198,6 +1198,50 @@ situation begins (`resolve_roll()`'s "wait for a pawn click" branch),
 rather than continuing whatever phase an unrelated earlier flash cycle
 happened to be in.
 
+**Round 7.12**: two more `Wimp_UpdateWindow` follow-up bugs, both from
+the same underlying cause -- per explicit report ("old pawn position is
+not restored to old state in interim frames", "after animation is
+done, there is still a full redraw, is that needed?", "pulsing
+animation... does not pulsate").
+
+- **Missing erase-before-draw.** `Wimp_UpdateWindow` deliberately
+  doesn't clear anything (that's the whole point, see Round 7.10) --
+  but that means *this code* is now responsible for erasing whatever
+  the previous tick drew, and it wasn't. A pawn mid-slide draws at an
+  interpolated position between two grid points; nothing else ever
+  paints that exact spot (`draw_board_region()` only paints cell
+  markers at grid points), so the previous frame's pawn image was never
+  actually erased -- each tick just added another circle, leaving a
+  visible trail along the path. The exact same missing-erase issue is
+  almost certainly *also* why the new flashing highlight rings (round
+  7.11) didn't visibly pulsate: the ring's own radius extends past the
+  marker/pawn underneath it, so nothing ever fully erased the "on"
+  phase's ring during an "off" phase -- it likely looked like a
+  permanently-drawn (if slightly patchy) ring throughout, never truly
+  toggling off. Fixed with a new `fill_window_background()` helper
+  (`Wimp_SetColour` + a plain fill, not a hand-picked RGB, so it always
+  matches the real desktop colour scheme) called at the top of every
+  `Wimp_UpdateWindow`-based redraw pass (`update_move_animation_area()`,
+  `update_highlight_area()`) before the real content is drawn on top --
+  `update_dice_area()` didn't need this, since `plot_dice()` already
+  unconditionally paints its entire box opaque every call, leaving no
+  gaps to begin with.
+- **The end-of-animation settle still flashed.** `after_settle()`'s
+  final `redraw_now()` was still calling `game_view_redraw()`, i.e.
+  still `Wimp_RedrawWindow` under the hood -- meaning every single
+  action (a roll settling, a move finishing) ended with exactly the
+  same auto-clear flash the whole rest of this animation work exists to
+  avoid. Not actually needed: `draw_full_window_content()` (the board/
+  highlights/swatch/dice drawing code, extracted here out of
+  `game_view_redraw()` so both share it) already repaints every element
+  unconditionally on every call regardless of what changed, so there's
+  nothing gained by letting the Wimp clear first. `redraw_now()` now
+  runs its own `Wimp_UpdateWindow` loop over the whole window extent
+  instead of delegating to `game_view_redraw()`. Genuine window
+  exposure (`main_dispatch()`'s `wimp_REDRAW_WINDOW_REQUEST` case) is
+  completely unaffected, still `Wimp_RedrawWindow` via
+  `game_view_redraw()`, where the auto-clear is exactly what's wanted.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
