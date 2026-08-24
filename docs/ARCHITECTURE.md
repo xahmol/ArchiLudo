@@ -1326,6 +1326,67 @@ incentive for safely advancing within the home column (still losing to
 an actual capture). Full writeup, weight table, and the two new tests'
 worked-out scoring: [AI.md](AI.md)'s "Round 7.14" section.
 
+**Round 7.15**: two more polish items, per explicit user report after
+confirming Round 7.13's animation-scoping fix looked right ("animation
+redraws now much better, pulsating ring now also works. Only thing
+still remaining: there is still a full redraw of every window when turn
+is finished waiting on throw or continue button... Also can we show the
+buttons only when user is supposed to click on it, not in between?").
+
+- **The turn-settle redraw was unconditional and full-window, even
+  though it usually had nothing new to show.** `after_settle()` (shared
+  by `resolve_roll()` and `resolve_move()`, i.e. called at literally
+  every single turn transition) unconditionally called `redraw_now()`
+  over the *entire* window. But by the time it runs, the board almost
+  always already looks correct: an ordinary move's final resting
+  position was already painted by the last animation tick
+  (`update_move_animation_area()`), and a roll with no release doesn't
+  touch the board at all -- only a capture, an own-pawn collision, or a
+  six's mandatory release actually changes anything *else* on the
+  board, and none of those are the common case. Fixed with a snapshot/
+  diff mechanism: `snapshot_pawn_positions()` records every pawn's
+  `board_pawn_cell()`/`in_play` state immediately before the
+  state-changing `ludo_move_pawn()`/`ludo_roll()` call (called from
+  `start_move_animation()`/`start_roll_animation()`), and
+  `update_settle_diff_area()` (called from `resolve_move()`/
+  `resolve_roll()`'s `just_released` branch) compares against it
+  afterwards, redrawing -- via the same scoped `Wimp_UpdateWindow`
+  pattern as everything else in this project's animation code -- only
+  the cells of whichever *other* pawn actually got displaced (both its
+  old cell, to erase, and its new one, to draw), skipping the one pawn
+  whose own move animation already painted its result. If nothing else
+  changed (the ordinary case), it does nothing at all: no board redraw
+  of any kind. `after_settle()` itself no longer redraws the board --
+  each call site now handles that explicitly, matching what it actually
+  knows changed: `resolve_roll()`'s "turn passed" and "no legal move"
+  branches call nothing extra (genuinely nothing on the board changed);
+  its "multiple choices" ending swapped `redraw_now()` for the existing
+  `update_highlight_area()` (only the movable-pawn rings are new, not
+  the board itself); `game_view_new_game()`/`game_view_load_from_path()`
+  still call an explicit, unscoped `redraw_now()` after `after_settle()`,
+  since a brand new or freshly loaded game has no "before" snapshot to
+  diff against and genuinely needs a full repaint.
+- **The Throw/Continue button looked clickable even when clicking it
+  would do nothing.** `game_view_click()`'s `ICON_THROW` handler already
+  silently ignores clicks outside the two situations the button
+  actually means something in (a human's own turn actually needing a
+  throw, or `STEP_AWAIT_CONTINUE`) -- but the button never reflected
+  that visually, staying in its normal "raised, clickable" look even
+  mid-animation, during an AI's own automatic actions, or while a human
+  still had a pawn to pick. Fixed with `wimp_ICON_SHADED`, RISC OS's
+  standard "this control is currently disabled" icon flag -- confirmed
+  from the PRM (`~/riscos-dev/prm-mirror/wimp.html`) that it does
+  exactly what's wanted here: "the Wimp draws the icon in a 'subdued'
+  way, to indicate that it can't be selected. This also prevents
+  selection by clicking" -- a genuine Wimp-level click guard, not just a
+  visual cue, sitting alongside (not replacing) `game_view_click()`'s
+  own existing guard. `refresh_status()` now computes the exact same
+  "is Throw/Continue currently the required action" condition
+  `game_view_click()` already checks, and toggles the icon's shaded
+  flag (via a single `wimp_set_icon_state()` EOR call, only issued when
+  the state actually needs to change, tracked in the new `throw_shaded`
+  static) to match.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

@@ -260,6 +260,23 @@ current animation happens to touch.
    `update_move_animation_area()` in `src/game_view.c` for a worked
    example (scoped to the pawn's current path *segment*, not its whole
    multi-square route).
+3. **For a discrete state change (not a continuous per-tick animation)
+   whose side effects are data-dependent and scattered** — e.g. a game
+   move that *might* also have captured an opponent's piece elsewhere on
+   the board, or might not have — don't reach for a full-window redraw
+   just because enumerating the exact affected region in advance is
+   awkward. Snapshot whatever piece of state determines on-screen
+   position immediately before the state-changing call, then diff it
+   against the post-change state once the call (and anything animating
+   *it* specifically) has finished; redraw only whatever changed. This
+   finds exactly what needs repainting without hand-writing per-rule
+   logic for every kind of side effect a move can have, and — critically
+   — costs nothing at all in the common case where nothing else changed.
+   See ArchiLudo's `snapshot_pawn_positions()`/`update_settle_diff_area()`
+   (`src/game_view.c`, round 7.15) for a worked example: one generic
+   diff against every game piece's position, used identically whether
+   the triggering event was a capture, an own-piece collision, or a
+   piece newly entering play.
 
 ## Icons: flags, validation strings, sprite+text
 
@@ -313,6 +330,33 @@ continuously unless its ESG select-group is non-zero — good for
 simulated-menu action buttons); type 11 (auto-selects and reports
 click/drag without double-click semantics — good for toggle-style icons
 like dice/throw buttons).
+
+**Disabling a button visually and functionally: `wimp_ICON_SHADED`.**
+Per the PRM (`wimp.html`): "When the icon's shaded bit is set, the Wimp
+draws the icon in a 'subdued' way, to indicate that it can't be
+selected. This also prevents selection by clicking" — a genuine
+Wimp-level click guard, not just a greyed-out look, so it's safe to rely
+on alongside (not just instead of) an app's own click-handler guard for
+the same condition. Toggle it the same way as any other icon flag —
+`wimp_set_icon_state(w, i, eor_bits, clear_bits)`, EOR-ing
+`wimp_ICON_SHADED` only when the desired state actually differs from
+what's currently on screen (track it in a local static so a per-poll
+status refresh doesn't re-toggle every single call):
+
+```c
+int want_shaded = !some_condition_that_means_clickable;
+wimp_icon_flags eor = (want_shaded != currently_shaded) ? wimp_ICON_SHADED : 0;
+
+wimp_set_icon_state(w, i, eor, 0);
+currently_shaded = want_shaded;
+```
+
+Worth reaching for whenever a UI has one button whose meaning changes
+by state (a combined "Throw"/"Continue" action button, say) and isn't
+always the actual next required action — shading it the rest of the
+time (per ArchiLudo round 7.15) keeps the affordance honest about
+what's clickable right now, without needing a second icon or hiding/
+recreating the icon outright.
 
 ## Menus
 

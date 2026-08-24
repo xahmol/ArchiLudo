@@ -173,6 +173,10 @@ static char status_text[STATUS_TEXT_LEN] = "";
  * the longer of the two. */
 static char throw_text[10] = "Throw";
 static char throw_validation[4] = "R1";
+/* Current on-screen shaded state of the Throw/Continue icon, so
+ * refresh_status() only toggles wimp_ICON_SHADED (an EOR flag) when it
+ * actually needs to change -- see round 7.15. */
+static int throw_shaded = 0;
 
 /* True once a game has actually been started via game_view_new_game()
  * (i.e. via src/setup_view.c's "New Game" dialogue) -- lets main.c tell
@@ -226,6 +230,17 @@ static board_cell move_anim_path[MOVE_ANIM_MAX_PATH];
 static int move_anim_path_len;
 static int move_anim_tick;
 static os_t move_anim_next_tick;
+
+/* Round 7.15: a snapshot of every pawn's board cell/in_play state, taken
+ * immediately before a state-changing ludo_roll()/ludo_move_pawn() call
+ * -- see snapshot_pawn_positions()/update_settle_diff_area(). Lets the
+ * post-animation "settle" redraw at turn's end be scoped to only the
+ * pawns a capture or a six's mandatory release actually displaced,
+ * instead of the whole board, per explicit user report that the
+ * full-window redraw at every turn transition was itself visibly
+ * flickering. */
+static board_cell settle_prev_cell[LUDO_PLAYERS][LUDO_PAWNS];
+static int settle_prev_in_play[LUDO_PLAYERS][LUDO_PAWNS];
 
 /* Hover-preview state -- highlights the destination cell a movable pawn
  * under the pointer would land on, per explicit user request. Only
@@ -519,10 +534,35 @@ static void refresh_status(void)
 	strncpy(throw_text, ai_turn ? "Continue" : "Throw", sizeof(throw_text) - 1);
 	throw_text[sizeof(throw_text) - 1] = '\0';
 
-	if (window_handle != (wimp_w) -1) {
-		wimp_set_icon_state(window_handle, ICON_NAME, 0, 0);
-		wimp_set_icon_state(window_handle, ICON_STATUS, 0, 0);
-		wimp_set_icon_state(window_handle, ICON_THROW, 0, 0);
+	/* Round 7.15: shade the button whenever clicking it wouldn't actually
+	 * do anything -- mid-animation, an AI turn between its own automatic
+	 * actions, or a human with a pawn to pick instead -- per explicit
+	 * user request ("show the buttons only when user is supposed to
+	 * click on it, not in between"). Mirrors game_view_click()'s own
+	 * ICON_THROW guard exactly, so a shaded button and an ignored click
+	 * always agree. */
+	{
+		int throw_active;
+
+		if (game.winner != -1)
+			throw_active = 1; /* "play again", always clickable once won */
+		else if (step == STEP_AWAIT_CONTINUE)
+			throw_active = 1;
+		else if (step == STEP_IDLE && !ai_turn
+		      && (game.last_roll == 0 || ludo_movable_pawns(&game) == 0))
+			throw_active = 1;
+		else
+			throw_active = 0;
+
+		if (window_handle != (wimp_w) -1) {
+			wimp_icon_flags eor = (throw_active == throw_shaded) ? wimp_ICON_SHADED
+			                                                      : (wimp_icon_flags) 0;
+
+			wimp_set_icon_state(window_handle, ICON_NAME, 0, 0);
+			wimp_set_icon_state(window_handle, ICON_STATUS, 0, 0);
+			wimp_set_icon_state(window_handle, ICON_THROW, eor, 0);
+			throw_shaded = !throw_active;
+		}
 	}
 }
 
@@ -919,10 +959,10 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
  *
  *          Any *other* pawn's position change this same move triggered
  *          (a capture sent home, a six-release) is outside this
- *          animation's scope and only appears once resolve_move() ->
- *          after_settle() does its own full redraw once the animation
- *          finishes -- an acceptable, deliberate limit (nothing asked
- *          for those to animate too, only the moving pawn itself).
+ *          animation's scope and only appears once resolve_move() calls
+ *          update_settle_diff_area() after the animation finishes (round
+ *          7.15) -- an acceptable, deliberate limit (nothing asked for
+ *          those to animate too, only the moving pawn itself).
  */
 static void update_move_animation_area(void)
 {
@@ -1166,6 +1206,123 @@ static void update_highlight_area(void)
 }
 
 /*
+ * Function: snapshot_pawn_positions
+ * Summary: Record every pawn's current board cell and in_play flag into
+ *          settle_prev_cell[]/settle_prev_in_play[] -- called immediately
+ *          before a state-changing ludo_roll() or ludo_move_pawn() call
+ *          so update_settle_diff_area() can later tell exactly which
+ *          pawns (if any) that call displaced as a side effect.
+ */
+static void snapshot_pawn_positions(void)
+{
+	int player, pawn;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			settle_prev_in_play[player][pawn] = game.players[player].pawns[pawn].in_play;
+			settle_prev_cell[player][pawn] = board_pawn_cell(&game, player, pawn);
+		}
+	}
+}
+
+/*
+ * Function: update_settle_diff_area
+ * Summary: Compare every pawn's current board cell/in_play state against
+ *          the snapshot snapshot_pawn_positions() took just before the
+ *          state-changing call, and redraw (via Wimp_UpdateWindow, scoped
+ *          tightly -- see update_move_animation_area()'s doc comment for
+ *          the general pattern) only the cells that actually changed as
+ *          a side effect of that call: a captured pawn sent home, a own-
+ *          pawn collision sent home, or a six's mandatory release from
+ *          the home base. `skip_player`/`skip_pawn` excludes the one
+ *          pawn whose own move animation (see start_move_animation())
+ *          already painted its final position on the last tick -- pass
+ *          -1/-1 when there is no such pawn (the roll/release path has
+ *          no animated mover of its own).
+ *
+ *          If nothing else changed -- true for the overwhelming majority
+ *          of ordinary moves, which involve exactly one pawn -- this
+ *          does nothing at all: no board redraw of any kind, since the
+ *          per-tick animation already left the board showing the
+ *          correct final state, and status/name/Throw-button text is
+ *          handled separately by refresh_status()'s own small per-icon
+ *          redraws. Added in round 7.15 specifically so the common case
+ *          needs no board redraw whatsoever -- per explicit user report
+ *          that a full-window redraw on every single turn transition was
+ *          itself visibly flickering, independent of whatever it was
+ *          redrawing.
+ */
+static void update_settle_diff_area(int skip_player, int skip_pawn)
+{
+	wimp_draw redraw;
+	osbool more;
+	int col0, row0, col1, row1, x0, y0, x1, y1, have_any = 0;
+	int player, pawn;
+
+	if (window_handle == (wimp_w) -1)
+		return;
+
+	col0 = row0 = BOARD_GRID_SIZE;
+	col1 = row1 = -1;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			board_cell now_cell;
+			int now_in_play;
+
+			if (player == skip_player && pawn == skip_pawn)
+				continue;
+
+			now_in_play = game.players[player].pawns[pawn].in_play;
+			now_cell = board_pawn_cell(&game, player, pawn);
+
+			if (now_in_play == settle_prev_in_play[player][pawn]
+			 && now_cell.col == settle_prev_cell[player][pawn].col
+			 && now_cell.row == settle_prev_cell[player][pawn].row)
+				continue;
+
+			/* Changed -- cover both where it used to be (needs erasing)
+			 * and where it is now (needs drawing). */
+			if (settle_prev_cell[player][pawn].col < col0) col0 = settle_prev_cell[player][pawn].col;
+			if (settle_prev_cell[player][pawn].col > col1) col1 = settle_prev_cell[player][pawn].col;
+			if (settle_prev_cell[player][pawn].row < row0) row0 = settle_prev_cell[player][pawn].row;
+			if (settle_prev_cell[player][pawn].row > row1) row1 = settle_prev_cell[player][pawn].row;
+			if (now_cell.col < col0) col0 = now_cell.col;
+			if (now_cell.col > col1) col1 = now_cell.col;
+			if (now_cell.row < row0) row0 = now_cell.row;
+			if (now_cell.row > row1) row1 = now_cell.row;
+			have_any = 1;
+		}
+	}
+
+	if (!have_any)
+		return;
+
+	col0--; if (col0 < 0) col0 = 0;
+	row0--; if (row0 < 0) row0 = 0;
+	col1++; if (col1 >= BOARD_GRID_SIZE) col1 = BOARD_GRID_SIZE - 1;
+	row1++; if (row1 >= BOARD_GRID_SIZE) row1 = BOARD_GRID_SIZE - 1;
+
+	cell_range_to_work_box(col0, row0, col1, row1, &x0, &y0, &x1, &y1);
+
+	redraw.w = window_handle;
+	redraw.box.x0 = x0;
+	redraw.box.y0 = y0;
+	redraw.box.x1 = x1;
+	redraw.box.y1 = y1;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
+		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
+		more = wimp_get_rectangle(&redraw);
+	}
+}
+
+/*
  * Function: draw_full_window_content
  * Summary: Draw the entire game window's content -- the whole board,
  *          highlight rings, the player-colour swatch, and the die --
@@ -1359,7 +1516,14 @@ static void after_settle(void)
 	else
 		step = STEP_IDLE;
 	refresh_status();
-	redraw_now();
+	/* No board redraw here (round 7.15) -- unlike the name/status/Throw
+	 * text refresh_status() just did, whether the *board* needs
+	 * repainting varies by caller (an ordinary move's board content is
+	 * already correct from the per-tick animation; a capture/release
+	 * needs a small scoped redraw; a brand new/loaded game needs a full
+	 * one) so each call site handles that itself -- see
+	 * update_settle_diff_area(), resolve_move(), resolve_roll(),
+	 * game_view_new_game(), game_view_load_from_path(). */
 }
 
 /*
@@ -1381,6 +1545,11 @@ static void start_move_animation(int player, int pawn_index)
 	                             * itself reset last_roll (a six grants
 	                             * another roll) before this can log it */
 	int to_steps, i;
+
+	/* Snapshot every pawn's position before the move so
+	 * update_settle_diff_area() can later tell whether this move also
+	 * captured/displaced some *other* pawn (see round 7.15). */
+	snapshot_pawn_positions();
 
 	ludo_move_pawn(&game, pawn_index);
 	to_steps = game.players[player].pawns[pawn_index].steps;
@@ -1415,10 +1584,14 @@ static void start_move_animation(int player, int pawn_index)
  * Function: resolve_move
  * Summary: Called once a pawn-move animation has finished -- the board
  *          state is already correct (start_move_animation() applied it
- *          up front), so this just settles the next turn_step.
+ *          up front), so this just redraws anything the move displaced
+ *          besides the animated pawn itself (a capture, an own-pawn
+ *          collision -- see update_settle_diff_area()) and settles the
+ *          next turn_step.
  */
 static void resolve_move(void)
 {
+	update_settle_diff_area(move_anim_player, move_anim_pawn_index);
 	after_settle();
 }
 
@@ -1471,6 +1644,12 @@ static void resolve_roll(void)
 	}
 
 	if (game.just_released) {
+		/* The mandatory release moved a pawn from its home base onto the
+		 * ring entry square, entirely inside ludo_roll() -- no move
+		 * animation covers this, so it's the diff redraw's job alone
+		 * (round 7.15). No pawn to skip: nothing here already painted
+		 * its own final position the way an animated move does. */
+		update_settle_diff_area(-1, -1);
 		after_settle();
 		return;
 	}
@@ -1509,7 +1688,10 @@ static void resolve_roll(void)
 	highlight_flash_on = 1;
 	highlight_next_flash = os_read_monotonic_time() + HIGHLIGHT_FLASH_CS;
 	refresh_status();
-	redraw_now();
+	/* No pawn moved this step -- only the movable-pawn highlight rings
+	 * are new content, so a scoped update covers it exactly (round
+	 * 7.15), same as every later flash toggle already uses. */
+	update_highlight_area();
 }
 
 /*
@@ -1525,6 +1707,10 @@ static void resolve_roll(void)
 static void start_roll_animation(void)
 {
 	roll_anim_player = game.current_player;
+	/* Snapshot every pawn's position before the roll so
+	 * update_settle_diff_area() can later tell whether a six's mandatory
+	 * release happened (see round 7.15). */
+	snapshot_pawn_positions();
 	ludo_roll(&game, 0);
 	roll_anim_ticks_done = 0;
 	dice_display_face = 1;
@@ -1670,10 +1856,14 @@ void game_view_new_game(void)
 	step = STEP_IDLE;
 	hover_active = 0;
 	dice_display_face = 0;
-	/* after_settle() itself calls refresh_status() and does a synchronous
-	 * full redraw -- see its doc comment. If the very first player is
-	 * AI-controlled, their first action still waits for a Continue click. */
+	/* after_settle() itself calls refresh_status() -- see its doc comment.
+	 * If the very first player is AI-controlled, their first action
+	 * still waits for a Continue click. A brand new game is a genuinely
+	 * full board reset (round 7.15's scoped diff redraw has no "before"
+	 * state to compare against here), so this is one of the few places
+	 * that still needs an explicit, unscoped redraw_now(). */
 	after_settle();
+	redraw_now();
 }
 
 int game_view_has_started(void)
@@ -1835,8 +2025,12 @@ int game_view_load_from_path(const char *path)
 	/* after_settle() sets the correct turn_step (STEP_AWAIT_CONTINUE if
 	 * the loaded game's current player is AI-controlled, matching
 	 * game_view_new_game()'s own "every AI action waits for Continue"
-	 * rule) and does the refresh_status()/full redraw. */
+	 * rule) and refreshes the status text. A loaded save is a wholesale
+	 * board replacement (round 7.15's scoped diff redraw has no "before"
+	 * state to compare against here), so an explicit, unscoped
+	 * redraw_now() is still needed, same as game_view_new_game(). */
 	after_settle();
+	redraw_now();
 	return 1;
 }
 
