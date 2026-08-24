@@ -66,6 +66,19 @@
 #define WEIGHT_DANGER_STILL_IN      -300
 #define WEIGHT_DANGER_APPROACH_OPPONENT 150
 #define WEIGHT_PROGRESS_PER_STEP       5
+/* Round 7.14: a move that places the pawn in its home column -- whether
+ * it was already there or crosses in from the ring this move -- is
+ * risk-free (no capture/danger heuristic can ever apply there, see
+ * score_move()) and directly shortens the road to winning, so it
+ * deserves a real, explicit incentive rather than competing on the same
+ * flat WEIGHT_PROGRESS_PER_STEP as everything else. Sized to clearly
+ * beat the ring-tactic bonuses above (WEIGHT_ENTRY_SQUARE_LEAVE,
+ * WEIGHT_DANGER_ESCAPE/APPROACH_OPPONENT) but still lose to an actual
+ * capture (WEIGHT_CAPTURE alone already exceeds it) -- per explicit
+ * user report that the AI wasn't visibly prioritising advancing a pawn
+ * already in its home stretch. */
+#define WEIGHT_HOME_COLUMN_ADVANCE_BASE     2000
+#define WEIGHT_HOME_COLUMN_ADVANCE_PER_STEP  100
 
 /* A capture is worth extra when the captured pawn was this close (or
  * closer) to leaving the ring for its home column -- losing that much
@@ -219,6 +232,14 @@ static int score_move(const ludo_game *g, int player, int pawn_index)
 					score += WEIGHT_DANGER_APPROACH_OPPONENT;
 			}
 		}
+	} else {
+		/* Not on the ring after this move -- the early return above
+		 * already handled the "this move finishes the pawn" case, so
+		 * getting here means the pawn ends this move still inside its
+		 * home column, one step closer to finishing (see the weight
+		 * comment above for why this needs its own explicit bonus). */
+		score += WEIGHT_HOME_COLUMN_ADVANCE_BASE
+		       + WEIGHT_HOME_COLUMN_ADVANCE_PER_STEP * (new_steps - LUDO_RING_LENGTH);
 	}
 
 	if (old_on_ring && is_entry_square(old_square))

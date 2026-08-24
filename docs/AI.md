@@ -4,7 +4,7 @@
 player should move, given the set of currently-legal choices from
 `ludo_movable_pawns()`. Pure C, no OSLib/WIMP dependency, host-testable
 exactly like `game_logic.c` and `board_layout.c` -- see
-`tests/test_ai.c` (6 tests).
+`tests/test_ai.c` (9 tests).
 
 ## Why this is a separate module from `game_logic.c`
 
@@ -83,11 +83,40 @@ influence:
 | `WEIGHT_DANGER_ESCAPE` | +400 | The pawn was in that kind of danger *before* the move, and this move gets it out of range. |
 | `WEIGHT_DANGER_APPROACH_OPPONENT` | +150 | This move puts the pawn within one throw of an opponent -- sets up a capture opportunity next turn. |
 | `WEIGHT_OWN_COLLISION_BASE` / `_PER_STEP` | -500, -50/step | Sends one of the player's own other pawns home (see above) -- scaled by how far that pawn had progressed. |
+| `WEIGHT_HOME_COLUMN_ADVANCE_BASE` / `_PER_STEP` | +2000, +100/step | The move places the pawn in its home column (already there, or crossing in from the ring this move) without finishing it -- risk-free, no capture/danger heuristic can ever apply there, so this rewards it explicitly rather than letting it compete only on `WEIGHT_PROGRESS_PER_STEP`. Added round 7.14, see below. |
 | `WEIGHT_PROGRESS_PER_STEP` | 5 | Small, deliberately minor tie-breaker: prefer the pawn that ends up furthest along. |
 
 `score_move()` in `ai.c` computes and sums these for one candidate move;
 `ludo_ai_choose_pawn()` calls it for every bit set in the `movable` mask
 and returns whichever pawn scored highest (first one seen wins ties).
+
+## Round 7.14: home-column advances were getting drowned out
+
+Per explicit user report ("AI does not seem to prioritise moving pawns
+in destination home area further to the end"): a pawn already safely in
+its home column has no capture/danger heuristic that can ever apply to
+it (the home column is single-file and off-limits to every other
+player's pawns), so before this round such a move only ever earned the
+same flat `WEIGHT_PROGRESS_PER_STEP` (5/step) as any other move. That's
+easily dwarfed by unrelated ring-tactic bonuses on some *other*
+currently-movable pawn -- `WEIGHT_ENTRY_SQUARE_LEAVE` (1500) alone
+already outweighs a typical few-step home-column advance's ~200-215
+points of pure progress. The AI would therefore often move a ring pawn
+for a minor tactical gain instead of a risk-free, directly
+win-relevant home-column advance, even with both available for the
+same roll.
+
+Fixed by adding `WEIGHT_HOME_COLUMN_ADVANCE_BASE`/`_PER_STEP`, applied
+whenever a move ends with the pawn off the ring but not yet finished
+(the finishing case already returns early with `WEIGHT_FINISH`/
+`WEIGHT_WIN`, so this is specifically "safely closer to winning, not
+there yet"). Sized to clearly beat the ring-tactic bonuses
+(`WEIGHT_ENTRY_SQUARE_LEAVE`, `WEIGHT_DANGER_ESCAPE`/
+`APPROACH_OPPONENT`) but still lose to an actual capture
+(`WEIGHT_CAPTURE` alone already exceeds it) -- see
+`test_prefers_home_column_advance_over_ring_tactic` and
+`test_capture_still_beats_home_column_advance` in `tests/test_ai.c` for
+the exact worked-out scoring these weights were chosen against.
 
 ## Difficulty levels
 

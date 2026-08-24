@@ -163,6 +163,60 @@ static void test_prefers_escaping_danger(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
 }
 
+/* Round 7.14: given a choice between advancing a pawn already safely in
+ * its home column and an ordinary ring move whose only merit is a minor
+ * tactical bonus (here, leaving its own contested entry square), the AI
+ * should prefer the risk-free home-column advance -- per explicit user
+ * report that it wasn't visibly doing so before WEIGHT_HOME_COLUMN_ADVANCE_*
+ * was added (see src/ai.c). */
+static void test_prefers_home_column_advance_over_ring_tactic(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 2;
+
+	/* Pawn 0: already in the home column (steps 40 -> 42), an ordinary
+	 * safe advance with no capture/danger heuristic applicable. */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 40;
+
+	/* Pawn 1: sitting on its own entry square (steps 0) -- moving off it
+	 * earns WEIGHT_ENTRY_SQUARE_LEAVE, the kind of minor ring tactic that
+	 * used to outweigh a home-column advance's flat per-step progress
+	 * alone. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 0;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
+}
+
+/* ...but an actual capture still outranks a home-column advance -- the
+ * new bonus must not be so large it swamps a guaranteed tactical gain. */
+static void test_capture_still_beats_home_column_advance(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 1;
+
+	/* Pawn 0: an ordinary home-column advance (steps 40 -> 41). */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 40;
+
+	/* Pawn 1: ring square 2 -> 3, where an opponent (player 2, entry
+	 * square 20) is sitting -- player 2 steps=23 puts them at square
+	 * (20+23)%40=3 too. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 2;
+	g.players[2].pawns[0].in_play = 1;
+	g.players[2].pawns[0].steps = 23;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
+}
+
 /* With only one legal move, that's what gets chosen -- the trivial case,
  * but worth a direct check since every other test always offers a
  * choice. */
@@ -273,6 +327,8 @@ int main(void)
 	RUN(test_prefers_winning_move);
 	RUN(test_avoids_own_collision_when_alternative_exists);
 	RUN(test_prefers_escaping_danger);
+	RUN(test_prefers_home_column_advance_over_ring_tactic);
+	RUN(test_capture_still_beats_home_column_advance);
 	RUN(test_only_one_choice);
 	RUN(test_headless_four_ai_games);
 

@@ -1315,6 +1315,17 @@ follow-up report that the move-slide animation still visibly flickered.
   `1/MOVE_ANIM_TICKS_PER_CELL` of a cell away from it) -- well inside
   the existing margin.
 
+**Round 7.14**: AI scoring fix, per explicit user report ("AI does not
+seem to prioritise moving pawns in destination home area further to the
+end"). A home-column advance had no capture/danger heuristic to earn
+points from (correctly -- the home column is off-limits to opponents),
+so it only ever scored the same flat per-step progress term as any
+other move, routinely losing out to minor ring-tactic bonuses on some
+other movable pawn. Fixed by adding an explicit, appropriately-sized
+incentive for safely advancing within the home column (still losing to
+an actual capture). Full writeup, weight table, and the two new tests'
+worked-out scoring: [AI.md](AI.md)'s "Round 7.14" section.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
