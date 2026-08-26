@@ -1920,6 +1920,41 @@ pawn's own sprite.
   and hasn't been implemented -- worth picking up as a small follow-up
   once the crop/flicker investigation is fully closed out.
 
+**Round 7.28**: fixed a regression round 7.27 itself introduced, per
+explicit live user report ("On animation, pawn is now not erased") with
+a screenshot showing a visible multi-frame diagonal trail of un-erased
+pawn images.
+
+- **Why round 7.27 broke this**: its fix shrank the erase rectangle in
+  `update_move_animation_area()`/`update_highlight_area()`/
+  `update_settle_diff_area()` from the Wimp-granted clip down to the
+  true, unpadded cell boundary, to stop it bleeding into a neighbouring
+  cell. That was the right diagnosis for the crop, but the same +8 pad
+  it clamped away had quietly been serving a second purpose too: on
+  whichever tick a pawn is the one actually animating, its real
+  `Wimp_PlotIcon`/`PutSpriteScaled`-rendered footprint can paint a
+  little past its nominal 48-unit icon extent into that same padding
+  zone -- and round 7.27's narrower erase stopped cleaning that up,
+  leaving each tick's un-erased paint sitting there as the pawn slid
+  along, producing exactly the reported "comet trail" of full pawn
+  shapes.
+- **Fix**: keeps the erase exactly as wide as the Wimp grants it (back
+  to round 7.21-7.26 behaviour, already known correct for a pawn's own
+  content) and instead widens what gets *repainted* by one extra cell on
+  the padded sides (`col1+1`, `row0-1`, clamped to the grid) in all
+  three functions' `draw_board_region()` calls. This guarantees anything
+  the padding zone could have touched -- a neighbour's content OR the
+  animating pawn's own overflow -- is always repainted by this same
+  call, rather than trying to guarantee the erase never touches it in
+  the first place. The now-unused `ERASE_CLAMP_MAX` macro from round
+  7.27 was removed; its diagnosis is kept as a comment in
+  `src/game_view.c` since it's the root of the whole investigation.
+- Not yet re-confirmed live -- needs the same quit-and-relaunch-in-
+  Arculator step as every round since 7.25 (hostfs replacement alone
+  doesn't affect an already-running RISC OS task) before the next
+  screenshot/Log can tell us whether both the crop AND the trail are
+  actually gone together.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
