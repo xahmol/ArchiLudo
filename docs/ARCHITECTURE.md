@@ -2291,6 +2291,42 @@ reopened (or the parent re-viewed fresh) -- not necessarily a code bug,
 unconfirmed until re-tested after a Filer window refresh specifically
 (not just relaunching the app itself, which is a different window).
 
+**Round 7.38**: two app-icon fixes, per live user report ("Filer
+directory icon still does not show. Icon bar icon does. On icon
+itself: anti aliassing makes it fuzzy").
+
+- **Crisp, non-antialiased icon**: every `Image.BOX` resize in
+  `assets/generate_app_icon.py` switched to `Image.NEAREST` -- BOX
+  blends across source pixels when downsampling (right for a soft
+  photographic image, but a grey halo/blur at icon sizes this tiny).
+  NEAREST samples one source pixel per destination pixel with no
+  blending, matching classic RISC OS icon style. This alone broke the
+  half-size (17x17) icon's outline/pips (NEAREST point-samples roughly
+  one WORK unit every ~18.8 units at that size, so anything much
+  thinner than that gap can fall entirely between sample points and
+  vanish in some rows/columns) -- fixed by widening `outline_dilate`
+  (10 -> 18 WORK units) and the die pip radius (14 -> 17), so both
+  features reliably survive sampling at both sizes. Spot-checked at
+  zoom in both sizes before committing, same discipline as round
+  7.32's pawn-sprite fix.
+- **Sprite names lowercased** (`!ArchiLudo`/`sm!ArchiLudo` ->
+  `!archiludo`/`sm!archiludo`) -- an attempted fix for the Filer's own
+  directory icon still not appearing even after the user retested with
+  a fresh Filer window (ruling out the round 7.37 "just needs a
+  refresh" theory). Matches Fryatt's tutorial's own literal example
+  ("!examplapp"/"sm!examplapp" for a directory named "!ExamplApp"),
+  on the theory that the Filer's directory-icon lookup normalises to
+  lowercase before searching the sprite pool, unlike `Wimp_CreateIcon`'s
+  own case-insensitive lookup (already proven working at the iconbar,
+  round 7.37, with the exact-case name). `src/main.c`'s iconbar
+  reference deliberately NOT changed to match -- proven case-
+  insensitive already, nothing to fix there. **Not yet confirmed as
+  the actual cause** -- still needs a live retest; if the Filer icon
+  still doesn't appear after this, the lowercase theory is wrong and
+  the real cause needs more investigation (a genuine hostfs/Arculator
+  Filer-scan quirk is also possible, separate from anything this
+  project's own code controls).
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

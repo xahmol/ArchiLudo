@@ -13,9 +13,25 @@ directory.html): a square-pixel `!Sprites22` (90x90dpi) for modern/
 square screen modes, and a rectangular-pixel `!Sprites` (90x45dpi) for
 this project's own non-square modes (12/15/39 -- see
 docs/ARCHITECTURE.md's Testing section). Each file holds a "full size"
-sprite (named after the app, `!ArchiLudo`) and a "half size" sprite
-(`sm!ArchiLudo`, prefixed per the tutorial's own convention, for the
+sprite (named after the app, `!archiludo`) and a "half size" sprite
+(`sm!archiludo`, prefixed per the tutorial's own convention, for the
 Filer's small-icon views).
+
+Round 7.38: sprite names lowercased from `!ArchiLudo`/`sm!ArchiLudo` --
+per the tutorial's own literal example ("!examplapp"/"sm!examplapp" for
+a directory named "!ExamplApp"), which is very likely deliberate and
+not just a stylistic choice: the Filer's own directory-icon lookup is
+suspected to normalise the directory name to lowercase before searching
+the sprite pool, unlike Wimp_CreateIcon's own sprite lookup (confirmed
+working with the exact-case "!ArchiLudo" for the iconbar icon, round
+7.37) which is known to be case-insensitive. Tried after the Filer
+directory icon still didn't appear even after a live user retest with a
+fresh Filer window -- not confirmed as the actual cause yet, but a
+direct, low-risk match to Fryatt's own working convention rather than a
+guess at something novel. `src/main.c`'s iconbar icon reference was
+NOT changed to match (still references "!ArchiLudo") -- Wimp sprite
+name matching is case-insensitive, already proven working at that
+exact call site, so there's nothing to fix there.
 
 Design: drawn once at a square WORK=320 supersample canvas (same
 technique as assets/generate_icon_sprites.py's pawn art -- solid 0/255
@@ -30,6 +46,14 @@ this project used for its own mode-15-targeted placeholder art before
 the round 7.16 mode-27 pivot -- see tools/riscos_sprite.py's
 MODES_BY_BPP doc comment) so mode 12's own 2x4-OS-units/pixel stretch
 brings the design back to the right proportions on screen.
+
+Round 7.38 also switched every resize in this file from `Image.BOX` to
+`Image.NEAREST` -- per explicit user report that the icon looked
+"fuzzy" (BOX resize blends/antialiases across source pixels when
+downsampling, which is exactly what a soft photographic image wants
+but reads as a grey halo/blur at these tiny icon sizes). NEAREST picks
+one source pixel per destination pixel with no blending at all, giving
+the same hard-edged, no-antialiasing look classic RISC OS icons use.
 
 Syntax:  python3 assets/generate_app_icon.py
 Output:  assets/app_icon_full.png, assets/app_icon_half.png (square-pixel
@@ -98,7 +122,9 @@ def die_pips(draw):
     # in-game die rather than inventing a different pip arrangement.
     cx0, cy0, cx1, cy1 = 150, 8, 306, 164
     step = (cx1 - cx0) / 4
-    r = 14
+    # Round 7.38: widened 14 -> 17 for the same NEAREST-sampling
+    # robustness reason as outline_dilate above.
+    r = 17
     for gx, gy in ((0, 0), (2, 0), (1, 1), (0, 2), (2, 2)):
         px = cx0 + step + gx * step
         py = cy0 + step + gy * step
@@ -127,9 +153,16 @@ def build_icon_image():
     die_pips(ImageDraw.Draw(pips))
 
     # Outline: silhouette dilated by a fixed margin, same approach as
-    # generate_icon_sprites.py's OUTLINE_DILATE_WORK.
+    # generate_icon_sprites.py's OUTLINE_DILATE_WORK. Round 7.38: widened
+    # from 10 to 18 (WORK units) after switching to NEAREST resizing (see
+    # this file's own Round 7.38 doc comment) revealed the half-size
+    # (17x17) icon's outline mostly vanishing -- NEAREST point-samples
+    # roughly one WORK pixel every WORK/HALF ~= 18.8 units, so any
+    # feature much thinner than that gap can fall entirely between
+    # sample points and disappear in some rows/columns. 18 keeps the
+    # outline reliably present at both the full and half sizes.
     from PIL import ImageFilter
-    outline_dilate = 10
+    outline_dilate = 18
     dilated = silhouette.filter(ImageFilter.MaxFilter(outline_dilate * 2 + 1))
 
     rgb = Image.new("RGB", (WORK, WORK))
@@ -158,15 +191,15 @@ def main():
     icon = build_icon_image()
 
     full_png = HERE / "app_icon_full.png"
-    icon.resize((FULL, FULL), Image.BOX).save(full_png)
+    icon.resize((FULL, FULL), Image.NEAREST).save(full_png)
     half_png = HERE / "app_icon_half.png"
-    icon.resize((HALF, HALF), Image.BOX).save(half_png)
+    icon.resize((HALF, HALF), Image.NEAREST).save(half_png)
     print(f"wrote {full_png}, {half_png}")
 
     # Square-pixel (!Sprites22, mode 27, 90x90dpi) -- direct downsamples.
     square_specs = [
-        (full_png, "!ArchiLudo", FULL, FULL),
-        (half_png, "sm!ArchiLudo", HALF, HALF),
+        (full_png, "!archiludo", FULL, FULL),
+        (half_png, "sm!archiludo", HALF, HALF),
     ]
     square_sprs = []
     for src_png, name, w, h in square_specs:
@@ -185,15 +218,15 @@ def main():
     # Rectangular-pixel (!Sprites, mode 12, 90x45dpi, 34x17/17x9) --
     # squish the WORK canvas 2:1 vertically first (see module docstring),
     # then downsample to the target sizes.
-    squished = icon.resize((WORK, WORK // 2), Image.BOX)
+    squished = icon.resize((WORK, WORK // 2), Image.NEAREST)
     squished_full_png = HERE / "app_icon_full_rect.png"
-    squished.resize((FULL, FULL // 2), Image.BOX).save(squished_full_png)
+    squished.resize((FULL, FULL // 2), Image.NEAREST).save(squished_full_png)
     squished_half_png = HERE / "app_icon_half_rect.png"
-    squished.resize((HALF, HALF // 2 + HALF % 2), Image.BOX).save(squished_half_png)
+    squished.resize((HALF, HALF // 2 + HALF % 2), Image.NEAREST).save(squished_half_png)
 
     rect_specs = [
-        (squished_full_png, "!ArchiLudo"),
-        (squished_half_png, "sm!ArchiLudo"),
+        (squished_full_png, "!archiludo"),
+        (squished_half_png, "sm!archiludo"),
     ]
     rect_sprs = []
     for src_png, name in rect_specs:
