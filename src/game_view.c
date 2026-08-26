@@ -64,12 +64,20 @@
  * stretched or shrunk to fill it. This constant was therefore never
  * actually controlling the on-screen pawn size, and the real fix for
  * the pawn-crop investigation (rounds 7.21-7.30) was shrinking the
- * SPRITE ITSELF (assets/generate_icon_sprites.py's FINAL constant, now
- * 18 -- a 36x36 OS-unit native footprint) rather than this extent. Kept
- * at 36 here, matching FINAL*2 exactly, so the extent is just big
- * enough to contain the sprite with no dead padding -- see that
- * script's own FINAL comment for why the two must stay in sync. */
-#define PAWN_SIZE     36
+ * SPRITE ITSELF (assets/generate_icon_sprites.py's FINAL constant)
+ * rather than this extent.
+ *
+ * Round 7.32: FINAL=18 (36 OS units) was too aggressive a cut from the
+ * originally-approved look ("now they are small and very ugly, we
+ * maybe overcompensated") and also exposed a real bug in round 7.31's
+ * own outline-scaling maths that left the sprite's outline nearly
+ * invisible at that size -- see that script's own Round 7.32 comment.
+ * Settled on FINAL=26 (52 OS units, 6 units/side margin -- still real,
+ * deliberate margin versus zero at the original 32, but a much smaller
+ * visual cut and enough final pixels for the design's detail to read).
+ * Kept in sync here at 52 = FINAL*2 exactly, so the extent is just big
+ * enough to contain the sprite with no dead padding. */
+#define PAWN_SIZE     52
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
  * action status, the current die face (round 6.3 -- GEOS's own

@@ -2063,6 +2063,31 @@ question.
   rather than another clip-geometry theory, so there's real reason to
   expect this one closes it out.
 
+**Round 7.32**: two fixes to round 7.31's sprite-shrink, per explicit
+live user report ("now they are small and very ugly, we maybe
+overcompensated").
+
+- **`FINAL` eased back from 18 to 26** (`assets/generate_icon_sprites.py`)
+  -- 18px (36 OS units) was too aggressive a cut from the size the user
+  had originally approved (32px/64 units); 26px (52 OS units) keeps real,
+  deliberate margin (6 units/side inside the 64-unit `CELL`, versus zero
+  before round 7.31) while staying much closer to the approved look and
+  giving the design's dither/outline detail enough final pixels to
+  actually read. `PAWN_SIZE` (`src/game_view.c`) kept in sync at 52.
+- **Fixed a real bug in round 7.31's own `OUTLINE_DILATE_WORK` scaling**
+  that made the "ugly" report worse than the size cut alone would have:
+  the outline's rendered width in final pixels is
+  `OUTLINE_DILATE_WORK * FINAL/WORK`, so keeping it constant as `FINAL`
+  shrinks requires `OUTLINE_DILATE_WORK` to scale *up* (inversely) --
+  round 7.31 scaled it *down* in proportion to `FINAL` instead (14 -> 8
+  alongside 32 -> 18), which shrinks the rendered outline width
+  quadratically (down to ~0.45 final-px, in practice barely visible at
+  all) rather than holding it steady. Fixed direction: `1.4*320/26 ≈ 17`.
+  Sprites regenerated, visually spot-checked at 8x nearest-neighbour
+  zoom before rebuilding (clear black outline, legible dither, silhouette
+  recognisable) rather than only judging by the numbers this time.
+- Not yet re-confirmed live.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

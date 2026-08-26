@@ -95,11 +95,32 @@ WORK = 320          # supersampled working resolution (square)
 # not game_view.c's PAWN_SIZE icon-extent constant, which (round 7.31
 # correction) only centres the sprite, never scales it. Native on-
 # screen footprint = FINAL * 2 OS units; keep this in sync with
-# PAWN_SIZE there (both currently 36 OS units, i.e. FINAL=18) so the
-# icon extent exactly matches the sprite instead of leaving dead
-# padding or forcing an off-centre crop.
-FINAL = 18
-OUTLINE_DILATE_WORK = 8  # ~1.4 final-px outline width once downsampled (scaled with FINAL, was 14 at FINAL=32)
+# PAWN_SIZE there so the icon extent exactly matches the sprite instead
+# of leaving dead padding or forcing an off-centre crop.
+#
+# Round 7.32: round 7.31's FINAL=18 (36 OS units) fixed the crop but
+# was too aggressive a cut from the original 32 (64 OS units, the size
+# the user had originally approved) -- per explicit live user report
+# ("now they are small and very ugly, we maybe overcompensated").
+# Compounded by a real bug in round 7.31's own OUTLINE_DILATE_WORK
+# scaling (see its own comment) that left the outline barely rendering
+# at 18px at all. Settled on 26 (52 OS units, 6 units/side margin
+# inside the 64-unit CELL) -- still real, deliberate margin (versus
+# zero at 32), but a much smaller cut from the approved look, and
+# enough final pixels for the design's dither/outline detail to
+# actually read. Revisit again if either the crop or the "too small"
+# complaint resurfaces.
+FINAL = 26
+# ~1.4 final-px outline width once downsampled -- i.e.
+# OUTLINE_DILATE_WORK * FINAL/WORK ~= 1.4, so OUTLINE_DILATE_WORK must
+# SCALE UP as FINAL shrinks (not down): 1.4*WORK/FINAL. Round 7.31's
+# own value here (8, at FINAL=18) had this backwards -- it scaled
+# OUTLINE_DILATE_WORK down in proportion to FINAL, which shrinks the
+# rendered outline width QUADRATICALLY (down to ~0.45 final-px, nearly
+# invisible) rather than holding it constant -- almost certainly part
+# of why round 7.31's sprite looked "ugly" in addition to being too
+# small. Fixed direction here: 1.4*320/26 ~= 17.
+OUTLINE_DILATE_WORK = 17
 
 
 def draw_pawn_silhouette(draw):
