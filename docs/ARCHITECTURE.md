@@ -1764,6 +1764,60 @@ bounds regardless.
   as ordinary/inclusive, so the same fix doesn't obviously apply here
   and this needs its own real evidence before touching anything).
 
+**Round 7.25**: per explicit live user report ("several pawns are cropped
+... pawn animation is flickery as it seems to redraw larger area than
+needed", followed by "Animation was way smoother before, so something you
+recently did impacted that") -- a logging-strategy correction, not yet a
+fix for the crop itself.
+
+- **Confirmed the round 7.23/7.24 diagnostic `debug_log()` calls were
+  still the smoothness problem**, this time from the *once-per-tick* box/
+  clip logging round 7.24 added to `update_move_animation_area()`/
+  `update_settle_diff_area()` (plus the still-present round 7.21 logging
+  in `update_dice_area()`/`plot_dice()`, and the round 7.23 logging in
+  `redraw_now()`/`game_view_redraw()`). Once-per-tick is far cheaper than
+  round 7.23's once-per-pawn, but a single animated move still spans many
+  ticks (`MOVE_ANIM_TICKS_PER_CELL` per cell, times several cells for a
+  multi-step roll), and `debug_log()`'s fopen/fprintf/fclose-per-call cost
+  (see round 7.24) adds up across all of them -- confirmed by reading a
+  fresh Log (227 matching lines from one session) that this logging was
+  still firing continuously throughout every animated move. All six of
+  these unconditional per-tick/per-redraw `debug_log()` calls removed.
+- **Replaced with a self-triggering check instead of no check at all**:
+  a new file-scope `dbg_request_x0/y0/x1/y1` (see `src/game_view.c`,
+  just above its declaration) records the work-area box that
+  `update_move_animation_area()`/`update_highlight_area()`/
+  `update_settle_diff_area()`/`redraw_now()`/`game_view_redraw()` each
+  actually requested be redrawn (their own `redraw.box`/`redraw->box`,
+  i.e. the same value `cell_range_to_work_box()` or the window's own
+  extent already computed). `plot_pawn()` now compares its own icon
+  extent against that box on *every* call and only calls `debug_log()` if
+  the extent doesn't fully fit inside it -- which should never happen in
+  correct operation, so the cost is a handful of integer comparisons per
+  pawn per tick, not a file open/close. If the reported crop is a
+  logic bug in one of those five functions' cell-range math, this will
+  log the exact player/pawn/cell/extent/request the next time it's
+  reproduced, without the per-tick file I/O cost that caused this same
+  complaint twice now (round 7.24's per-pawn logging, and this round's
+  once-per-tick logging).
+- **Investigated but did not find the crop's root cause via static
+  analysis alone** (this round's other work, before turning to the
+  logging fix above): checked whether `plot_pawn()`'s Wimp_PlotIcon-based
+  sprite path needs the same kind of extent padding the manual
+  `fill_rect()`-based die (`update_dice_area()`) needed for round 7.21 --
+  concluded no, since `assets/generate_icon_sprites.py`'s own design
+  comment states pawn sprites are deliberately scaled to the icon's
+  extent by `Wimp_PlotIcon`'s own `PutSpriteScaled` machinery (not
+  plotted at native size), so a size mismatch between the sprite's
+  stored mode-27 pixel size and `PAWN_SIZE` isn't the cause. Also
+  confirmed a *static* (non-animating) pawn's icon extent is always
+  comfortably centred at least 8 OS units inside its own cell's box in
+  every one of `cell_range_to_work_box()`'s callers (a 48-unit icon
+  inside a 64-unit cell), so a simple "extent exceeds its own cell" bug
+  was ruled out too. Left as an open question for the new self-
+  triggering log to answer with real evidence next time it's reproduced,
+  rather than guessing at another speculative fix.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

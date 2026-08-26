@@ -271,6 +271,24 @@ static os_t highlight_next_flash;
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 
+/* Round 7.25: replaces the round 7.23/7.24 unconditional per-tick
+ * debug_log() calls in update_move_animation_area()/update_settle_diff_area()/
+ * update_highlight_area()/redraw_now()/game_view_redraw() -- those were
+ * confirmed to cost real, visible animation smoothness (debug_log() opens/
+ * writes/closes the Log file from scratch every call; round 7.24 already
+ * cut this from per-pawn to per-tick, but per-tick over a multi-cell
+ * animated move is still dozens of calls per throw). Removed entirely and
+ * replaced with this: each of those five functions records the work-area
+ * box it explicitly requested to have redrawn (its own `redraw.box`, i.e.
+ * what cell_range_to_work_box()/the window's own extent said was enough),
+ * and plot_pawn() cheaply compares its icon's extent against it on every
+ * single call -- but only calls debug_log() if the extent doesn't fully
+ * fit, which should never happen and so costs nothing in the working case.
+ * This catches the actual reported crop red-handed (exact cell, player,
+ * pawn, icon extent, and the box that was too small for it) without the
+ * per-call file I/O cost that made the animation feel slower. */
+static int dbg_request_x0, dbg_request_y0, dbg_request_x1, dbg_request_y1;
+
 #define APP_DIR_LEN 200
 static char app_dir[APP_DIR_LEN] = "";
 
@@ -794,17 +812,26 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		icon.data.indirected_sprite.id = (osspriteop_id) pawn_sprite_names[player];
 		icon.data.indirected_sprite.area = pawn_sprite_area;
 		icon.data.indirected_sprite.size = 13;
-		/* Round 7.24: the round 7.23 per-pawn debug_log() call that used
-		 * to be here was removed -- per explicit user report, it was
-		 * expensive enough (debug_log() opens/writes/closes the Log
-		 * file from scratch on every single call, and this ran for
-		 * every visible pawn on every single redraw, animation ticks
-		 * included) to visibly slow pawn-movement animation down. The
-		 * box/clip logging on update_move_animation_area()/
-		 * update_settle_diff_area() themselves (much lower frequency --
-		 * once per tick, not once per pawn per tick) is enough to
-		 * correlate a cropped pawn's known board position against the
-		 * active clip without needing a log line per pawn. */
+		/* Round 7.24 removed a per-pawn debug_log() call that was here --
+		 * confirmed to visibly slow pawn-movement animation down (see
+		 * dbg_request_x0's doc comment above for the full history). Round
+		 * 7.25: rather than no check at all, compare this icon's own
+		 * extent against the work-area box the caller actually requested
+		 * be redrawn (dbg_request_*, set by update_move_animation_area()/
+		 * update_highlight_area()/update_settle_diff_area()/redraw_now()/
+		 * game_view_redraw() just before calling draw_board_region()) --
+		 * this is exactly the condition under which Wimp_PlotIcon's
+		 * sprite would be silently clipped by the Wimp's own graphics
+		 * clip window. Only calls debug_log() when this actually happens,
+		 * so it costs nothing on every normal tick. */
+		if (icon.extent.x0 < dbg_request_x0 || icon.extent.x1 > dbg_request_x1
+		 || icon.extent.y0 < dbg_request_y0 || icon.extent.y1 > dbg_request_y1) {
+			debug_log("plot_pawn: CROP -- player=%d pawn=%d wx=%d wy=%d "
+			          "extent=(%d,%d,%d,%d) request=(%d,%d,%d,%d)\n",
+			          player, pawn_index, wx, wy,
+			          icon.extent.x0, icon.extent.y0, icon.extent.x1, icon.extent.y1,
+			          dbg_request_x0, dbg_request_y0, dbg_request_x1, dbg_request_y1);
+		}
 		wimp_plot_icon(&icon);
 		return;
 	}
@@ -939,12 +966,6 @@ static void plot_dice(int origin_x, int origin_y)
 	 * genuinely useful entries (move/roll outcomes) hard to find --
 	 * exactly the noise that made the Round 7.8 investigation slower
 	 * than it needed to be. */
-	/* Temporary diagnostic (round 7.21) -- see update_dice_area()'s own
-	 * new logging; remove both once the top/right border crop is
-	 * diagnosed. This one logs what plot_dice() itself computes and
-	 * actually asks fill_rect() to paint. */
-	debug_log("plot_dice: origin=(%d,%d) cx=%d cy=%d box=(%d,%d,%d,%d) border=%d\n",
-	          origin_x, origin_y, cx, cy, x0, y0, x1, y1, border);
 	set_gcol(0, 0, 0);
 	fill_rect(x0, y0, x1, y1);
 	set_gcol(255, 255, 255);
@@ -1211,17 +1232,10 @@ static void update_move_animation_area(void)
 		 * exactly the "everything on screen redraws" symptom reported
 		 * live. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		/* Temporary diagnostic (round 7.24) -- see redraw_now()'s own
-		 * matching log; remove both once the reported pawn bottom-crop
-		 * is diagnosed. Deliberately NOT per-pawn (see plot_pawn()'s doc
-		 * comment for why that was too expensive) -- logs once per tick
-		 * instead, still enough to check whether a cropped pawn's known
-		 * board position falls outside this tick's clip. */
-		debug_log("update_move_animation_area: cells=(%d,%d)-(%d,%d) box=(%d,%d,%d,%d) "
-		          "clip=(%d,%d,%d,%d) origin=(%d,%d)\n", col0, row0, col1, row1,
-		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
-		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
-		          origin_x, origin_y);
+		/* Round 7.25: record the requested box for plot_pawn()'s own
+		 * crop check -- see dbg_request_x0's doc comment. */
+		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
+		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1265,19 +1279,11 @@ static void update_dice_area(void)
 	redraw.box.x1 = DICE_CENTRE_X + DICE_SIZE / 2 + 4;
 	redraw.box.y1 = DICE_CENTRE_Y + DICE_SIZE / 2 + 8;
 
-	debug_log("update_dice_area: requested box=(%d,%d,%d,%d)\n",
-	          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
-
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
-		debug_log("update_dice_area: got box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
-		          "xscroll=%d yscroll=%d origin=(%d,%d)\n",
-		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
-		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
-		          redraw.xscroll, redraw.yscroll, origin_x, origin_y);
 		plot_dice(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1418,6 +1424,10 @@ static void update_highlight_area(void)
 		 * see update_dice_area()'s doc comment; .box is the whole
 		 * window's visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		/* Round 7.25: record the requested box for plot_pawn()'s own
+		 * crop check -- see dbg_request_x0's doc comment. */
+		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
+		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
@@ -1539,14 +1549,10 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 		 * update_dice_area()'s doc comment; .box is the whole window's
 		 * visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		/* Temporary diagnostic (round 7.24) -- see
-		 * update_move_animation_area()'s matching log for why this is
-		 * once-per-tick, not once-per-pawn. */
-		debug_log("update_settle_diff_area: cells=(%d,%d)-(%d,%d) box=(%d,%d,%d,%d) "
-		          "clip=(%d,%d,%d,%d) origin=(%d,%d)\n", col0, row0, col1, row1,
-		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
-		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
-		          origin_x, origin_y);
+		/* Round 7.25: record the requested box for plot_pawn()'s own
+		 * crop check -- see dbg_request_x0's doc comment. */
+		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
+		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1655,14 +1661,10 @@ static void redraw_now(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
-		/* Temporary diagnostic (round 7.23) -- see plot_pawn()'s own
-		 * matching log; remove both once the reported bottom-crop on
-		 * some pawns is diagnosed. */
-		debug_log("redraw_now: box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
-		          "origin=(%d,%d)\n", redraw.box.x0, redraw.box.y0,
-		          redraw.box.x1, redraw.box.y1, redraw.clip.x0,
-		          redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
-		          origin_x, origin_y);
+		/* Round 7.25: record the requested box for plot_pawn()'s own
+		 * crop check -- see dbg_request_x0's doc comment. */
+		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
+		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 
 		/* Erase first -- see fill_window_background()'s doc comment.
 		 * Missed here originally (a direct regression, not just a
@@ -2422,14 +2424,14 @@ void game_view_redraw(wimp_draw *redraw)
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 
-		/* Temporary diagnostic (round 7.23) -- see plot_pawn()'s own
-		 * matching log; remove both once the reported bottom-crop on
-		 * some pawns is diagnosed. */
-		debug_log("game_view_redraw: box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
-		          "origin=(%d,%d)\n", redraw->box.x0, redraw->box.y0,
-		          redraw->box.x1, redraw->box.y1, redraw->clip.x0,
-		          redraw->clip.y0, redraw->clip.x1, redraw->clip.y1,
-		          origin_x, origin_y);
+		/* Round 7.25: record the requested box for plot_pawn()'s own
+		 * crop check -- see dbg_request_x0's doc comment. Here `.box` is
+		 * the window's own true extent (Wimp_RedrawWindow's OUTPUT, not
+		 * something we asked for), which is fine -- any in-bounds pawn
+		 * trivially satisfies it, so this mainly guards against a
+		 * completely different class of bug if it ever fires here. */
+		dbg_request_x0 = redraw->box.x0; dbg_request_y0 = redraw->box.y0;
+		dbg_request_x1 = redraw->box.x1; dbg_request_y1 = redraw->box.y1;
 		draw_full_window_content(origin_x, origin_y);
 		more = wimp_get_rectangle(redraw);
 	}
