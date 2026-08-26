@@ -1579,8 +1579,20 @@ how its period lines up with the downsample ratio; region masks
 for smooth shape *boundaries*, then converted to per-final-pixel
 membership booleans via NEAREST resize, with the actual `(x+y)%2`
 checkerboard colour choice made directly on the final grid. Builds
-clean, deployed. Not yet confirmed live by the user at the time of this
-writeup.
+clean, deployed.
+
+**Round 7.19 follow-up, same day**: the 50/50 checkerboard read as
+solid diagonal lines rather than a dithered tint once actually seen
+live, per further explicit user feedback -- at a 1-pixel-alternating
+period, a checkerboard is visually dominated by its diagonal stripe
+structure, not perceived as a blend, especially at small icon sizes.
+Switched the *highlight* region specifically to a sparser 1-in-4 dot
+grid, diagonally staggered per row (`(x + 2*y) % 4 == 0`) so the dots
+themselves don't line up into streaks either. The shadow dither
+(grey/hue) was left as the full checkerboard -- not asked to change,
+and being darker/subtler to begin with, less prone to reading as lines
+in the first place. Built, deployed. Not yet confirmed live by the user
+at the time of this writeup.
 
 **Round 7.20**: a genuine rules bug, per explicit live user report
 ("end field of a pawn is one less if previous pawn already landed on
