@@ -46,28 +46,29 @@
  * Wimp_PlotIcon sprite path's icon extent (round 7.16/7.17's sprite
  * pivot -- see plot_pawn()'s own doc comment for the full history).
  *
- * Round 7.29 reduced this from 48 to 40 (12 units/side margin inside
- * the 64-unit CELL, versus 8 at 48), per explicit user report/
- * suggestion after rounds 7.21-7.28's clip/erase-scoping investigation
- * still hadn't fully eliminated a persistent pawn crop -- giving the
- * icon more margin makes the whole erase/redraw scoping far less
- * sensitive to whatever the last few OS units of overflow actually are
- * (still not pinned down with certainty; current theory is
- * PutSpriteScaled's own rendering under a non-square screen mode
- * painting a little past the icon's nominal extent -- see
- * cell_range_to_work_box()'s Round 7.27/7.28 history comment), without
- * needing to identify the exact mechanism first.
+ * Rounds 7.29/7.30 reduced this from 48 to 40 then to 36, on the theory
+ * that Wimp_PlotIcon scales a sprite icon's content to fit whatever
+ * extent this constant produces, so shrinking it would shrink the
+ * on-screen pawn and give it more margin inside its 64-unit CELL.
  *
- * Round 7.30: reduced again, 40 -> 36 (14 units/side margin), per
- * explicit user report that 40 alone wasn't enough ("still see
- * cropping... give 2 pixels top and bottom more margin"). Mode 15's Y
- * axis is 4 OS units per physical pixel (see CLAUDE.md's Testing
- * section), so "2 pixels" of EXTRA margin on each of the top/bottom
- * edges would technically want 2*4*2 = 16 more OS units off the height
- * (40 -> 24) -- but the user's own follow-up number (36, a 4-unit
- * reduction) was taken as the concrete instruction over the derived
- * arithmetic, since a bigger jump risks looking too small before it's
- * confirmed how much margin is actually needed. */
+ * ROUND 7.31 CORRECTION: that theory was wrong, confirmed by the user
+ * reporting the on-screen pawn size was visually IDENTICAL across all
+ * three values (48, 40, 36) -- and by primary-source research once that
+ * was reported: the PRM documents no continuous scale-to-extent
+ * behaviour for a plain sprite icon at all, only a binary "half size"
+ * flag (see assets/generate_icon_sprites.py's own Round 7.31 correction
+ * for the full writeup and citation). Wimp_PlotIcon plots an old-style
+ * sprite icon at its NATIVE size (source pixel count x the sprite's own
+ * recorded mode's OS-units-per-pixel -- mode 27 is 2 OS units/pixel
+ * both axes), centred within this extent via HCENTRED/VCENTRED, never
+ * stretched or shrunk to fill it. This constant was therefore never
+ * actually controlling the on-screen pawn size, and the real fix for
+ * the pawn-crop investigation (rounds 7.21-7.30) was shrinking the
+ * SPRITE ITSELF (assets/generate_icon_sprites.py's FINAL constant, now
+ * 18 -- a 36x36 OS-unit native footprint) rather than this extent. Kept
+ * at 36 here, matching FINAL*2 exactly, so the extent is just big
+ * enough to contain the sprite with no dead padding -- see that
+ * script's own FINAL comment for why the two must stay in sync. */
 #define PAWN_SIZE     36
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
@@ -775,12 +776,21 @@ static void cell_centre_work(int col, int row, int *wx, int *wy)
  *          (xosspriteop_put_sprite_user_coords), which the PRM states
  *          outright is undefined for a sprite whose mode doesn't match
  *          the current screen mode -- not an unexplained platform
- *          mystery after all. `Wimp_PlotIcon` goes through
- *          `PutSpriteScaled` with a proper scale/translation table
- *          instead, confirmed against real, shipped example code
- *          (`github.com/marutan/ro-chess`'s `icon_update()`) -- see
+ *          mystery after all. `Wimp_PlotIcon` sidesteps that specific
+ *          bug (confirmed against real, shipped example code,
+ *          `github.com/marutan/ro-chess`'s `icon_update()`) -- see
  *          docs/ARCHITECTURE.md's "Resume here"/round history for the
- *          full writeup. The `os_plot` fallback stays in place
+ *          full writeup. ROUND 7.31 CORRECTION: this comment used to
+ *          also claim Wimp_PlotIcon goes through "PutSpriteScaled with
+ *          a proper scale/translation table", i.e. that it scales the
+ *          sprite to fit the icon's extent -- that part was never true
+ *          and was never actually verified; see PAWN_SIZE's own Round
+ *          7.31 comment for how that surfaced and what the PRM actually
+ *          documents (only a binary half-size flag, no continuous
+ *          scaling). Wimp_PlotIcon plots a sprite icon at its own
+ *          native size, centred within the extent -- the extent's SIZE
+ *          doesn't affect the sprite's own rendered size at all, only
+ *          its position. The `os_plot` fallback stays in place
  *          regardless (this project's established "the game must stay
  *          playable" caution) for whenever load_pawn_sprites() didn't
  *          find/load assets/PawnSprites.

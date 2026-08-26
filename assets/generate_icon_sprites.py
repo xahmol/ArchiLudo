@@ -16,11 +16,26 @@ outline; flat-hue fill with a white highlight band/dot and a grey
 shadow patch to fake roundness within a limited palette).
 
 Design constraints this follows (see docs/ARCHITECTURE.md's "Resume
-here" for the reasoning):
+here" for the reasoning, and its "Round 7.31" entry for a correction to
+this section):
 - Drawn SQUARE and tagged mode 27 (not the older mode-15-specific
-  pre-squished-canvas convention) -- Wimp_PlotIcon's own PutSpriteScaled
-  scaling handles the aspect compensation for every one of this
-  project's supported modes (12/15/27/39) from one square source.
+  pre-squished-canvas convention) -- mode 27 is square-pixel (2 OS
+  units/pixel in both axes, confirmed against the PRM's mode table),
+  and Wimp_PlotIcon plots an old-style sprite icon at its NATIVE
+  pixel-times-mode size, aspect-correct on every screen mode without
+  any scaling at all.
+  ROUND 7.31 CORRECTION: this file used to claim "Wimp_PlotIcon's own
+  PutSpriteScaled scaling handles the aspect compensation" and adjusts
+  to any icon extent given to it -- that was never actually true, and
+  was never verified against real behaviour until three different
+  PAWN_SIZE values in a row (48, 40, 36) produced a visually IDENTICAL
+  on-screen pawn size in Arculator. The PRM documents no continuous
+  scale-to-extent behaviour for a plain sprite icon at all -- only a
+  binary "half size" flag. A sprite icon is plotted at its own native
+  size (source pixel count x the sprite's own recorded mode's OS-units-
+  per-pixel), centred within whatever extent the icon block gives via
+  HCENTRED/VCENTRED, never stretched to fill it. FINAL below is what
+  actually controls the on-screen size now -- see its own comment.
 - 4bpp, quantised against the fixed 16 Wimp colours (`--wimp-palette`,
   see tools/riscos_sprite.py) -- Wimp_PlotIcon ignores an icon sprite's
   own embedded palette and always translates through those fixed 16, so
@@ -75,8 +90,16 @@ HIGHLIGHT_COLOUR = WIMP_COLOURS[0]      # white
 SHADOW_COLOUR = WIMP_COLOURS[6]         # dark grey
 
 WORK = 320          # supersampled working resolution (square)
-FINAL = 32           # final sprite raw pixel size (square -- mode 27, see above)
-OUTLINE_DILATE_WORK = 14  # ~1.4 final-px outline width once downsampled
+# Final sprite raw pixel size (square -- mode 27, 2 OS units/pixel, see
+# above). THIS is what actually controls the pawn's on-screen size --
+# not game_view.c's PAWN_SIZE icon-extent constant, which (round 7.31
+# correction) only centres the sprite, never scales it. Native on-
+# screen footprint = FINAL * 2 OS units; keep this in sync with
+# PAWN_SIZE there (both currently 36 OS units, i.e. FINAL=18) so the
+# icon extent exactly matches the sprite instead of leaving dead
+# padding or forcing an off-centre crop.
+FINAL = 18
+OUTLINE_DILATE_WORK = 8  # ~1.4 final-px outline width once downsampled (scaled with FINAL, was 14 at FINAL=32)
 
 
 def draw_pawn_silhouette(draw):

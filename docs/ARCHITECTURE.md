@@ -2001,6 +2001,68 @@ fallback os_plot circle radii at this size (`body_radius`=11,
 `head_radius`=6, `outline`=3, all `PAWN_SIZE`-derived) for reference.
 Not yet re-confirmed live.
 
+**Round 7.31**: the actual root cause of the whole rounds 7.21-7.30
+crop investigation, found after the user reported "really see no
+smaller sprites" across three different `PAWN_SIZE` values and asked
+"Are they dimensioned by code somewhere [else]?" -- exactly the right
+question.
+
+- **Root cause, finally confirmed against the PRM**: `Wimp_PlotIcon`
+  does **not** scale a sprite icon to fit its extent. The project's own
+  sprite-pivot docs (`assets/generate_icon_sprites.py`,
+  `plot_pawn()`'s doc comment) had claimed since round 7.16/7.17 that
+  it goes through "`PutSpriteScaled` with a proper scale/translation
+  table" -- that claim was never actually verified, and turns out to be
+  false. The PRM's Icon-flags section documents exactly one sprite-size
+  control: a binary `wimp_ICON_HALF_SIZE` flag. A plain sprite icon
+  plots at its own NATIVE size (source pixel count × the sprite's
+  recorded old-style mode's OS-units-per-pixel), centred in the extent
+  via `HCENTRED`/`VCENTRED` -- the extent's size never affects the
+  rendered size at all. Mode 27 (this project's pawn-sprite mode) is
+  2 OS units/pixel in both axes (confirmed against the PRM's mode
+  table, `~/riscos-dev/prm-mirror/modes.html`), and the sprite source
+  was 32×32 pixels -- a fixed 64×64 OS-unit native footprint, **exactly
+  equal to `CELL` (64)**. Every pawn has always rendered at exactly one
+  full cell with zero margin, completely independent of `PAWN_SIZE`
+  (48, then 40 in round 7.29, then 36 in round 7.30 -- all produced an
+  identical on-screen size, which is what tipped this off). This
+  explains the entire crop investigation: with zero margin, any
+  imprecision anywhere in the erase/redraw clip machinery (rounding,
+  granted-vs-requested clip differences, the exclusive-upper-bound
+  quirk) had nothing to absorb it.
+- **Fix**: `assets/generate_icon_sprites.py`'s `FINAL` constant (the
+  sprite's own source pixel size) reduced from 32 to 18, giving an
+  18×18 native sprite = 36×36 OS-unit footprint at mode 27's 2 units/
+  pixel -- now genuinely matching `PAWN_SIZE` (36, unchanged from round
+  7.30) and giving real margin (14 units/side) inside the 64-unit cell.
+  `OUTLINE_DILATE_WORK` scaled proportionally (14 → 8) to keep the same
+  relative outline thickness at the smaller final size. Sprites
+  regenerated and `assets/PawnSprites` redeployed.
+- **Documentation corrected everywhere the false claim appeared**:
+  `assets/generate_icon_sprites.py`'s module docstring, `PAWN_SIZE`'s
+  own comment and `plot_pawn()`'s doc comment in `src/game_view.c`, and
+  a new general lesson added to `riscos_wimp_reference.md` (both the
+  project copy and the canonical `~/.claude/riscos_wimp_reference.md`)
+  under "Sprites" -- this is a broadly-applicable RISC OS WIMP lesson,
+  not ArchiLudo-specific, so it belongs there alongside the earlier
+  `.box`-vs-`.clip` and work-area-vs-screen-coordinate corrections from
+  the same investigation.
+- **Rounds 7.21-7.28's actual code changes are still believed correct
+  and were NOT reverted** -- the `.box`-vs-`.clip` fix (7.21), the
+  highlight-ring padding fix (7.22), the Load-window-open fix (7.24),
+  and the false-positive crop-check fix (7.26) all addressed real,
+  independently-confirmed bugs and stay in place. Only the *sprite
+  sizing* theory (7.27-7.30's clip-shrinking/repaint-widening/
+  extent-shrinking attempts) was chasing a symptom of the real bug
+  found here -- 7.27's erase clamp and 7.28's wider repaint were
+  already reverted (round 7.29) once they proved not to help, before
+  the actual cause was known.
+- Not yet re-confirmed live -- needs the same quit-and-relaunch step as
+  every round since 7.25, but this is the first round in the whole
+  crop investigation backed by a citable primary-source confirmation
+  rather than another clip-geometry theory, so there's real reason to
+  expect this one closes it out.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

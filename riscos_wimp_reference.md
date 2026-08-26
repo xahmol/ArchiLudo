@@ -557,6 +557,31 @@ literally.
   fixed target mode (as opposed to a portable app that must cope with
   the user's desktop mode changing), the translation table only needs
   building once, at sprite-load time.
+- **`Wimp_PlotIcon` does NOT scale a sprite icon to fit the icon's
+  extent.** A plain sprite icon is plotted at its own NATIVE size
+  (source pixel count × the sprite's own recorded old-style mode's
+  OS-units-per-pixel — e.g. mode 27 is 2 OS units/pixel in both axes,
+  confirmed against the PRM's mode table), centred within whatever
+  extent the icon block gives via `wimp_ICON_HCENTRED`/
+  `wimp_ICON_VCENTRED` — the extent's *size* only affects where the
+  sprite sits (and, if `wimp_ICON_FILLED` is set, how much background
+  gets painted around it), never how big it's drawn. The PRM's own Icon
+  data section documents exactly one sprite-size control at all: a
+  binary `wimp_ICON_HALF_SIZE` flag (scale-by-exactly-0.5), nothing
+  continuous. This is an easy trap for the same reason as the
+  `.box`-vs-`.clip` mistake above: nothing errors, the icon just renders
+  at a size that has nothing to do with the extent you gave it, and if
+  the native size happens to already look "about right" (e.g. it
+  matches a grid cell almost exactly) changing the extent to try to
+  resize it will visibly do *nothing* — which is exactly how ArchiLudo
+  caught this (round 7.31): three different icon-extent values in a row
+  produced an *identical* on-screen sprite size, because the sprite's
+  own 32×32-pixel mode-27 source was always rendering at a fixed
+  64×64-OS-unit native footprint regardless. The actual fix for wanting
+  a smaller/larger on-screen sprite is regenerating the source sprite
+  at a different pixel size (or its declared mode, which changes the
+  OS-units-per-pixel multiplier), not touching the icon extent — or,
+  for a simple halving, the `wimp_ICON_HALF_SIZE` flag.
 
 ## Colours / ColourTrans
 
