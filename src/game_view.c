@@ -928,6 +928,12 @@ static void plot_dice(int origin_x, int origin_y)
 	 * genuinely useful entries (move/roll outcomes) hard to find --
 	 * exactly the noise that made the Round 7.8 investigation slower
 	 * than it needed to be. */
+	/* Temporary diagnostic (round 7.21) -- see update_dice_area()'s own
+	 * new logging; remove both once the top/right border crop is
+	 * diagnosed. This one logs what plot_dice() itself computes and
+	 * actually asks fill_rect() to paint. */
+	debug_log("plot_dice: origin=(%d,%d) cx=%d cy=%d box=(%d,%d,%d,%d) border=%d\n",
+	          origin_x, origin_y, cx, cy, x0, y0, x1, y1, border);
 	set_gcol(0, 0, 0);
 	fill_rect(x0, y0, x1, y1);
 	set_gcol(255, 255, 255);
@@ -1193,11 +1199,25 @@ static void update_dice_area(void)
 	redraw.box.y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
 	redraw.box.y1 = DICE_CENTRE_Y + DICE_SIZE / 2;
 
+	/* Temporary diagnostic (round 7.21) -- per explicit user report that
+	 * the die's top and right border lines are cropped/halved on real
+	 * Arculator rendering, remove once diagnosed. Logs both what was
+	 * REQUESTED (before wimp_update_window()) and what the Wimp actually
+	 * REPORTS back on each iteration -- if these differ, the Wimp itself
+	 * is clipping the update to something smaller than the die's full
+	 * box; if they match, the bug is downstream (plot_dice()'s own
+	 * fill_rect() calls or a pixel-rounding effect), not this request. */
+	debug_log("update_dice_area: requested box=(%d,%d,%d,%d)\n",
+	          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
+		debug_log("update_dice_area: got box=(%d,%d,%d,%d) xscroll=%d yscroll=%d "
+		          "origin=(%d,%d)\n", redraw.box.x0, redraw.box.y0, redraw.box.x1,
+		          redraw.box.y1, redraw.xscroll, redraw.yscroll, origin_x, origin_y);
 		plot_dice(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
 	}
