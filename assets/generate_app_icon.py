@@ -152,39 +152,104 @@ def draw_icon(draw):
     draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
 
 
-def die_pips(draw):
-    # Face "5": four corners + centre, same layout as game_view.c's
-    # plot_dice() pips[4] entry -- kept visually consistent with the
-    # in-game die rather than inventing a different pip arrangement.
-    # Raw (unscaled) die bounding box, then sc() to match draw_icon()'s
-    # own scaling of the same shape -- computing the centre points in
-    # raw space first and scaling each one keeps this exactly in step
-    # with the die's own outline regardless of CONTENT_SCALE's value.
-    cx0, cy0, cx1, cy1 = 150, 8, 306, 164
-    step = (cx1 - cx0) / 4
-    # Round 7.39: SQUARE pips, not circles -- per live user report that
-    # the pips "look bit weird and uneven". A small circle downsampled
-    # by NEAREST point-sampling has no guarantee any given row/column
-    # of samples passes through its centre, so different pips (whose
-    # exact sub-pixel position varies slightly) can end up looking like
-    # different, irregular blob shapes. A square's straight edges align
-    # far more predictably with a NEAREST sample grid at these sizes --
-    # the same reasoning that already favoured a flat rounded_rectangle
-    # for the die's own outline over a circle. Round 7.38's radius (17)
-    # kept as the half-size here (now scaled).
-    half = sc_len(17)
-    for gx, gy in ((0, 0), (2, 0), (1, 1), (0, 2), (2, 2)):
-        px, py = sc(cx0 + step + gx * step, cy0 + step + gy * step)
-        draw.rectangle((px - half, py - half, px + half, py + half), fill=255)
+# Round 7.40: pips are no longer drawn into the WORK canvas at all --
+# per live user report that round 7.39's square pips still "look bit
+# weird and uneven" across the different output sizes. Root cause: at
+# a 320-unit source downsampled by NEAREST to anywhere from 34 down to
+# 17 (or 9, for the rectangular-pixel half-size), each pip's exact
+# rendered shape/position depends on where NEAREST's sample grid
+# happens to fall relative to that pip's edges in WORK space -- which
+# differs slightly between the four separate outputs (square/
+# rectangular x full/half all resize by different ratios), so the
+# SAME nominal pip design ends up looking subtly different in each one
+# even though nothing about the pips themselves changed. No amount of
+# tuning the WORK-space pip size fixes this, because the problem is
+# the resampling step itself, not the shape being resampled.
+#
+# Fixed by not resampling the pips at all: DIE_BOX_WORK below is the
+# die's own bounding box (already CONTENT_SCALE'd) in WORK-space
+# coordinates, and stamp_pips() maps it analytically into each output
+# image's own native pixel grid (accounting for that output's square/
+# rectangular resize ratio and any pre-squish), then draws the 5 pips
+# directly at that resolution -- guaranteeing the exact same relative
+# layout (pips at 25%/50%/75% fractions of the die's own box) and a
+# size genuinely proportional to that output's own die box, with zero
+# dependence on resampling luck. This is the same lesson
+# assets/generate_icon_sprites.py's build_pawn_image() already
+# documents for its own highlight dither: "the dither pattern must be
+# chosen at the FINAL pixel grid, not the supersampled one."
+DIE_BOX_WORK = sc(150, 8, 306, 164)
+
+
+def stamp_pips(img, die_box):
+    """
+    Function: stamp_pips
+    Summary: Draw the 5-pip face directly onto an already-resized final
+             image, at that image's own native resolution -- see
+             DIE_BOX_WORK's own doc comment for why this replaces
+             drawing pips into the WORK canvas and letting them get
+             resampled along with everything else.
+    Syntax:  stamp_pips(img, die_box)
+    Input:   img     - a Pillow RGBA image, already at its final output
+                       size, with the die's plain white body (no pips
+                       yet) already drawn on it.
+             die_box - (x0, y0, x1, y1), the die's own bounding box in
+                       THIS image's own pixel coordinates (see
+                       die_box_in()).
+    Output:  none. Draws in place.
+    """
+    x0, y0, x1, y1 = die_box
+    w, h = x1 - x0, y1 - y0
+    # Same face-"5" corners+centre layout as src/game_view.c's own
+    # plot_dice() pips[4] entry. Pip size is a fixed fraction of the
+    # die's own box (not of the pip's own WORK-space size), so it's
+    # always genuinely proportional to how big the die actually came
+    # out in this specific output, with a 1-pixel floor so it can never
+    # vanish entirely at the smallest sizes.
+    pip_w = max(1, round(w / 6))
+    pip_h = max(1, round(h / 6))
+    draw = ImageDraw.Draw(img)
+    for fx, fy in ((0.25, 0.25), (0.75, 0.25), (0.5, 0.5), (0.25, 0.75), (0.75, 0.75)):
+        cx = x0 + fx * w
+        cy = y0 + fy * h
+        draw.rectangle((cx - pip_w / 2, cy - pip_h / 2, cx + pip_w / 2, cy + pip_h / 2),
+                        fill=(*OUTLINE_COLOUR, 255))
+
+
+def die_box_in(target_w, target_h, source_w, source_h):
+    """
+    Function: die_box_in
+    Summary: Map DIE_BOX_WORK (fixed WORK-space coordinates) into the
+             pixel coordinates of a `target_w`x`target_h` image resized
+             (via simple independent x/y scaling, matching Image.resize())
+             from a `source_w`x`source_h` one -- `source_w`/`source_h`
+             need not equal WORK/WORK, since the rectangular-pixel
+             outputs resize from an already 2:1-vertically-squished
+             WORKxWORK/2 canvas, not the original WORKxWORK one.
+    Syntax:  box = die_box_in(target_w, target_h, source_w, source_h)
+    Output:  (x0, y0, x1, y1) in the target image's own pixel space.
+    """
+    dx0, dy0, dx1, dy1 = DIE_BOX_WORK
+    # First express the WORK-space box in the actual SOURCE canvas's own
+    # coordinates (x is never pre-squished; y is, by source_h/WORK, for
+    # the rectangular-pixel path -- 1.0 for the square-pixel path, where
+    # source_h == WORK).
+    y_pre = source_h / WORK
+    sx0, sy0, sx1, sy1 = dx0, dy0 * y_pre, dx1, dy1 * y_pre
+    # Then scale from the source canvas into the target image.
+    rx, ry = target_w / source_w, target_h / source_h
+    return (sx0 * rx, sy0 * ry, sx1 * rx, sy1 * ry)
 
 
 def build_icon_image():
     """
     Function: build_icon_image
-    Summary: Compose the full-colour WORKxWORK icon image -- black
-             outline, red pawn fill, white die fill, black pips --
-             using the same "resize RGB and alpha separately" technique
-             as assets/generate_icon_sprites.py's build_pawn_image(), to
+    Summary: Compose the full-colour WORKxWORK BASE icon image -- black
+             outline, red pawn fill, white die fill, NO pips (see
+             DIE_BOX_WORK's own doc comment for why pips are stamped on
+             separately, after resizing, instead) -- using the same
+             "resize RGB and alpha separately" technique as
+             assets/generate_icon_sprites.py's build_pawn_image(), to
              avoid the round 6.3 transparent-edge colour-bleed bug.
     Syntax:  img = build_icon_image()
     Output:  a Pillow RGBA image, WORKxWORK.
@@ -195,9 +260,6 @@ def build_icon_image():
     die_only = Image.new("L", (WORK, WORK), 0)
     draw = ImageDraw.Draw(die_only)
     draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
-
-    pips = Image.new("L", (WORK, WORK), 0)
-    die_pips(ImageDraw.Draw(pips))
 
     # Outline: silhouette dilated by a fixed margin, same approach as
     # generate_icon_sprites.py's OUTLINE_DILATE_WORK. Round 7.38: widened
@@ -216,12 +278,9 @@ def build_icon_image():
     px = rgb.load()
     sil_px = silhouette.load()
     die_px = die_only.load()
-    pip_px = pips.load()
     for y in range(WORK):
         for x in range(WORK):
-            if pip_px[x, y]:
-                colour = OUTLINE_COLOUR
-            elif die_px[x, y]:
+            if die_px[x, y]:
                 colour = DIE_COLOUR
             elif sil_px[x, y]:
                 colour = PAWN_COLOUR
@@ -237,10 +296,15 @@ def build_icon_image():
 def main():
     icon = build_icon_image()
 
+    full = icon.resize((FULL, FULL), Image.NEAREST)
+    stamp_pips(full, die_box_in(FULL, FULL, WORK, WORK))
     full_png = HERE / "app_icon_full.png"
-    icon.resize((FULL, FULL), Image.NEAREST).save(full_png)
+    full.save(full_png)
+
+    half = icon.resize((HALF, HALF), Image.NEAREST)
+    stamp_pips(half, die_box_in(HALF, HALF, WORK, WORK))
     half_png = HERE / "app_icon_half.png"
-    icon.resize((HALF, HALF), Image.NEAREST).save(half_png)
+    half.save(half_png)
     print(f"wrote {full_png}, {half_png}")
 
     # Square-pixel (!Sprites22, mode 27, 90x90dpi) -- direct downsamples.
@@ -264,12 +328,24 @@ def main():
 
     # Rectangular-pixel (!Sprites, mode 12, 90x45dpi, 34x17/17x9) --
     # squish the WORK canvas 2:1 vertically first (see module docstring),
-    # then downsample to the target sizes.
+    # then downsample to the target sizes. squished itself is an
+    # intermediate canvas (WORKxWORK/2), not a final output -- its own
+    # height feeds die_box_in()'s source_h so the pip mapping accounts
+    # for the pre-squish correctly.
     squished = icon.resize((WORK, WORK // 2), Image.NEAREST)
+    squished_h = WORK // 2
+
+    rect_full_h = FULL // 2
+    rect_full = squished.resize((FULL, rect_full_h), Image.NEAREST)
+    stamp_pips(rect_full, die_box_in(FULL, rect_full_h, WORK, squished_h))
     squished_full_png = HERE / "app_icon_full_rect.png"
-    squished.resize((FULL, FULL // 2), Image.NEAREST).save(squished_full_png)
+    rect_full.save(squished_full_png)
+
+    rect_half_h = HALF // 2 + HALF % 2
+    rect_half = squished.resize((HALF, rect_half_h), Image.NEAREST)
+    stamp_pips(rect_half, die_box_in(HALF, rect_half_h, WORK, squished_h))
     squished_half_png = HERE / "app_icon_half_rect.png"
-    squished.resize((HALF, HALF // 2 + HALF % 2), Image.NEAREST).save(squished_half_png)
+    rect_half.save(squished_half_png)
 
     rect_specs = [
         (squished_full_png, "!archiludo"),

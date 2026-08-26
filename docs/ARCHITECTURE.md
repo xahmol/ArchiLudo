@@ -2356,6 +2356,37 @@ uneven though and top black line missing").
   sizes -- the same reasoning that already favoured the die's own flat
   `rounded_rectangle` outline over a circular one.
 
+**Round 7.40**: fixed the app icon's dice pips properly, per live user
+report that round 7.39's square pips still "look bit weird and uneven"
+across the four output sizes/aspects. Root cause finally identified:
+drawing the pips into the shared `WORK=320` canvas and letting
+`Image.NEAREST` resample them down to each of the four very different
+output sizes (34x34, 17x17, 34x17, 17x9) meant each pip's exact
+rendered shape depended on where NEAREST's sample grid happened to
+fall relative to that pip's edges in `WORK` space -- which differs
+between all four outputs, since each resizes by a different ratio (and
+the rectangular ones from an already 2:1-squished intermediate canvas).
+No amount of tuning the `WORK`-space pip size could fix this, since the
+problem was the resampling step itself, not the shape being resampled
+-- the same lesson `generate_icon_sprites.py`'s `build_pawn_image()`
+already documents for its own highlight dither ("the dither pattern
+must be chosen at the FINAL pixel grid, not the supersampled one").
+
+Fixed by not resampling the pips at all: a new `DIE_BOX_WORK` +
+`die_box_in()` analytically map the die's own (already `CONTENT_SCALE`'d)
+bounding box into each output image's own native pixel coordinates
+(accounting for that output's resize ratio and any pre-squish), and a
+new `stamp_pips()` draws the 5 pips directly at that resolution, sized
+as a fixed fraction of the die's own box in THAT output (`w/6`,
+1-pixel floor) rather than a fixed `WORK`-space size. `build_icon_image()`
+no longer draws pips into the shared canvas at all. This guarantees
+identical relative layout (pips at 25%/50%/75% fractions of the die's
+own box) and genuinely proportional sizing in every output, with zero
+dependence on resampling luck -- the tiniest output (17x9,
+rectangular-pixel half-size) still looks crude, but predictably so (a
+real resolution floor, not arbitrary noise), which is the most that's
+achievable at that pixel budget.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
