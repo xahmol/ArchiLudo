@@ -1818,6 +1818,56 @@ fix for the crop itself.
   triggering log to answer with real evidence next time it's reproduced,
   rather than guessing at another speculative fix.
 
+**Round 7.26**: fixed a bug in round 7.25's own crop-detection code, per
+explicit live user report ("No redrawing things is still really slow.
+Have the feeling that the box/clip round detoriated things. And several
+cropped pawns visble in [screenshot]").
+
+- **Root cause**: round 7.25's `dbg_request_x0/y0/x1/y1` were meant to
+  hold the WORK AREA box each redraw function had requested, for
+  `plot_pawn()` to compare its own (also work-area, round 7.18) icon
+  extent against. But all five call sites read them back from
+  `redraw.box`/`redraw->box` *after* calling `wimp_update_window()`/
+  `wimp_redraw_window()`/`wimp_get_rectangle()` -- and those calls
+  overwrite that struct field with SCREEN coordinates (this is exactly
+  round 7.21's own `.box`-is-screen-not-work-area finding, which this
+  round's own code failed to apply consistently). Comparing a work-area
+  icon extent against a screen-coordinate box is essentially meaningless
+  once the window isn't sitting at the screen origin, so the "crop"
+  check false-positived on **every single pawn drawn** -- confirmed by
+  reading a fresh Log showing 422 `plot_pawn: CROP` lines whose logged
+  `extent`/`request` pairs don't even overlap in sign (e.g. `extent=
+  (272,-384,320,-336)` against `request=(100,100,1096,820)`). This meant
+  every pawn draw, on every tick, called `debug_log()` -- reintroducing
+  the exact per-pawn logging cost round 7.24 had already found and
+  removed once, which is why the animation was reported as still slow
+  ("even worse than before" per the user's own phrasing).
+- **Fix**: `update_move_animation_area()`/`update_highlight_area()`/
+  `update_settle_diff_area()` now set `dbg_request_*` from their own
+  *pre-call* local `x0`/`y0`/`x1`/`y1` (the work-area values
+  `cell_range_to_work_box()` computed, before `redraw.box` gets
+  clobbered), once, before entering the `while (more)` loop rather than
+  every iteration. `redraw_now()` sets them from the same literal
+  work-area constants it assigns to `redraw.box` before the call.
+  `game_view_redraw()` -- the one path where the box is *only* ever
+  available in screen coordinates (`Wimp_RedrawWindow`'s output, not
+  something the app requests) -- converts it back to work area using the
+  same `origin_x`/`origin_y` subtraction the function already does for
+  its own drawing (`work = screen - origin`), rather than comparing
+  screen against work-area directly.
+- **The screenshot's visible crops are still not explained** -- this
+  round only fixes the check's own false-positive bug and the resulting
+  slowdown; it does not yet contain a real fix for pawn cropping. With
+  the false positives gone, the crop check should now only fire on a
+  genuine mismatch, so the next reproduction's Log should either show
+  real `plot_pawn: CROP` lines pointing at the actual bug, or show none
+  at all -- which would mean the crop isn't a `Wimp_UpdateWindow`/clip
+  scoping issue at all (see round 7.25's other findings, which already
+  ruled out a sprite/extent size mismatch and a same-cell overflow), and
+  the next place to look is something outside this box/clip mechanism
+  entirely (sprite content itself, or `Wimp_PlotIcon`'s own scaling
+  behaviour at whatever screen mode the reproduction was in).
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

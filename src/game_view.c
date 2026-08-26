@@ -278,15 +278,30 @@ static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
  * writes/closes the Log file from scratch every call; round 7.24 already
  * cut this from per-pawn to per-tick, but per-tick over a multi-cell
  * animated move is still dozens of calls per throw). Removed entirely and
- * replaced with this: each of those five functions records the work-area
- * box it explicitly requested to have redrawn (its own `redraw.box`, i.e.
- * what cell_range_to_work_box()/the window's own extent said was enough),
- * and plot_pawn() cheaply compares its icon's extent against it on every
- * single call -- but only calls debug_log() if the extent doesn't fully
- * fit, which should never happen and so costs nothing in the working case.
- * This catches the actual reported crop red-handed (exact cell, player,
- * pawn, icon extent, and the box that was too small for it) without the
- * per-call file I/O cost that made the animation feel slower. */
+ * replaced with this: each of those five functions records, in WORK AREA
+ * coordinates, the box it explicitly requested to have redrawn (what
+ * cell_range_to_work_box()/the window's own extent said was enough), and
+ * plot_pawn() cheaply compares its icon's extent (also work area, round
+ * 7.18) against it on every single call -- but only calls debug_log() if
+ * the extent doesn't fully fit, which should never happen and so costs
+ * nothing in the working case.
+ *
+ * Round 7.26 correction: the round 7.25 version of each assignment read
+ * these back from `redraw.box`/`redraw->box` *after* calling
+ * wimp_update_window()/wimp_redraw_window()/wimp_get_rectangle() -- but
+ * those calls overwrite that same struct field with SCREEN coordinates
+ * (confirmed by round 7.21's PRM research), not the work-area coordinates
+ * that were put into it beforehand. Comparing a work-area icon extent
+ * against a screen-coordinate box is close to meaningless once the window
+ * isn't near the screen origin, and made this check false-positive on
+ * essentially every pawn -- reintroducing the exact per-pawn debug_log()
+ * cost round 7.24 had already found and removed once (see live user
+ * report "no redrawing things is still really slow" + a fresh Log showing
+ * hundreds of spurious CROP lines). Fixed by taking each function's own
+ * *pre-call* work-area locals instead (or, for game_view_redraw(), by
+ * converting its post-call screen-coordinate box back to work area via
+ * the same origin_x/origin_y subtraction it already does for its own
+ * drawing) -- see each call site's own Round 7.26 comment. */
 static int dbg_request_x0, dbg_request_y0, dbg_request_x1, dbg_request_y1;
 
 #define APP_DIR_LEN 200
@@ -1215,6 +1230,19 @@ static void update_move_animation_area(void)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
+	/* Round 7.25 bug (fixed round 7.26): this must be taken from the
+	 * work-area x0/y0/x1/y1 just computed, NOT read back from
+	 * redraw.box after the call below -- wimp_update_window()/
+	 * wimp_get_rectangle() overwrite redraw.box with SCREEN coordinates
+	 * (see this file's Round 7.21 finding), while plot_pawn()'s icon
+	 * extent is in WORK AREA coordinates (round 7.18). Comparing the two
+	 * directly made the crop check false-positive on literally every
+	 * pawn, which made every single draw call debug_log() -- the exact
+	 * per-pawn logging cost round 7.24 had already found and removed
+	 * once, reintroduced by accident. */
+	dbg_request_x0 = x0; dbg_request_y0 = y0;
+	dbg_request_x1 = x1; dbg_request_y1 = y1;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1232,10 +1260,6 @@ static void update_move_animation_area(void)
 		 * exactly the "everything on screen redraws" symptom reported
 		 * live. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		/* Round 7.25: record the requested box for plot_pawn()'s own
-		 * crop check -- see dbg_request_x0's doc comment. */
-		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
-		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1412,6 +1436,12 @@ static void update_highlight_area(void)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
+	/* Round 7.26: from the local work-area x0/y0/x1/y1, not read back
+	 * from redraw.box after the call -- see
+	 * update_move_animation_area()'s doc comment for why. */
+	dbg_request_x0 = x0; dbg_request_y0 = y0;
+	dbg_request_x1 = x1; dbg_request_y1 = y1;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1424,10 +1454,6 @@ static void update_highlight_area(void)
 		 * see update_dice_area()'s doc comment; .box is the whole
 		 * window's visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		/* Round 7.25: record the requested box for plot_pawn()'s own
-		 * crop check -- see dbg_request_x0's doc comment. */
-		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
-		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
@@ -1540,6 +1566,12 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
+	/* Round 7.26: from the local work-area x0/y0/x1/y1, not read back
+	 * from redraw.box after the call -- see
+	 * update_move_animation_area()'s doc comment for why. */
+	dbg_request_x0 = x0; dbg_request_y0 = y0;
+	dbg_request_x1 = x1; dbg_request_y1 = y1;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1549,10 +1581,6 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 		 * update_dice_area()'s doc comment; .box is the whole window's
 		 * visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		/* Round 7.25: record the requested box for plot_pawn()'s own
-		 * crop check -- see dbg_request_x0's doc comment. */
-		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
-		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1656,15 +1684,19 @@ static void redraw_now(void)
 	redraw.box.x1 = WINDOW_WIDTH + 8;
 	redraw.box.y1 = 8;
 
+	/* Round 7.26: from the same literal work-area values just assigned
+	 * above, not read back from redraw.box after the call -- see
+	 * update_move_animation_area()'s doc comment for why (wimp_update_
+	 * window()/wimp_get_rectangle() overwrite redraw.box with SCREEN
+	 * coordinates, and comparing those against plot_pawn()'s work-area
+	 * icon extents made the crop check false-positive on every pawn). */
+	dbg_request_x0 = 0; dbg_request_y0 = -WINDOW_HEIGHT;
+	dbg_request_x1 = WINDOW_WIDTH + 8; dbg_request_y1 = 8;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
-
-		/* Round 7.25: record the requested box for plot_pawn()'s own
-		 * crop check -- see dbg_request_x0's doc comment. */
-		dbg_request_x0 = redraw.box.x0; dbg_request_y0 = redraw.box.y0;
-		dbg_request_x1 = redraw.box.x1; dbg_request_y1 = redraw.box.y1;
 
 		/* Erase first -- see fill_window_background()'s doc comment.
 		 * Missed here originally (a direct regression, not just a
@@ -2424,14 +2456,17 @@ void game_view_redraw(wimp_draw *redraw)
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 
-		/* Round 7.25: record the requested box for plot_pawn()'s own
-		 * crop check -- see dbg_request_x0's doc comment. Here `.box` is
-		 * the window's own true extent (Wimp_RedrawWindow's OUTPUT, not
-		 * something we asked for), which is fine -- any in-bounds pawn
-		 * trivially satisfies it, so this mainly guards against a
-		 * completely different class of bug if it ever fires here. */
-		dbg_request_x0 = redraw->box.x0; dbg_request_y0 = redraw->box.y0;
-		dbg_request_x1 = redraw->box.x1; dbg_request_y1 = redraw->box.y1;
+		/* Round 7.25/7.26: record the requested box for plot_pawn()'s
+		 * own crop check -- see dbg_request_x0's doc comment. `.box`
+		 * here is the window's own true extent in SCREEN coordinates
+		 * (Wimp_RedrawWindow's OUTPUT), but plot_pawn()'s icon extents
+		 * are WORK AREA coordinates (round 7.18) -- converted the same
+		 * way origin_x/origin_y above already do (work area = screen -
+		 * origin), rather than comparing screen against work-area
+		 * directly, which made the round 7.25 version of this check
+		 * false-positive on every single pawn. */
+		dbg_request_x0 = redraw->box.x0 - origin_x; dbg_request_y0 = redraw->box.y0 - origin_y;
+		dbg_request_x1 = redraw->box.x1 - origin_x; dbg_request_y1 = redraw->box.y1 - origin_y;
 		draw_full_window_content(origin_x, origin_y);
 		more = wimp_get_rectangle(redraw);
 	}
