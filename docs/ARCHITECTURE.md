@@ -1868,6 +1868,58 @@ cropped pawns visble in [screenshot]").
   entirely (sprite content itself, or `Wimp_PlotIcon`'s own scaling
   behaviour at whatever screen mode the reproduction was in).
 
+**Round 7.27**: the actual pawn-crop fix, per the user's own hypothesis
+after round 7.26 confirmed (with a genuinely fixed, verified-clean Log --
+zero real `plot_pawn: CROP` hits across a full fresh session) that a
+pawn's own icon extent was never the problem: "is pawn too high and
+because it is higher than the field it is on, gets wiped when another
+pawn animates past it?" -- exactly right, one level removed from the
+pawn's own sprite.
+
+- **Root cause**: `update_move_animation_area()`/`update_highlight_area()`/
+  `update_settle_diff_area()` all erase using `redraw.clip.x1/y1` (the
+  Wimp-granted clip), and that clip can legitimately be as large as the
+  *requested* box -- which `cell_range_to_work_box()` pads by +8 OS units
+  on x1/y1 only (round 7.21/7.22, to guard against the PRM's documented
+  exclusive-upper-bound shortfall on the *request*). Nothing forces the
+  Wimp to shrink the granted clip back down to the true cell boundary
+  when the window is large enough to contain the padded request, so the
+  erase can paint up to 8 OS units *past* the true edge of `col1`/`row0`
+  -- into whichever cell sits just beyond it. The ±1-cell margin these
+  three functions already add is a margin around `col0..col1`/
+  `row0..row1` themselves (for the *previous tick's position* concern --
+  see `update_move_animation_area()`'s own doc comment), not around the
+  padded request box, so a neighbour sitting just past that margin was
+  never part of this call's own `draw_board_region()` -- erased by the
+  padding overrun, never repainted. Since the pad is on y1 (the
+  numerically-larger/visually-upper edge), it bleeds into the row
+  *above* `row0`, eating into *that* row's own bottom 8 units -- matching
+  every "bottom cropped" report in this whole investigation, and
+  explaining why it always looked like "some other pawn's animation
+  wiped it": whichever animation/highlight/settle-diff call's box
+  happened to start one row below the victim was the one doing the
+  erasing.
+- **Fix**: a new `ERASE_CLAMP_MAX` macro (`src/game_view.c`, just above
+  `update_move_animation_area()`) clamps the erase rectangle's x1/y1 to
+  the smaller of the Wimp-granted clip and the TRUE, unpadded cell
+  boundary (`BOARD_ORIGIN_X + (col1+1)*CELL` / `BOARD_ORIGIN_Y -
+  row0*CELL`) -- the *request* box stays generously padded as before
+  (still needed so a pawn's own icon extent or a highlight ring's radius
+  always gets a big enough clip to draw itself fully), only the erase
+  itself now stops exactly at the cell edge, never past it. Applied to
+  all three functions' erase calls; `redraw_now()` (whole window, no
+  neighbour-cell concept) and `game_view_redraw()` (Wimp's own auto-
+  clear, no manual erase at all) needed no equivalent change.
+- **Not yet done, logged for later**: the user also flagged that a
+  captured/beaten pawn currently teleports straight to its home base
+  rather than animating there, and suggested a direct diagonal path
+  rather than retracing the whole board route back -- confirmed accurate
+  against the current code (`update_settle_diff_area()`'s doc comment
+  already states captures are a diff-based redraw, not an animation, by
+  original round 7.15 design). This is a feature addition, not a bug,
+  and hasn't been implemented -- worth picking up as a small follow-up
+  once the crop/flicker investigation is fully closed out.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

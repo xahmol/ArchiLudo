@@ -1122,6 +1122,53 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
 }
 
 /*
+ * Macro: ERASE_CLAMP_MAX
+ * Summary: Clamps an erase rectangle's upper-bound edge to the TRUE
+ *          (unpadded) cell boundary -- i.e. exactly what
+ *          cell_range_to_work_box()'s own x1/y1 would be without its own
+ *          +8 exclusive-upper-bound padding. Round 7.27: the erase step
+ *          in update_move_animation_area()/update_highlight_area()/
+ *          update_settle_diff_area() must clamp to THIS, not to
+ *          redraw.clip.x1/y1 directly -- per explicit live user report
+ *          ("is pawn too high and because it is higher than the field it
+ *          is on, gets wiped when another pawn animates past it?"),
+ *          which turned out to be exactly right, just one level removed
+ *          from the pawn's own sprite: the +8 padding was only ever
+ *          meant to make the *Wimp_UpdateWindow request* generous enough
+ *          to avoid the PRM's exclusive-upper-bound shortfall (round
+ *          7.21/7.22) -- it was never meant to make the *erase* paint 8
+ *          OS units past the true cell boundary and into whatever
+ *          NEIGHBOURING cell sits just beyond it. Since the ±1-cell
+ *          margin these three functions already add (for the "previous
+ *          tick's position" concern -- see update_move_animation_area()'s
+ *          own doc comment) is a MARGIN around col0..col1/row0..row1,
+ *          not around the padded request box, a neighbour sitting one
+ *          cell past that margin's own edge was never included in the
+ *          redraw's own draw_board_region() call -- so if the granted
+ *          `redraw.clip` happened to include the full +8 pad (nothing
+ *          forced the Wimp to shrink it back down when the window itself
+ *          was large enough to contain it), that neighbour's sprite got
+ *          silently erased 8 OS units into its own territory and never
+ *          repainted, a permanent partial crop until some later full
+ *          redraw happened to touch that cell -- specifically eating
+ *          into a cell's BOTTOM 8 units from the row below (the +8 is on
+ *          y1, the numerically-larger/visually-upper edge of a box, so
+ *          it bleeds into the row *above* row0, from that row's own
+ *          bottom edge), matching every "bottom cropped" report so far.
+ *          Cheap fix: erase only up to the true, unpadded cell boundary
+ *          -- the request box can stay generous (still needed so a
+ *          pawn's own icon extent, or a highlight ring's radius, always
+ *          gets a big enough clip to draw itself fully), only the ERASE
+ *          rectangle needs to stop exactly at the cell edge. x0/y0 are
+ *          never padded (see cell_range_to_work_box() above), so only
+ *          x1/y1 need clamping -- to the smaller of what the Wimp
+ *          granted and the true cell edge, since the granted clip can
+ *          legitimately be smaller still (a genuinely obscured/off-
+ *          window edge) and that must still be respected.
+ */
+#define ERASE_CLAMP_MAX(granted, true_edge) (((granted) < (true_edge)) ? (granted) : (true_edge))
+
+/*
  * Function: update_move_animation_area
  * Summary: Synchronously redraw just the board cells a pawn-move
  *          animation's current frame can touch (every cell of its path
@@ -1243,6 +1290,13 @@ static void update_move_animation_area(void)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
+	/* Round 7.27: the TRUE (unpadded) cell-range boundary, for clamping
+	 * the erase step below -- see ERASE_CLAMP_MAX's doc comment. Exactly
+	 * x1/y1 without cell_range_to_work_box()'s own +8 pad. */
+	{
+	int true_x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL;
+	int true_y1 = BOARD_ORIGIN_Y - row0 * CELL;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1258,10 +1312,16 @@ static void update_move_animation_area(void)
 		 * tick of this animation wiped the *entire visible window* to
 		 * background colour, not just this small few-cell patch --
 		 * exactly the "everything on screen redraws" symptom reported
-		 * live. */
-		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		 * live. Round 7.27: clamp clip.x1/y1 to the true cell edge --
+		 * see ERASE_CLAMP_MAX's doc comment -- so the erase can't bleed
+		 * 8 OS units into a neighbouring cell's own pawn/marker that
+		 * this call's draw_board_region() below won't repaint. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0,
+		                        ERASE_CLAMP_MAX(redraw.clip.x1, true_x1),
+		                        ERASE_CLAMP_MAX(redraw.clip.y1, true_y1));
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
+	}
 	}
 }
 
@@ -1442,6 +1502,12 @@ static void update_highlight_area(void)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
+	/* Round 7.27: the true (unpadded) cell-range boundary -- see
+	 * ERASE_CLAMP_MAX's doc comment. */
+	{
+	int true_x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL;
+	int true_y1 = BOARD_ORIGIN_Y - row0 * CELL;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1452,11 +1518,16 @@ static void update_highlight_area(void)
 		 * this a thin remnant of the "on" phase ring could survive an
 		 * "off" phase. Round 7.21: erase redraw.clip, not redraw.box --
 		 * see update_dice_area()'s doc comment; .box is the whole
-		 * window's visible area, not this small region. */
-		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		 * window's visible area, not this small region. Round 7.27:
+		 * clamp to the true cell edge -- see ERASE_CLAMP_MAX's doc
+		 * comment. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0,
+		                        ERASE_CLAMP_MAX(redraw.clip.x1, true_x1),
+		                        ERASE_CLAMP_MAX(redraw.clip.y1, true_y1));
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
+	}
 	}
 }
 
@@ -1572,6 +1643,12 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
+	/* Round 7.27: the true (unpadded) cell-range boundary -- see
+	 * ERASE_CLAMP_MAX's doc comment. */
+	{
+	int true_x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL;
+	int true_y1 = BOARD_ORIGIN_Y - row0 * CELL;
+
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1579,10 +1656,14 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 
 		/* Round 7.21: erase redraw.clip, not redraw.box -- see
 		 * update_dice_area()'s doc comment; .box is the whole window's
-		 * visible area, not this small region. */
-		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		 * visible area, not this small region. Round 7.27: clamp to
+		 * the true cell edge -- see ERASE_CLAMP_MAX's doc comment. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0,
+		                        ERASE_CLAMP_MAX(redraw.clip.x1, true_x1),
+		                        ERASE_CLAMP_MAX(redraw.clip.y1, true_y1));
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
+	}
 	}
 }
 
