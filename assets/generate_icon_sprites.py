@@ -124,13 +124,70 @@ def masked_shape(shapes_fn, silhouette_mask):
     return Image.composite(m, Image.new("L", (WORK, WORK), 0), silhouette_mask)
 
 
+def highlight_shapes(d):
+    # A soft "shine" patch on the head's upper-left, and a matching
+    # band down the stem's left edge -- the same upper-left light
+    # source convention the reference pixel-art pawns use.
+    d.ellipse((95, 35, 165, 100), fill=255)
+    d.polygon([(125, 160), (155, 160), (145, 235), (120, 235)], fill=255)
+
+
+def shadow_shapes(d):
+    # A patch on the lower-right of the head, and down the stem's
+    # and base's right edge.
+    d.ellipse((165, 60, 220, 130), fill=255)
+    d.polygon([(165, 175), (200, 175), (205, 248), (175, 248)], fill=255)
+    d.rectangle((195, 248, 240, 300), fill=255)
+
+
+def dot_shapes(d):
+    # The small bright specular dot every reference image has, near
+    # the top of the head -- kept deliberately small (a "shine", not
+    # a second highlight region the size of the band above it) and
+    # always solid (not dithered, see build_pawn_image()'s doc comment).
+    d.ellipse((122, 46, 138, 62), fill=255)
+
+
 def build_pawn_image(fill_rgb):
     """
     Function: build_pawn_image
     Summary: Compose one player's full shaded pawn sprite -- outline,
              flat hue fill, highlight band/dot, shadow patch -- at
-             WORKxWORK, then downsample to FINALxFINAL with RGB and
-             alpha resized separately (see module docstring for why).
+             WORKxWORK, then downsample to FINALxFINAL.
+
+             Round 7.19: the highlight/shadow regions are no longer a
+             flat solid colour (plain white / plain grey) -- per
+             explicit user feedback that the flat white/grey read as
+             "not the player's colour at all" in those regions on real
+             hardware. Since only green and blue have a second Wimp
+             colour to genuinely shade between (see the module
+             docstring), the fix here is an ordered 1-pixel checkerboard
+             DITHER between white/fill_rgb (highlight) and
+             grey/fill_rgb (shadow) instead -- a classic limited-palette
+             pixel-art technique: at normal viewing distance/scale, a
+             checkerboard of two colours reads as a blended tint of
+             both, staying visibly closer to the player's own hue than
+             a flat white/grey block while still giving a lighter/darker
+             read for the 3D shading effect. The small solid specular
+             dot stays flat white (undithered) -- a single small "shine"
+             point rather than a shaded region, dithering it would just
+             look like noise at that size.
+
+             Implementation: unlike the flat-colour version (which
+             composited colour blocks at WORKxWORK and downsampled with
+             NEAREST to avoid blending artefacts -- see docs/GRAPHICS_
+             TOOLING.md's round 7.17), the dither pattern must be chosen
+             at the FINAL pixel grid, not the supersampled one -- a
+             checkerboard drawn at WORK resolution and then downsampled
+             would either alias into a solid colour or an unpredictable
+             pattern depending on how the dither period lines up with
+             the downsample ratio. So the region *masks* (highlight/
+             shadow/dot/silhouette) are still built at WORK resolution
+             (for smooth, precisely-shaped boundaries) but converted to
+             plain per-final-pixel membership booleans via a NEAREST
+             resize to FINALxFINAL, and the actual colour choice --
+             including the `(x + y) % 2` checkerboard parity -- is made
+             directly on that FINALxFINAL grid, pixel by pixel.
     Syntax:  img = build_pawn_image(fill_rgb)
     Input:   fill_rgb - (r, g, b) tuple, the player's Wimp-palette
                         fill colour.
@@ -140,56 +197,37 @@ def build_pawn_image(fill_rgb):
     draw_pawn_silhouette(ImageDraw.Draw(silhouette))
     dilated = silhouette.filter(ImageFilter.MaxFilter(OUTLINE_DILATE_WORK * 2 + 1))
 
-    # Background = outline colour, so there's no RGB seam at the true
-    # edge -- the alpha channel (from `dilated`, resized separately
-    # below) does the actual shape cutout.
-    rgb = Image.new("RGB", (WORK, WORK), OUTLINE_COLOUR)
-    rgb.paste(Image.new("RGB", (WORK, WORK), fill_rgb), (0, 0), silhouette)
+    highlight_mask = masked_shape(highlight_shapes, silhouette)
+    shadow_mask = masked_shape(shadow_shapes, silhouette)
+    dot_mask = masked_shape(dot_shapes, silhouette)
 
-    def highlight_shapes(d):
-        # A soft "shine" patch on the head's upper-left, and a matching
-        # band down the stem's left edge -- the same upper-left light
-        # source convention the reference pixel-art pawns use.
-        d.ellipse((95, 35, 165, 100), fill=255)
-        d.polygon([(125, 160), (155, 160), (145, 235), (120, 235)], fill=255)
-
-    def shadow_shapes(d):
-        # A patch on the lower-right of the head, and down the stem's
-        # and base's right edge.
-        d.ellipse((165, 60, 220, 130), fill=255)
-        d.polygon([(165, 175), (200, 175), (205, 248), (175, 248)], fill=255)
-        d.rectangle((195, 248, 240, 300), fill=255)
-
-    def dot_shapes(d):
-        # The small bright specular dot every reference image has, near
-        # the top of the head -- kept deliberately small (a "shine", not
-        # a second highlight region the size of the band above it).
-        d.ellipse((122, 46, 138, 62), fill=255)
-
-    rgb.paste(Image.new("RGB", (WORK, WORK), SHADOW_COLOUR), (0, 0),
-              masked_shape(shadow_shapes, silhouette))
-    rgb.paste(Image.new("RGB", (WORK, WORK), HIGHLIGHT_COLOUR), (0, 0),
-              masked_shape(highlight_shapes, silhouette))
-    rgb.paste(Image.new("RGB", (WORK, WORK), HIGHLIGHT_COLOUR), (0, 0),
-              masked_shape(dot_shapes, silhouette))
-
-    # RGB: NEAREST, not a blending filter. A first attempt used LANCZOS
-    # for both channels and produced a stray bright-orange fleck at a
-    # white/red boundary neither colour is anywhere near (ringing
-    # overshoot); switching to BOX removed that, but still left faint
-    # off-hue speckling at *internal* colour-region boundaries (e.g.
-    # yellow fill against the grey shadow patch blending to something
-    # that nearest-matches orange instead of either source colour) --
-    # an inherent risk of blending across a hard cut destined for only
-    # 16-colour quantisation. Since every internal boundary here is
-    # between deliberately flat, hand-placed regions (not a naturally
-    # curved gradient), there's nothing worth smoothing there anyway --
-    # a crisp 1-final-pixel-grid cut reads as ordinary pixel art. Only
-    # the true *outer* silhouette edge (the alpha channel, from
-    # `dilated`) benefits from smoothing, so only that channel uses a
-    # blending resize.
-    final_rgb = rgb.resize((FINAL, FINAL), Image.NEAREST)
+    # NEAREST for every mask here: each is already a hard 0/255 region
+    # at WORK resolution, and a plain membership boolean is all that's
+    # needed per final pixel -- no blending wanted (see docstring).
+    silhouette_final = silhouette.resize((FINAL, FINAL), Image.NEAREST)
+    highlight_final = highlight_mask.resize((FINAL, FINAL), Image.NEAREST)
+    shadow_final = shadow_mask.resize((FINAL, FINAL), Image.NEAREST)
+    dot_final = dot_mask.resize((FINAL, FINAL), Image.NEAREST)
+    # The one exception: alpha (the true outer silhouette edge) still
+    # gets a smoothing resize -- see round 7.17's reasoning, unchanged.
     final_alpha = dilated.resize((FINAL, FINAL), Image.BOX)
+
+    final_rgb = Image.new("RGB", (FINAL, FINAL))
+    px = final_rgb.load()
+    for y in range(FINAL):
+        for x in range(FINAL):
+            if dot_final.getpixel((x, y)):
+                colour = HIGHLIGHT_COLOUR
+            elif silhouette_final.getpixel((x, y)) == 0:
+                colour = OUTLINE_COLOUR
+            elif highlight_final.getpixel((x, y)):
+                colour = HIGHLIGHT_COLOUR if (x + y) % 2 == 0 else fill_rgb
+            elif shadow_final.getpixel((x, y)):
+                colour = SHADOW_COLOUR if (x + y) % 2 == 0 else fill_rgb
+            else:
+                colour = fill_rgb
+            px[x, y] = colour
+
     final = final_rgb.convert("RGBA")
     final.putalpha(final_alpha)
     return final
