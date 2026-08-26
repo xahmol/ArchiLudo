@@ -2387,6 +2387,27 @@ rectangular-pixel half-size) still looks crude, but predictably so (a
 real resolution floor, not arbitrary noise), which is the most that's
 achievable at that pixel budget.
 
+**Round 7.41**: fixed the die's own outline symmetry, per live user
+report ("outline of die should be square, and is not always now as it
+misses pixel in lower right corner") -- the same root cause as round
+7.40's pip fix, just not yet applied to the die's own shape. The die
+was still going through the shared WORK-space silhouette-dilate-then-
+NEAREST-resize pipeline (the one that correctly serves the pawn's own
+organic, curved outline), which can round each of a plain square's
+four corners slightly differently once resampled -- a curved pawn
+silhouette has room to visually absorb that asymmetry, a square has
+none.
+
+Fixed the same way as the pips: `draw_icon()` no longer draws the die
+at all (pawn only now), and a new `stamp_die()` draws the die's body --
+a solid black square with a white interior inset by a proportional
+border width -- directly onto each output image at its own native
+resolution, called (before `stamp_pips()`) at all four of `main()`'s
+output sites. Two plain axis-aligned rectangles drawn directly in the
+target's own pixel space can't end up asymmetric the way a resampled
+rounded-rectangle can. Spot-checked at zoom in both sizes -- clean,
+symmetric square corners in both.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

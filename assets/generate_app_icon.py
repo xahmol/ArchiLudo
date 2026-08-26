@@ -127,12 +127,15 @@ def sc_len(length):
 def draw_icon(draw):
     """
     Function: draw_icon
-    Summary: Draw the combined pawn+die silhouette (outline colour
-             only, solid fill 255) onto the given ImageDraw -- shared
-             by the outline/red-fill/white-fill passes below, which
-             each call this with different fill colours to build up
-             the layered image (see build_icon_image()).
-    Syntax:  draw_icon(draw, outline_grow=0)
+    Summary: Draw the PAWN silhouette only (outline colour only, solid
+             fill 255) onto the given ImageDraw -- shared by the
+             outline/red-fill passes in build_icon_image(). Round 7.41:
+             the die is NO LONGER drawn here at all -- see
+             DIE_BOX_WORK's own doc comment (updated) for why it's
+             stamped directly at each output's native resolution
+             instead, the same fix already applied to the pips in
+             round 7.40.
+    Syntax:  draw_icon(draw)
     Input:   draw - a PIL.ImageDraw.Draw bound to an 'L' mode image
                     sized (WORK, WORK).
     Output:  none. Draws in place.
@@ -143,13 +146,6 @@ def draw_icon(draw):
     draw.ellipse(sc(26, 74, 158, 206), fill=255)              # head
     draw.polygon(sc_pts([(64, 176), (120, 176), (140, 272), (44, 272)]), fill=255)  # stem
     draw.rounded_rectangle(sc(18, 268, 166, 306), radius=sc_len(14), fill=255)      # base
-
-    # Die -- a rounded square overlapping the pawn's upper-right
-    # shoulder, per a common two-object icon composition (see this
-    # file's module docstring). Shows face "5" -- the most
-    # recognisably-a-die pip pattern at a glance, matching
-    # src/game_view.c's own plot_dice() face layout.
-    draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
 
 
 # Round 7.40: pips are no longer drawn into the WORK canvas at all --
@@ -166,19 +162,68 @@ def draw_icon(draw):
 # tuning the WORK-space pip size fixes this, because the problem is
 # the resampling step itself, not the shape being resampled.
 #
-# Fixed by not resampling the pips at all: DIE_BOX_WORK below is the
-# die's own bounding box (already CONTENT_SCALE'd) in WORK-space
-# coordinates, and stamp_pips() maps it analytically into each output
-# image's own native pixel grid (accounting for that output's square/
-# rectangular resize ratio and any pre-squish), then draws the 5 pips
-# directly at that resolution -- guaranteeing the exact same relative
-# layout (pips at 25%/50%/75% fractions of the die's own box) and a
-# size genuinely proportional to that output's own die box, with zero
-# dependence on resampling luck. This is the same lesson
-# assets/generate_icon_sprites.py's build_pawn_image() already
-# documents for its own highlight dither: "the dither pattern must be
-# chosen at the FINAL pixel grid, not the supersampled one."
+# Round 7.41: the die's own black/white square (not just its pips) has
+# exactly the same problem -- per live user report ("outline of die
+# should be square, and is not always now as it misses pixel in lower
+# right corner"), the die's outline was still going through the shared
+# WORK-space silhouette-dilate-then-NEAREST-resize pipeline (the same
+# one that still correctly serves the pawn's own organic, curved
+# outline), which can round each of the die's four corners slightly
+# differently once resampled -- a plain square has no room to hide that
+# asymmetry the way a curved pawn silhouette does. So the die is now
+# stamped whole (border AND interior, not just pips) directly at each
+# output's native resolution too, via stamp_die() below -- draw_icon()
+# no longer includes the die at all.
+#
+# DIE_BOX_WORK is the die's own bounding box (already CONTENT_SCALE'd)
+# in WORK-space coordinates; die_box_in() maps it analytically into
+# each output image's own native pixel grid (accounting for that
+# output's square/rectangular resize ratio and any pre-squish);
+# stamp_die()/stamp_pips() then draw directly at that resolution --
+# guaranteeing identical relative layout and genuinely proportional
+# sizing in every output, with zero dependence on resampling luck. This
+# is the same lesson assets/generate_icon_sprites.py's
+# build_pawn_image() already documents for its own highlight dither:
+# "the dither pattern must be chosen at the FINAL pixel grid, not the
+# supersampled one."
 DIE_BOX_WORK = sc(150, 8, 306, 164)
+
+
+def stamp_die(img, die_box):
+    """
+    Function: stamp_die
+    Summary: Draw the die's own body -- a solid black square with a
+             white interior inset by a proportional border width --
+             directly onto an already-resized final image, at that
+             image's own native resolution. See DIE_BOX_WORK's own doc
+             comment for why this replaces drawing the die into the
+             WORK canvas and letting it get resampled along with
+             everything else -- two plain axis-aligned rectangles drawn
+             directly in the target's own pixel space can never end up
+             asymmetric the way a resampled rounded-rectangle can.
+    Syntax:  stamp_die(img, die_box)
+    Input:   img     - a Pillow RGBA image, already at its final output
+                       size, with the pawn (and the background/outline
+                       colour behind where the die will sit) already
+                       drawn on it -- the die is opaque, so it cleanly
+                       overwrites/occludes the pawn in the overlap area,
+                       matching the intended "die in front" composition.
+             die_box - (x0, y0, x1, y1), the die's own bounding box in
+                       THIS image's own pixel coordinates (see
+                       die_box_in()).
+    Output:  none. Draws in place.
+    """
+    x0, y0, x1, y1 = die_box
+    w, h = x1 - x0, y1 - y0
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((x0, y0, x1, y1), fill=(*OUTLINE_COLOUR, 255))
+    # Border width: a fixed fraction of the die's own box in THIS
+    # output (not a WORK-space size), same proportional-with-a-floor
+    # approach as stamp_pips()'s pip size.
+    border_w = max(1, round(w / 8))
+    border_h = max(1, round(h / 8))
+    draw.rectangle((x0 + border_w, y0 + border_h, x1 - border_w, y1 - border_h),
+                    fill=(*DIE_COLOUR, 255))
 
 
 def stamp_pips(img, die_box):
@@ -188,11 +233,13 @@ def stamp_pips(img, die_box):
              image, at that image's own native resolution -- see
              DIE_BOX_WORK's own doc comment for why this replaces
              drawing pips into the WORK canvas and letting them get
-             resampled along with everything else.
+             resampled along with everything else. Call AFTER
+             stamp_die(), so the pips land on top of the die's white
+             interior.
     Syntax:  stamp_pips(img, die_box)
     Input:   img     - a Pillow RGBA image, already at its final output
-                       size, with the die's plain white body (no pips
-                       yet) already drawn on it.
+                       size, with the die's plain white body (see
+                       stamp_die()) already drawn on it.
              die_box - (x0, y0, x1, y1), the die's own bounding box in
                        THIS image's own pixel coordinates (see
                        die_box_in()).
@@ -245,10 +292,11 @@ def build_icon_image():
     """
     Function: build_icon_image
     Summary: Compose the full-colour WORKxWORK BASE icon image -- black
-             outline, red pawn fill, white die fill, NO pips (see
-             DIE_BOX_WORK's own doc comment for why pips are stamped on
-             separately, after resizing, instead) -- using the same
-             "resize RGB and alpha separately" technique as
+             outline + red pawn fill ONLY (round 7.41: the die, body
+             and border alike, is stamped on separately at each
+             output's own resolution instead -- see DIE_BOX_WORK's own
+             doc comment) -- using the same "resize RGB and alpha
+             separately" technique as
              assets/generate_icon_sprites.py's build_pawn_image(), to
              avoid the round 6.3 transparent-edge colour-bleed bug.
     Syntax:  img = build_icon_image()
@@ -256,10 +304,6 @@ def build_icon_image():
     """
     silhouette = Image.new("L", (WORK, WORK), 0)
     draw_icon(ImageDraw.Draw(silhouette))
-
-    die_only = Image.new("L", (WORK, WORK), 0)
-    draw = ImageDraw.Draw(die_only)
-    draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
 
     # Outline: silhouette dilated by a fixed margin, same approach as
     # generate_icon_sprites.py's OUTLINE_DILATE_WORK. Round 7.38: widened
@@ -277,12 +321,9 @@ def build_icon_image():
     rgb = Image.new("RGB", (WORK, WORK))
     px = rgb.load()
     sil_px = silhouette.load()
-    die_px = die_only.load()
     for y in range(WORK):
         for x in range(WORK):
-            if die_px[x, y]:
-                colour = DIE_COLOUR
-            elif sil_px[x, y]:
+            if sil_px[x, y]:
                 colour = PAWN_COLOUR
             else:
                 colour = OUTLINE_COLOUR  # background under the dilated ring
@@ -297,12 +338,16 @@ def main():
     icon = build_icon_image()
 
     full = icon.resize((FULL, FULL), Image.NEAREST)
-    stamp_pips(full, die_box_in(FULL, FULL, WORK, WORK))
+    full_die_box = die_box_in(FULL, FULL, WORK, WORK)
+    stamp_die(full, full_die_box)
+    stamp_pips(full, full_die_box)
     full_png = HERE / "app_icon_full.png"
     full.save(full_png)
 
     half = icon.resize((HALF, HALF), Image.NEAREST)
-    stamp_pips(half, die_box_in(HALF, HALF, WORK, WORK))
+    half_die_box = die_box_in(HALF, HALF, WORK, WORK)
+    stamp_die(half, half_die_box)
+    stamp_pips(half, half_die_box)
     half_png = HERE / "app_icon_half.png"
     half.save(half_png)
     print(f"wrote {full_png}, {half_png}")
@@ -337,13 +382,17 @@ def main():
 
     rect_full_h = FULL // 2
     rect_full = squished.resize((FULL, rect_full_h), Image.NEAREST)
-    stamp_pips(rect_full, die_box_in(FULL, rect_full_h, WORK, squished_h))
+    rect_full_die_box = die_box_in(FULL, rect_full_h, WORK, squished_h)
+    stamp_die(rect_full, rect_full_die_box)
+    stamp_pips(rect_full, rect_full_die_box)
     squished_full_png = HERE / "app_icon_full_rect.png"
     rect_full.save(squished_full_png)
 
     rect_half_h = HALF // 2 + HALF % 2
     rect_half = squished.resize((HALF, rect_half_h), Image.NEAREST)
-    stamp_pips(rect_half, die_box_in(HALF, rect_half_h, WORK, squished_h))
+    rect_half_die_box = die_box_in(HALF, rect_half_h, WORK, squished_h)
+    stamp_die(rect_half, rect_half_die_box)
+    stamp_pips(rect_half, rect_half_die_box)
     squished_half_png = HERE / "app_icon_half_rect.png"
     rect_half.save(squished_half_png)
 
