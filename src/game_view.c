@@ -794,6 +794,17 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		icon.data.indirected_sprite.id = (osspriteop_id) pawn_sprite_names[player];
 		icon.data.indirected_sprite.area = pawn_sprite_area;
 		icon.data.indirected_sprite.size = 13;
+		/* Temporary diagnostic (round 7.23) -- per explicit user report
+		 * that pawns are sometimes cropped at the bottom (a home-base
+		 * pawn in the top-left, in one reported case) -- remove once
+		 * diagnosed. Logs this icon's exact work-area extent so it can
+		 * be cross-checked against whichever redraw call's own
+		 * requested/clip box was active at the time (see
+		 * update_move_animation_area()/update_settle_diff_area()'s own
+		 * matching diagnostic logging). */
+		debug_log("plot_pawn: player=%d pawn=%d wx=%d wy=%d icon_extent=(%d,%d,%d,%d)\n",
+		          player, pawn_index, wx, wy, icon.extent.x0, icon.extent.y0,
+		          icon.extent.x1, icon.extent.y1);
 		wimp_plot_icon(&icon);
 		return;
 	}
@@ -1625,6 +1636,15 @@ static void redraw_now(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
+		/* Temporary diagnostic (round 7.23) -- see plot_pawn()'s own
+		 * matching log; remove both once the reported bottom-crop on
+		 * some pawns is diagnosed. */
+		debug_log("redraw_now: box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
+		          "origin=(%d,%d)\n", redraw.box.x0, redraw.box.y0,
+		          redraw.box.x1, redraw.box.y1, redraw.clip.x0,
+		          redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
+		          origin_x, origin_y);
+
 		/* Erase first -- see fill_window_background()'s doc comment.
 		 * Missed here originally (a direct regression, not just a
 		 * theoretical risk): a captured pawn's *old* ring position is
@@ -2383,6 +2403,14 @@ void game_view_redraw(wimp_draw *redraw)
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 
+		/* Temporary diagnostic (round 7.23) -- see plot_pawn()'s own
+		 * matching log; remove both once the reported bottom-crop on
+		 * some pawns is diagnosed. */
+		debug_log("game_view_redraw: box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
+		          "origin=(%d,%d)\n", redraw->box.x0, redraw->box.y0,
+		          redraw->box.x1, redraw->box.y1, redraw->clip.x0,
+		          redraw->clip.y0, redraw->clip.x1, redraw->clip.y1,
+		          origin_x, origin_y);
 		draw_full_window_content(origin_x, origin_y);
 		more = wimp_get_rectangle(redraw);
 	}
