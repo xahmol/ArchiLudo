@@ -794,17 +794,17 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		icon.data.indirected_sprite.id = (osspriteop_id) pawn_sprite_names[player];
 		icon.data.indirected_sprite.area = pawn_sprite_area;
 		icon.data.indirected_sprite.size = 13;
-		/* Temporary diagnostic (round 7.23) -- per explicit user report
-		 * that pawns are sometimes cropped at the bottom (a home-base
-		 * pawn in the top-left, in one reported case) -- remove once
-		 * diagnosed. Logs this icon's exact work-area extent so it can
-		 * be cross-checked against whichever redraw call's own
-		 * requested/clip box was active at the time (see
-		 * update_move_animation_area()/update_settle_diff_area()'s own
-		 * matching diagnostic logging). */
-		debug_log("plot_pawn: player=%d pawn=%d wx=%d wy=%d icon_extent=(%d,%d,%d,%d)\n",
-		          player, pawn_index, wx, wy, icon.extent.x0, icon.extent.y0,
-		          icon.extent.x1, icon.extent.y1);
+		/* Round 7.24: the round 7.23 per-pawn debug_log() call that used
+		 * to be here was removed -- per explicit user report, it was
+		 * expensive enough (debug_log() opens/writes/closes the Log
+		 * file from scratch on every single call, and this ran for
+		 * every visible pawn on every single redraw, animation ticks
+		 * included) to visibly slow pawn-movement animation down. The
+		 * box/clip logging on update_move_animation_area()/
+		 * update_settle_diff_area() themselves (much lower frequency --
+		 * once per tick, not once per pawn per tick) is enough to
+		 * correlate a cropped pawn's known board position against the
+		 * active clip without needing a log line per pawn. */
 		wimp_plot_icon(&icon);
 		return;
 	}
@@ -1211,6 +1211,17 @@ static void update_move_animation_area(void)
 		 * exactly the "everything on screen redraws" symptom reported
 		 * live. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		/* Temporary diagnostic (round 7.24) -- see redraw_now()'s own
+		 * matching log; remove both once the reported pawn bottom-crop
+		 * is diagnosed. Deliberately NOT per-pawn (see plot_pawn()'s doc
+		 * comment for why that was too expensive) -- logs once per tick
+		 * instead, still enough to check whether a cropped pawn's known
+		 * board position falls outside this tick's clip. */
+		debug_log("update_move_animation_area: cells=(%d,%d)-(%d,%d) box=(%d,%d,%d,%d) "
+		          "clip=(%d,%d,%d,%d) origin=(%d,%d)\n", col0, row0, col1, row1,
+		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
+		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
+		          origin_x, origin_y);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1528,6 +1539,14 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 		 * update_dice_area()'s doc comment; .box is the whole window's
 		 * visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		/* Temporary diagnostic (round 7.24) -- see
+		 * update_move_animation_area()'s matching log for why this is
+		 * once-per-tick, not once-per-pawn. */
+		debug_log("update_settle_diff_area: cells=(%d,%d)-(%d,%d) box=(%d,%d,%d,%d) "
+		          "clip=(%d,%d,%d,%d) origin=(%d,%d)\n", col0, row0, col1, row1,
+		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
+		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
+		          origin_x, origin_y);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}

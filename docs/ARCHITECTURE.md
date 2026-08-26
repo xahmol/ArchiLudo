@@ -1725,6 +1725,45 @@ got the same treatment for consistency, padding past the window's own
 true edge -- harmless, since the Wimp still clips to the window's real
 bounds regardless.
 
+**Round 7.24**: two fixes, per explicit live user report.
+
+- **Loading a game from the setup dialog's Load button didn't open the
+  game window.** `setup_view.c`'s `ICON_START` handler explicitly calls
+  `game_view_open()` before `game_view_new_game()` -- but neither
+  `game_view_new_game()` nor `game_view_load_from_path()` ever open the
+  window themselves; both just set `game_started`/load the board state
+  and expect the *caller* to open it (the window only actually becomes
+  visible on a *separate*, later iconbar click, since
+  `game_view_has_started()` being true then routes that click to
+  `game_view_open()` -- see `main.c`). `save_view.c`'s Load path
+  (`load_view_click()`'s `ICON_LOAD_GO` and `load_view_key_pressed()`'s
+  Return-key handler) never got the equivalent `game_view_open()` call
+  Start's own handler has. Fixed by adding it to both, inside the
+  existing "did the load actually succeed" check (matching Start's
+  behaviour of opening unconditionally, since Start's own board-reset
+  call can't fail the way a load from an arbitrary path can). The third
+  `game_view_load_from_path()` call site (an unsolicited `Message_
+  DataLoad`, a file dragged onto the game window itself) needed no
+  fix -- the window is provably already open there, since you can't
+  drag onto a window that doesn't exist.
+- **Pawn-movement animation had visibly slowed down** -- caused by round
+  7.23's own diagnostic `debug_log()` call inside `plot_pawn()`, which
+  ran for *every visible pawn on every single redraw, animation ticks
+  included* -- `debug_log()` opens, writes, and closes the Log file
+  from scratch on every call, so this was a real, measurable cost, not
+  a red herring. Removed; the box/clip diagnostic logging on
+  `update_move_animation_area()`/`update_settle_diff_area()` themselves
+  (added this round, see below) runs once per *tick* instead of once
+  per *pawn per tick*, several times cheaper, and is enough to
+  correlate a cropped pawn's known board position against the redraw
+  region actually active at the time -- still investigating a separate,
+  live-reported pawn bottom-crop (opposite edge from round 7.21/7.22's
+  crops, on a *different* redraw path each time it's been seen -- the
+  round 7.21/7.22 fixes only padded the request box's upper bounds,
+  which the PRM documents as exclusive; the lower bounds are documented
+  as ordinary/inclusive, so the same fix doesn't obviously apply here
+  and this needs its own real evidence before touching anything).
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

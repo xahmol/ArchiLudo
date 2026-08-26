@@ -411,8 +411,19 @@ void save_view_click(wimp_pointer *pointer)
 void load_view_click(wimp_pointer *pointer)
 {
 	if (pointer->i == ICON_LOAD_GO) {
-		if (game_view_load_from_path(load_path))
+		/* game_view_open() -- round 7.24, per explicit user report: unlike
+		 * setup_view.c's ICON_START handler (which explicitly opens the
+		 * game window before game_view_new_game()), this path only ever
+		 * set game_started/loaded the board, never actually opened the
+		 * window -- it only became visible on a *later*, separate
+		 * iconbar click (game_view_has_started() then being true routes
+		 * that click to game_view_open() -- see main.c). Matches
+		 * game_view_new_game()'s own pattern: open first, so a load
+		 * that's about to succeed is immediately visible. */
+		if (game_view_load_from_path(load_path)) {
+			game_view_open();
 			wimp_close_window(load_window_handle);
+		}
 		return;
 	}
 
@@ -435,8 +446,13 @@ void save_view_key_pressed(wimp_key *key)
 void load_view_key_pressed(wimp_key *key)
 {
 	if (key->c == wimp_KEY_RETURN && key->i == ICON_LOAD_PATH) {
-		if (game_view_load_from_path(load_path))
+		/* See load_view_click()'s ICON_LOAD_GO for why game_view_open()
+		 * is needed here too -- this is the same load action, just
+		 * triggered by Return in the pathname field instead of a click. */
+		if (game_view_load_from_path(load_path)) {
+			game_view_open();
 			wimp_close_window(load_window_handle);
+		}
 		return;
 	}
 	wimp_process_key(key->c);
