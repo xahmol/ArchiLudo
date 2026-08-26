@@ -281,15 +281,37 @@ static void test_headless_four_ai_games(void)
 			roll = ludo_roll(&g, 0);
 			CHECK(roll >= 1 && roll <= 6);
 
+			/* See test_game_logic.c's test_headless_full_games_invariants()
+			 * for the full reasoning (round 7.20) -- a player's finished
+			 * pawns, as a *set*, must occupy exactly the topmost N
+			 * distinct home-column squares; checking each pawn's steps
+			 * against a threshold retroactively recomputed from the
+			 * *current* finished count is wrong for a pawn that already
+			 * finished earlier, before a sibling finished after it. */
 			for (player = 0; player < LUDO_PLAYERS; player++) {
+				int finished_steps[LUDO_PAWNS], nf = 0;
+				int ii, jj;
+
 				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
 					const ludo_pawn *p = &g.players[player].pawns[pawn];
 
 					CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
-					CHECK((p->steps == LUDO_TOTAL_STEPS) == (p->finished != 0));
 					if (p->finished)
-						finished_count++;
+						finished_steps[nf++] = p->steps;
 				}
+
+				for (ii = 0; ii < nf; ii++)
+					for (jj = ii + 1; jj < nf; jj++)
+						if (finished_steps[jj] < finished_steps[ii]) {
+							int tmp = finished_steps[ii];
+
+							finished_steps[ii] = finished_steps[jj];
+							finished_steps[jj] = tmp;
+						}
+				for (ii = 0; ii < nf; ii++)
+					CHECK(finished_steps[ii] == LUDO_TOTAL_STEPS - nf + 1 + ii);
+
+				finished_count += nf;
 			}
 			CHECK(finished_count >= last_finished_count);
 			last_finished_count = finished_count;

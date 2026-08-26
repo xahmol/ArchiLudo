@@ -5,48 +5,54 @@
 *(Delete/replace this section once the in-progress work below is
 confirmed and settled -- it exists purely so a session that starts
 cold, with no conversation history, knows exactly where things stood
-and what to do next. Last updated 2026-08-24, commit `bcf03f4` --
-session paused here for a scheduled Claude usage-limit reset (next
-available Wednesday); everything described below is committed and
-pushed, working tree clean. Full background/reasoning for everything
-below: round 7.16 in `docs/GRAPHICS_TOOLING.md`, rounds 7.17/7.18 just
-above in this file's Phase 1 notes, and the
-[[archiludo-sprite-pivot-plan]] memory.)*
+and what to do next. Last updated 2026-08-26, commit pending -- see
+`git log` for the actual latest; everything described below is
+committed and pushed, working tree clean. Full background/reasoning:
+round 7.16 in `docs/GRAPHICS_TOOLING.md`, rounds 7.17-7.20 just above in
+this file's Phase 1 notes, `docs/GAME_LOGIC.md`'s "Round 7.20" note, and
+the [[archiludo-sprite-pivot-plan]] memory.)*
 
-**The sprite pivot is implemented, deployed, and had one real bug found
-+ fixed on first live Arculator contact (round 7.18: pawns weren't
-rendering at all) -- still not yet RE-confirmed live by the user after
-that fix.** `plot_pawn()` plots a real pawn icon sprite via
-`Wimp_PlotIcon` (falling back to the original `os_plot` circles if
-`assets/PawnSprites` didn't load), builds/deploys cleanly with zero
-warnings. See round 7.18 below for the bug (icon extent was in the
-wrong coordinate space). **Do not treat this as finished until the user
-has confirmed the fix actually shows pawns correctly** -- next session,
-check whether they've reported back before doing anything else with
-pawn rendering.
+**Sprite rendering itself is confirmed working** -- the round 7.18
+coordinate-space bug (pawns not rendering at all) is fixed and the user
+has since given live, on-screen feedback on the pawns' *look*, so
+rendering itself is no longer in question.
 
-**Also pending, not blocking the above**: the user liked the flat
-16-colour pawn design but asked to see a smoother, gradient-shaded
-"256 colour depth" alternative too. A preview
-(`assets/experiments/gradient_preview.py` -- exploratory, NOT wired
-into the game, kept in the repo specifically so this survives a session
-restart) was generated and iterated on twice per direct user feedback
-("too dark" -> "a notch brighter still"), currently at
-`LIGHT_BLEND=0.45`/`DARK_MULT=0.68` (see that script's own "Tuning
-history" docstring for the full sequence) -- run it again
-(`python3 assets/experiments/gradient_preview.py`) to regenerate
-`assets/experiments/pawn_gradient_encoded.png` if further tuning is
-wanted; **the user had not yet given final sign-off on this exact
-iteration when the session paused** -- check for that before assuming
-it's settled. Separately, and not yet decided either way: whether to
-actually build the full `OS_SpriteOp 52` + `ColourTrans`-table plotting
-path needed to ship *any* gradient version for real (it can't go
-through `Wimp_PlotIcon` at all -- 8bpp icon translation is undefined,
-see round 7.16 point 4) is an open decision, waiting on the user's live
-evaluation of the 16-colour version in Arculator first (see the
-paragraph above) -- don't start that larger implementation unprompted.
+**Two things fixed this same live-testing round, neither yet
+re-confirmed by the user after the fix:**
+1. **Round 7.19, pawn shading**: per explicit user feedback ("not
+   entirely happy with the new 16 colour pawn look... dither between
+   white and player colour, and similarly for the grey"), the flat
+   white/grey highlight/shadow blocks were replaced with a checkerboard
+   dither against the player's own hue. Built, deployed. Check for the
+   user's reaction to this before doing any further pawn-art tuning.
+2. **Round 7.20, a real rules bug**: pawns were stacking on the same
+   final home-column square once more than one of a player's pawns had
+   finished (`home_column_blocked()` wrongly exempted finished pawns
+   from blocking). Fixed by ground-truthing GEOS's actual "shrinking
+   finish line" mechanic (`finish_threshold_for()`) -- see
+   `docs/GAME_LOGIC.md`'s "Round 7.20" and the dedicated new test
+   `test_second_finishing_pawn_lands_one_square_short()`. All ~10.16M
+   headless-simulation checks pass. Built, deployed. Check for the
+   user's confirmation this actually resolved what they saw before
+   considering it done.
 
-**Still open, not blocking either of the above:** building a proper
+**Still pending a decision, not blocking either of the above:** whether
+to build the full `OS_SpriteOp 52` + `ColourTrans`-table plotting path
+needed to ship a smoother gradient-shaded pawn look ("256 colour
+depth"). A preview (`assets/experiments/gradient_preview.py` --
+exploratory, NOT wired into the game, kept in the repo specifically so
+this survives a session restart) was generated and iterated on twice
+per direct user feedback ("too dark" -> "a notch brighter still"),
+currently at `LIGHT_BLEND=0.45`/`DARK_MULT=0.68` (see that script's own
+"Tuning history" docstring) -- the user had not given final sign-off on
+this exact iteration as of round 7.19/7.20's feedback (they may have
+moved on to the dithered 16-colour version instead, which addresses
+some of the same "doesn't look like the player's colour" concern more
+cheaply -- worth asking whether the gradient path is still wanted at
+all before investing in it). Don't start that larger implementation
+unprompted either way.
+
+**Still open, not blocking any of the above:** building a proper
 `!ArchiLudo` application directory (per an earlier explicit user
 request, now also covering a `!Sprites`/`!Sprites22` app-icon pair --
 `!Sprites11` should NOT be built, it uses new-style sprite encoding
@@ -1549,6 +1555,76 @@ worth double-checking against a real working example (not just the PRM
 prose) before assuming a coordinate convention here, since this is
 exactly the kind of assumption that produces "renders nothing, no error
 either" rather than an obviously-wrong result.
+
+**Round 7.19**: pawn art polish, per explicit user feedback after seeing
+the flat-shaded 16-colour pawns live in Arculator ("not entirely happy
+with the new 16 colour pawn look... can we alternatively not use
+instead of white a dither between white and player colour, and
+similarly for the grey?"). The solid white highlight and grey shadow
+regions read as "not the player's own colour at all" in the round 7.17
+design, an inherent limit of only green/blue having a second Wimp
+colour to shade within their own hue (round 7.16 point 4). Replaced
+both flat colour blocks in `assets/generate_icon_sprites.py` with an
+ordered 1-pixel checkerboard dither (white<->fill for the highlight,
+grey<->fill for the shadow) -- a classic limited-palette pixel-art
+technique that reads as a blended tint at normal viewing scale while
+staying visibly closer to the player's own hue than a flat block. The
+small solid specular dot stays flat white (dithering something that
+small would just look like noise, not a tint). Implementation detail:
+the dither has to be decided at the *final* 32x32 pixel grid, not the
+10x-supersampled working resolution -- a checkerboard drawn at working
+resolution and then downsampled would alias unpredictably depending on
+how its period lines up with the downsample ratio; region masks
+(highlight/shadow/dot/silhouette) are still built at working resolution
+for smooth shape *boundaries*, then converted to per-final-pixel
+membership booleans via NEAREST resize, with the actual `(x+y)%2`
+checkerboard colour choice made directly on the final grid. Builds
+clean, deployed. Not yet confirmed live by the user at the time of this
+writeup.
+
+**Round 7.20**: a genuine rules bug, per explicit live user report
+("end field of a pawn is one less if previous pawn already landed on
+final field. Now the logic stacks the pawns at end field, not
+intended"). `home_column_blocked()` excluded already-finished pawns
+from the own-pawn blocking check (the assumption being that a finished
+pawn is "off the board" and can't block anything), and `ludo_move_pawn()`
+finished every pawn at the same fixed `LUDO_TOTAL_STEPS` -- together,
+this let every one of a player's pawns converge on and stack on the
+single last home-column square instead of queueing into distinct ones.
+Ground-truthed against the actual GEOS source rather than assumption
+(`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s `pawnselect()`, not
+`turngeneric()` this time): `playerdata[player][1]` is a *shrinking*
+"pawns still needed home" counter, and a pawn only counts as reaching
+home when its landing position exactly matches `playerdata[player][1]+3`
+-- a target that itself decrements by one every time a pawn reaches it;
+GEOS's own blocking check never exempts an already-finished pawn from
+blocking a later one either. Fixed with a new `finish_threshold_for()`
+(each pawn's own finish line = `LUDO_TOTAL_STEPS` minus however many of
+that player's *other* pawns have already finished) and removing the
+`!op->finished` exclusion from `home_column_blocked()` -- together these
+make finished pawns permanently occupy and block their own square
+exactly like any other home-column occupant, so each subsequent pawn's
+own reachable maximum is mechanically capped one square lower, and a
+player's finished pawns naturally queue into the home column's 4
+distinct squares one at a time, from the far end inward. Full rules
+writeup: `docs/GAME_LOGIC.md`'s "Round 7.20" note.
+
+Test-side fallout, per explicit standing instruction to update test
+coverage alongside any logic fix: both headless full-game simulations
+(`tests/test_game_logic.c`, `tests/test_ai.c`) had an invariant assuming
+"finished iff steps == LUDO_TOTAL_STEPS", now false for any pawn beyond
+a player's first to finish. A first fix attempt recomputed each pawn's
+expected threshold *retroactively* from the current snapshot of which
+siblings are finished -- also wrong, since an already-finished pawn's
+own steps reflects the threshold *at the moment it finished*, which can
+be higher than the same formula gives later once a sibling finishes
+after it (caught immediately by a small standalone debug harness run
+against real gameplay, before it was allowed anywhere near the fix
+count). The correct invariant is set-based and order-independent: a
+player's finished pawns, as a set, must occupy exactly the topmost N
+distinct home-column squares. New direct unit test:
+`test_second_finishing_pawn_lands_one_square_short()`, the exact
+reported scenario.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and

@@ -230,6 +230,37 @@ static void test_pawn_finishes_exactly(void)
 	CHECK(g.players[0].pawns[0].finished == 1);
 }
 
+/* Round 7.20, exactly the scenario reported live: once one pawn has
+ * finished (permanently occupying LUDO_TOTAL_STEPS), a second pawn of
+ * the same player must NOT be able to stack on that same square -- its
+ * own effective end becomes one square short (LUDO_TOTAL_STEPS - 1),
+ * blocked from the true end exactly like ordinary home-column blocking,
+ * and *that* square is what finishes it. */
+static void test_second_finishing_pawn_lands_one_square_short(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].finished = 1;
+	g.players[0].pawns[0].steps = LUDO_TOTAL_STEPS; /* already finished, parked at the true end */
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = LUDO_TOTAL_STEPS - 1 - 3; /* 3 short of LUDO_TOTAL_STEPS-1 */
+
+	ludo_roll(&g, 4); /* would land exactly on the true end -- occupied, blocked */
+	CHECK((ludo_movable_pawns(&g) & (1u << 1)) == 0);
+
+	ludo_roll(&g, 3); /* exact distance to this pawn's own (one-shorter) effective end */
+	CHECK((ludo_movable_pawns(&g) & (1u << 1)) != 0);
+	ludo_move_pawn(&g, 1);
+
+	CHECK(g.players[0].pawns[1].steps == LUDO_TOTAL_STEPS - 1);
+	CHECK(g.players[0].pawns[1].finished == 1);
+	/* The two finished pawns must occupy two DIFFERENT squares. */
+	CHECK(g.players[0].pawns[0].steps != g.players[0].pawns[1].steps);
+}
+
 /* The player who finishes all four pawns first is recorded as the winner. */
 static void test_winner_detected_when_all_pawns_finish(void)
 {
@@ -237,17 +268,26 @@ static void test_winner_detected_when_all_pawns_finish(void)
 	int i;
 
 	ludo_init(&g);
+	/* Three pawns already finished, each at its own dynamic threshold
+	 * (round 7.20 -- see game_logic.h) -- LUDO_TOTAL_STEPS,
+	 * LUDO_TOTAL_STEPS-1, LUDO_TOTAL_STEPS-2, matching the order they'd
+	 * actually queue into the home column in real play, not all three
+	 * stacked on the same square (no longer a reachable state at all). */
 	for (i = 0; i < 3; i++) {
 		g.players[0].pawns[i].in_play = 1;
 		g.players[0].pawns[i].finished = 1;
-		g.players[0].pawns[i].steps = LUDO_TOTAL_STEPS;
+		g.players[0].pawns[i].steps = LUDO_TOTAL_STEPS - i;
 	}
 	g.players[0].pawns[3].in_play = 1;
-	g.players[0].pawns[3].steps = LUDO_TOTAL_STEPS - 2;
+	/* The 4th pawn's own threshold is LUDO_TOTAL_STEPS-3 (three others
+	 * already finished) -- needs exactly 2 more to reach it. */
+	g.players[0].pawns[3].steps = LUDO_TOTAL_STEPS - 3 - 2;
 
 	ludo_roll(&g, 2);
+	CHECK((ludo_movable_pawns(&g) & (1u << 3)) != 0);
 	ludo_move_pawn(&g, 3);
 
+	CHECK(g.players[0].pawns[3].steps == LUDO_TOTAL_STEPS - 3);
 	CHECK(g.winner == 0);
 }
 
@@ -334,7 +374,39 @@ static void test_one_short_overshoot_not_movable(void)
  *          LUDO_TOTAL_STEPS if and only if that sum reaches or passes
  *          it) -- if compute_movable_pawns() ever let an overshooting
  *          move through, this is exactly the check that would catch it.
+ *
+ *          Round 7.20 update: "finished iff steps == LUDO_TOTAL_STEPS"
+ *          stopped being a valid invariant once each pawn got its own
+ *          dynamic finish threshold (game_logic.c's
+ *          finish_threshold_for()) -- see expected_finish_threshold()
+ *          below, a test-side reimplementation of that same logic
+ *          against only the public ludo_pawn/ludo_game fields, used to
+ *          keep asserting the equivalent per-pawn invariant.
  */
+
+/*
+ * Function: expected_finish_threshold (test helper)
+ * Summary: Test-side mirror of game_logic.c's internal, non-exported
+ *          finish_threshold_for() -- the steps value a specific pawn
+ *          must reach to be finished right now, which is LUDO_TOTAL_STEPS
+ *          minus however many of that player's *other* pawns have
+ *          already finished (see game_logic.h's Round 7.20 note for the
+ *          full reasoning). Deliberately reimplemented here rather than
+ *          exposed from game_logic.c, since it's purely an internal
+ *          rule detail -- callers only ever need ludo_movable_pawns()/
+ *          ludo_move_pawn(), never this threshold directly.
+ */
+static int expected_finish_threshold(const ludo_game *g, int player, int pawn_index)
+{
+	int i, finished_ahead = 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		if (i != pawn_index && g->players[player].pawns[i].finished)
+			finished_ahead++;
+	}
+	return LUDO_TOTAL_STEPS - finished_ahead;
+}
+
 static void test_headless_full_games_invariants(void)
 {
 	int game_num;
@@ -377,18 +449,55 @@ static void test_headless_full_games_invariants(void)
 			CHECK(roll >= 1 && roll <= 6);
 			CHECK(g.current_player >= 0 && g.current_player < LUDO_PLAYERS);
 
-			/* Every pawn's steps must be in range, finished must agree
-			 * with steps == LUDO_TOTAL_STEPS exactly, and the number of
-			 * finished pawns overall must never go backwards. */
+			/* Every pawn's steps must be in range; a player's finished
+			 * pawns, as a set, must occupy exactly the topmost N
+			 * distinct home-column squares (LUDO_TOTAL_STEPS-N+1 ..
+			 * LUDO_TOTAL_STEPS, one pawn each -- never two sharing a
+			 * square, never a gap); an unfinished pawn's steps must
+			 * stay strictly below its own current threshold; and the
+			 * number of finished pawns overall must never go backwards.
+			 *
+			 * NOTE: expected_finish_threshold(), recomputed from the
+			 * *current* snapshot of which siblings are finished, is only
+			 * valid for a pawn that ISN'T finished yet -- an
+			 * already-finished pawn's steps reflects whatever the
+			 * threshold was at the moment *it* finished, which can be
+			 * higher than what the same formula gives now if a sibling
+			 * finished *after* it. (A first attempt at this test applied
+			 * the retroactive formula to already-finished pawns too --
+			 * wrong: pawn A finishing first at 43 doesn't retroactively
+			 * become "should have been 42" just because pawn B finishes
+			 * at 42 later. A debug harness run against real gameplay
+			 * caught this immediately -- see docs/GAME_LOGIC.md's Round
+			 * 7.20 note.) The set-based check below doesn't have this
+			 * problem: it only cares about the *current* set of occupied
+			 * squares, not any individual pawn's finishing history. */
 			for (player = 0; player < LUDO_PLAYERS; player++) {
+				int finished_steps[LUDO_PAWNS], nf = 0;
+				int ii, jj;
+
 				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
 					const ludo_pawn *p = &g.players[player].pawns[pawn];
 
 					CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
-					CHECK((p->steps == LUDO_TOTAL_STEPS) == (p->finished != 0));
 					if (p->finished)
-						finished_count++;
+						finished_steps[nf++] = p->steps;
+					else
+						CHECK(p->steps < expected_finish_threshold(&g, player, pawn));
 				}
+
+				for (ii = 0; ii < nf; ii++)
+					for (jj = ii + 1; jj < nf; jj++)
+						if (finished_steps[jj] < finished_steps[ii]) {
+							int tmp = finished_steps[ii];
+
+							finished_steps[ii] = finished_steps[jj];
+							finished_steps[jj] = tmp;
+						}
+				for (ii = 0; ii < nf; ii++)
+					CHECK(finished_steps[ii] == LUDO_TOTAL_STEPS - nf + 1 + ii);
+
+				finished_count += nf;
 			}
 			CHECK(finished_count >= last_finished_count);
 			last_finished_count = finished_count;
@@ -437,6 +546,7 @@ int main(void)
 	RUN(test_overshoot_not_movable);
 	RUN(test_one_short_overshoot_not_movable);
 	RUN(test_pawn_finishes_exactly);
+	RUN(test_second_finishing_pawn_lands_one_square_short);
 	RUN(test_winner_detected_when_all_pawns_finish);
 	RUN(test_extra_roll_on_six_keeps_same_player);
 	RUN(test_non_six_move_ends_turn);

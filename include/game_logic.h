@@ -42,10 +42,17 @@
  *     that pawn back to its owner's home base.
  *   - A player's own pawns cannot pass, or land on, another of their own
  *     pawns already in their home column (a single-file final stretch) --
- *     the blocking pawn must be moved out of the way first.
+ *     the blocking pawn must be moved out of the way first. This applies
+ *     just as much to a pawn that has already *finished*: it stays
+ *     parked at the exact square it finished on for the rest of the
+ *     game, so it blocks a later pawn from passing or landing there
+ *     exactly like any other occupant (see the "steps" writeup below for
+ *     what this means for where a pawn actually finishes).
  *   - A pawn must reach the very end of its home column on an exact roll;
  *     a roll that would overshoot past the end is not a legal move for
- *     that pawn.
+ *     that pawn. If that pawn's own true end square is already occupied
+ *     by one of the player's own already-finished pawns, its effective
+ *     "end" is whichever square is actually free -- see below.
  *   - The first player to get all four pawns to the end wins; the
  *     remaining players may continue playing to decide the runner-up
  *     order (the engine itself simply skips already-finished players
@@ -59,12 +66,19 @@
  *
  *   steps == 0 .. LUDO_RING_LENGTH-1   pawn is on the shared 40-square ring
  *   steps == LUDO_RING_LENGTH .. LUDO_TOTAL_STEPS-1   pawn is in its home
- *                                       column, not yet at the very end
- *   steps == LUDO_TOTAL_STEPS          pawn is in the *last* home column
- *                                       square, and simultaneously finished
- *                                       -- landing there is what finishes
- *                                       it, there is no separate square
- *                                       beyond it to travel to first
+ *                                       column, not yet finished
+ *   steps == LUDO_TOTAL_STEPS - N       (N = however many of this
+ *                                       player's *other* pawns have
+ *                                       already finished) is where THIS
+ *                                       pawn finishes -- see the Round
+ *                                       7.20 note below. For the first
+ *                                       pawn a player finishes, N == 0,
+ *                                       so it finishes on the last home
+ *                                       column square exactly (steps ==
+ *                                       LUDO_TOTAL_STEPS) as you'd
+ *                                       expect; each pawn after that
+ *                                       finishes one square earlier than
+ *                                       the last.
  *
  * Round 7.13 correction: LUDO_TOTAL_STEPS used to be defined one higher
  * than this (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH), treating
@@ -81,6 +95,25 @@
  * header's own home-column square count (LUDO_HOME_COLUMN_LENGTH == 4)
  * was already correct and unchanged; only where "finished" sits
  * relative to it was off by one.
+ *
+ * Round 7.20 correction: a single fixed LUDO_TOTAL_STEPS for every pawn
+ * turned out to be wrong too, reported live as pawns visibly stacking
+ * on the same final square once more than one of a player's pawns had
+ * finished. Re-checked against GEOS's `gamelogic.c` again (specifically
+ * `pawnselect()`, not `turngeneric()` this time): `playerdata[player][1]`
+ * is a *shrinking* "pawns still needed home" counter, and a pawn only
+ * counts as reaching home when its landing position exactly matches
+ * `playerdata[player][1]+3` -- a target that itself decrements by one
+ * every time a pawn reaches it. GEOS's own blocking check (in
+ * `turngeneric()`) also never exempts an already-finished pawn from
+ * blocking a later one. Put together: a finished pawn permanently
+ * occupies its own square, still blocks like any other occupant, and
+ * each subsequent pawn's own reachable maximum is mechanically capped
+ * one square lower for every pawn already parked ahead of it -- so
+ * finished pawns queue into the home column's 4 distinct squares one at
+ * a time, from the far end inward, rather than all converging on
+ * LUDO_TOTAL_STEPS. See `finish_threshold_for()` and the corrected
+ * `home_column_blocked()` in `game_logic.c`.
  *
  * A player's start square on the ring is (player_index * 10), so the same
  * steps counter plus the player index is all that's needed to derive the

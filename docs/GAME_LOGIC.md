@@ -32,9 +32,20 @@ that exercises every rule described here.
    separate (stricter) home column rule.
 7. A player's own pawns cannot pass, or land on, another of their own
    pawns already in their home column (a single-file final stretch) --
-   the blocking pawn must be moved out of the way first.
+   the blocking pawn must be moved out of the way first. This applies
+   just as much to a pawn that has already *finished*: it stays parked
+   at the exact square it finished on for the rest of the game, so it
+   blocks a later pawn from passing or landing there exactly like any
+   other occupant (see rule 8 and "Position model" below for what this
+   means for where a pawn actually finishes).
 8. A pawn must reach the very end of its home column on an exact roll; a
-   roll that would overshoot is not a legal move for that pawn.
+   roll that would overshoot is not a legal move for that pawn. If that
+   pawn's own true end square is already occupied by one of the
+   player's own already-finished pawns (rule 7), its effective "end" is
+   whichever square is actually free -- each pawn that finishes shrinks
+   the next one's target by exactly one square, so a player's finished
+   pawns queue into the home column's 4 squares one at a time instead of
+   stacking (see "Round 7.20" below).
 9. The first player to get all four pawns to the end wins; remaining
    players may continue to decide runner-up order (the engine simply
    skips already-finished players in `ludo_end_turn()` rather than ending
@@ -48,7 +59,9 @@ travelled since release from home:
 ```
 steps == 0 .. LUDO_RING_LENGTH-1        on the shared 40-square ring
 steps == LUDO_RING_LENGTH .. TOTAL-1    in the player's own home column
-steps == LUDO_TOTAL_STEPS               finished
+steps == TOTAL - N                      finished, where N = however many
+                                         of this player's OTHER pawns had
+                                         already finished when this one did
 ```
 
 A player's start square on the ring is `player_index * 10` (`LUDO_RING_LENGTH
@@ -58,6 +71,29 @@ A player's start square on the ring is `player_index * 10` (`LUDO_RING_LENGTH
 This is simpler than the original's ad-hoc coordinate pairs: one number
 per pawn, trivial to print for debugging, and trivial to reason about for
 overshoot/capture/blocking checks.
+
+**Round 7.20**: a finished pawn's `steps` is NOT always pinned at
+`LUDO_TOTAL_STEPS` -- reported live as pawns visibly stacking on the same
+final square once more than one of a player's pawns had finished.
+Ground-truthed against the actual GEOS source
+(`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`), not a docs summary:
+`pawnselect()`'s `playerdata[player][1]` is a *shrinking* "pawns still
+needed home" counter, and a pawn only counts as reaching home when its
+landing position exactly matches `playerdata[player][1]+3` -- a target
+that decrements by one every time a pawn reaches it. GEOS's own blocking
+check (`turngeneric()`) never exempts an already-finished pawn from
+blocking a later one either. Put together: a finished pawn permanently
+occupies its own square and still blocks like any other occupant
+(`home_column_blocked()` in `game_logic.c`), and each subsequent pawn's
+own reachable maximum (`finish_threshold_for()`) is mechanically capped
+one square lower for every pawn already parked ahead of it -- so
+finished pawns queue into the home column's 4 distinct squares one at a
+time, from the far end inward, never stacking, never leaving a gap. The
+overshoot check (rule 8's "not a legal move") stays against the fixed
+`LUDO_TOTAL_STEPS` regardless -- matching GEOS's own always-absolute
+`if(vn>7) gv=1` -- it's blocking, not the overshoot check, that enforces
+each pawn's own lower effective ceiling once earlier pawns occupy the
+squares above it.
 
 ## API
 

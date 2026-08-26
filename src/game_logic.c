@@ -122,6 +122,24 @@ static int capture_at(ludo_game *g, int player, int pawn_index, int steps)
  *          land on another of the same player's pawns already there. The
  *          home column is a single-file final stretch, so both passing
  *          over and landing on an own pawn are illegal.
+ *
+ *          Round 7.20 correction: a *finished* pawn used to be excluded
+ *          from this check (the assumption being that a finished pawn is
+ *          "off the board" and can't block anything) -- this was wrong,
+ *          confirmed by reading the actual GEOS source
+ *          (`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s
+ *          `turngeneric()`): its own blocking loop tests
+ *          `playerpos[player][y][1]<=vn && playerpos[player][y][1]>3`
+ *          against *every* other pawn's raw position with no exemption
+ *          for one that has already reached the end -- a finished pawn
+ *          is simply a pawn parked at a fixed home-column square,
+ *          exactly like any other occupant, still fully able to block a
+ *          later pawn from landing on or passing its square. This is
+ *          also what makes finished pawns naturally queue into the home
+ *          column's 4 distinct squares one at a time (see
+ *          finish_threshold_for()) instead of stacking on the single
+ *          last square -- per explicit user report ("the logic stacks
+ *          the pawns at end field, not intended").
  * Syntax:  static int home_column_blocked(const ludo_game *g, int player,
  *                                         int pawn_index, int from_steps,
  *                                         int to_steps);
@@ -130,7 +148,8 @@ static int capture_at(ludo_game *g, int player, int pawn_index, int steps)
  *          pawn_index - index of the moving pawn (excluded from the check).
  *          from_steps - the moving pawn's steps before the move.
  *          to_steps   - the moving pawn's steps after the move.
- * Output:  1 if blocked by an own pawn, 0 if the path is clear.
+ * Output:  1 if blocked by an own pawn (finished or not), 0 if the path
+ *          is clear.
  */
 static int home_column_blocked(const ludo_game *g, int player, int pawn_index,
                                 int from_steps, int to_steps)
@@ -143,11 +162,48 @@ static int home_column_blocked(const ludo_game *g, int player, int pawn_index,
 		if (j == pawn_index)
 			continue;
 		op = &g->players[player].pawns[j];
-		if (op->in_play && !op->finished && op->steps >= LUDO_RING_LENGTH
+		if (op->in_play && op->steps >= LUDO_RING_LENGTH
 		 && op->steps > from_steps && op->steps <= to_steps)
 			return 1;
 	}
 	return 0;
+}
+
+/*
+ * Function: finish_threshold_for (internal)
+ * Summary: The "steps" value a specific pawn must reach right now to
+ *          become finished -- LUDO_TOTAL_STEPS minus however many of
+ *          this player's *other* pawns have already finished. Ground-
+ *          truthed against GEOS's `gamelogic.c` (`pawnselect()`):
+ *          `playerdata[player][1]` is a shrinking "pawns still needed
+ *          home" counter, and a landing only counts as reaching home
+ *          when it exactly matches `playerdata[player][1]+3` -- a
+ *          target that itself decrements by one every time a pawn
+ *          reaches it. Combined with home_column_blocked() no longer
+ *          exempting finished pawns, this makes each successive pawn's
+ *          own furthest legal square exactly one less than the previous
+ *          pawn's, so they queue into the home column's 4 squares from
+ *          the far end inward -- never stacking, never leaving a gap
+ *          (a pawn can only ever legally reach up to this exact value:
+ *          every square above it is already occupied by an earlier-
+ *          finished pawn and therefore blocked, and LUDO_TOTAL_STEPS
+ *          itself is the hard ceiling no roll can exceed).
+ * Syntax:  static int finish_threshold_for(const ludo_game *g, int player,
+ *                                          int pawn_index);
+ * Input:   g          - the game in progress.
+ *          player     - the pawn's owner.
+ *          pawn_index - the pawn in question (excluded from its own count).
+ * Output:  the steps value at or above which this pawn is finished.
+ */
+static int finish_threshold_for(const ludo_game *g, int player, int pawn_index)
+{
+	int i, finished_ahead = 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		if (i != pawn_index && g->players[player].pawns[i].finished)
+			finished_ahead++;
+	}
+	return LUDO_TOTAL_STEPS - finished_ahead;
 }
 
 /*
@@ -181,12 +237,20 @@ static unsigned compute_movable_pawns(const ludo_game *g)
 			continue;
 
 		new_steps = p->steps + g->last_roll;
+		/* Deliberately checked against the fixed LUDO_TOTAL_STEPS here,
+		 * NOT this pawn's own (possibly lower) finish_threshold_for() --
+		 * matches GEOS's own `if(vn>7) gv=1`, always against the
+		 * absolute maximum. A destination above this pawn's actual
+		 * dynamic threshold but still <= LUDO_TOTAL_STEPS is rejected
+		 * separately, below, by home_column_blocked() (every square
+		 * above the threshold is already occupied by an earlier-
+		 * finished pawn) -- not by this overshoot check. */
 		if (new_steps > LUDO_TOTAL_STEPS)
 			continue; /* would overshoot past the end of the home column */
 
 		if (new_steps >= LUDO_RING_LENGTH
 		 && home_column_blocked(g, player, i, p->steps, new_steps))
-			continue; /* blocked by our own pawn in the home column */
+			continue; /* blocked by our own pawn in the home column (finished or not) */
 
 		mask |= (unsigned) (1u << i);
 	}
@@ -260,10 +324,19 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 	ludo_pawn *p = &g->players[player].pawns[pawn_index];
 	int roll = g->last_roll;
 	int captured = 0;
+	int finish_at;
 
 	p->steps += roll;
-	if (p->steps >= LUDO_TOTAL_STEPS) {
-		p->steps = LUDO_TOTAL_STEPS;
+	/* Round 7.20: each pawn's own finish line, not a single shared
+	 * LUDO_TOTAL_STEPS for all four -- see finish_threshold_for(). A
+	 * legal move can never actually exceed this (every square above it
+	 * is occupied by an earlier-finished pawn and therefore blocked by
+	 * home_column_blocked(), and LUDO_TOTAL_STEPS is the hard ceiling
+	 * no roll can exceed regardless), so the clamp below is defensive,
+	 * matching this function's previous style. */
+	finish_at = finish_threshold_for(g, player, pawn_index);
+	if (p->steps >= finish_at) {
+		p->steps = finish_at;
 		p->finished = 1;
 	} else if (p->steps < LUDO_RING_LENGTH) {
 		captured = capture_at(g, player, pawn_index, p->steps);
