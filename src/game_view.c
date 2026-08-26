@@ -1043,13 +1043,34 @@ static void draw_board_region(int origin_x, int origin_y, int col0, int row0, in
  *          module's WINDOW_WIDTH/WINDOW_HEIGHT etc. already use) -- the
  *          inverse of cell_centre()'s per-cell math, but for a whole
  *          range at once rather than one cell's centre point.
+ *
+ *          Round 7.22: `*x1`/`*y1` get a small extra pad beyond the
+ *          requested cell range's own edge -- per explicit user report
+ *          that highlight rings on the board's top rows were cropped at
+ *          the top, and (worse) left a residue after the flash's "off"
+ *          phase. Same root cause as round 7.21's die-border crop: the
+ *          PRM documents `Wimp_UpdateWindow`'s request box's maximum
+ *          x/y as EXCLUSIVE, so a requested upper bound landing exactly
+ *          on the true content edge can come back with a paintable
+ *          `.clip` one pixel short -- cropping the "on" phase's draw,
+ *          and (since the erase step requests/uses the same box) also
+ *          under-erasing that same sliver on the "off" phase, leaving a
+ *          permanent leftover. Every caller of this shared helper
+ *          (update_move_animation_area(), update_highlight_area(),
+ *          update_settle_diff_area()) is a `Wimp_UpdateWindow` request
+ *          box, so the fix belongs here once, not per caller.
+ *          Over-requesting is harmless (the Wimp still clips to what's
+ *          actually visible/exposed); under-requesting silently crops
+ *          content with no error anywhere -- see
+ *          riscos_wimp_reference.md's "Animating a small region..."
+ *          section for the general writeup.
  */
 static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
                                     int *x0, int *y0, int *x1, int *y1)
 {
 	*x0 = BOARD_ORIGIN_X + col0 * CELL;
-	*x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL;
-	*y1 = BOARD_ORIGIN_Y - row0 * CELL;
+	*x1 = BOARD_ORIGIN_X + (col1 + 1) * CELL + 8;
+	*y1 = BOARD_ORIGIN_Y - row0 * CELL + 8;
 	*y0 = BOARD_ORIGIN_Y - (row1 + 1) * CELL;
 }
 
@@ -1590,8 +1611,14 @@ static void redraw_now(void)
 	redraw.w = window_handle;
 	redraw.box.x0 = 0;
 	redraw.box.y0 = -WINDOW_HEIGHT;
-	redraw.box.x1 = WINDOW_WIDTH;
-	redraw.box.y1 = 0;
+	/* +8/+8 padding (round 7.22) -- see cell_range_to_work_box()'s doc
+	 * comment for why: Wimp_UpdateWindow's request box treats its
+	 * maximum x/y as exclusive, so requesting exactly the window's own
+	 * true edge can crop content flush against it by a pixel. Harmless
+	 * to request slightly past the window's own extent -- the Wimp
+	 * clips to the window's real bounds regardless. */
+	redraw.box.x1 = WINDOW_WIDTH + 8;
+	redraw.box.y1 = 8;
 
 	more = wimp_update_window(&redraw);
 	while (more) {

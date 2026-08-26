@@ -1701,6 +1701,30 @@ project-specific) in `riscos_wimp_reference.md`'s "Animating a small
 region..." section, both project and canonical `~/.claude/` copies, so
 this exact field confusion doesn't recur in a future project.
 
+**Round 7.22**: the same exclusive-upper-bound cause as round 7.21's die
+crop, found again in a second place -- per explicit live user report,
+the pulsing movable-pawn/hover-destination highlight rings cropped at
+the top when on the board's top rows, and (worse than the die's purely
+cosmetic crop) **left a permanent residue after the flash's "off"
+phase**: since the erase step uses the same requested box as the draw,
+an upper bound landing exactly on the ring's true edge under-erases
+that same sliver every "off" tick, leaving a leftover fragment that
+never gets cleaned up. Root-caused to `cell_range_to_work_box()` --
+shared by `update_move_animation_area()`, `update_highlight_area()`, and
+`update_settle_diff_area()` -- which computed its request box's upper
+bounds (`x1`/`y1`) flush against the requested cell range's own edge,
+with no allowance for the PRM's documented exclusive-upper-bound
+convention. Fixed once, in the shared helper, with an 8-OS-unit pad on
+`x1`/`y1` (rather than patching each of the three callers separately) --
+this also pre-emptively covers the same latent crop/residue risk for
+pawn-animation and settle-diff redraws near the board's own top/right
+edges, not just highlights, since nothing had reported those yet purely
+by chance of which cells happened to be involved. `redraw_now()`
+(hardcodes its own full-window box rather than using the shared helper)
+got the same treatment for consistency, padding past the window's own
+true edge -- harmless, since the Wimp still clips to the window's real
+bounds regardless.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
