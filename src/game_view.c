@@ -1215,9 +1215,11 @@ static void update_dice_area(void)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
-		debug_log("update_dice_area: got box=(%d,%d,%d,%d) xscroll=%d yscroll=%d "
-		          "origin=(%d,%d)\n", redraw.box.x0, redraw.box.y0, redraw.box.x1,
-		          redraw.box.y1, redraw.xscroll, redraw.yscroll, origin_x, origin_y);
+		debug_log("update_dice_area: got box=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) "
+		          "xscroll=%d yscroll=%d origin=(%d,%d)\n",
+		          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1,
+		          redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1,
+		          redraw.xscroll, redraw.yscroll, origin_x, origin_y);
 		plot_dice(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
 	}
