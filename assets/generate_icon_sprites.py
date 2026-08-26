@@ -122,6 +122,64 @@ FINAL = 26
 # small. Fixed direction here: 1.4*320/26 ~= 17.
 OUTLINE_DILATE_WORK = 17
 
+# Round 7.33: fixed a genuine bug in THIS script (nothing to do with
+# RISC OS/Wimp clipping at all) found after the user reported the
+# pawns now "look way better" but are "always cropped of the black
+# line at the bottom", every single pawn, every position -- a symptom
+# far too consistent to be another redraw/clip-scoping issue (those
+# were always intermittent/position-dependent; see docs/ARCHITECTURE.md's
+# Round 7.21-7.28 history), and this project's own "ground truth
+# verification" habit says to actually check the generated pixels
+# before theorising further. Doing that: draw_pawn_silhouette()'s shapes
+# span y=18 (head top) to y=302 (base bottom) inside the WORK=320
+# canvas -- only 18 WORK units of margin on EACH side before
+# OUTLINE_DILATE_WORK's dilation even runs. At 17 (see above), that
+# leaves just 1 WORK unit of surviving margin on both edges once
+# dilated -- nowhere near enough for final_alpha's own BOX-resize
+# antialiasing to represent a soft edge, so that outermost dilated
+# ring gets clipped against the canvas boundary itself before it ever
+# reaches Wimp_PlotIcon. The base (a flat rounded_rectangle, full width
+# right up to its own boundary) clips far more visibly than the head
+# (a curved ellipse, only a single-pixel-wide sliver actually reaches
+# its extreme y) -- exactly matching "cropped at the bottom", not top.
+# Fixed by scaling the whole design down slightly around the canvas
+# centre (CONTENT_SCALE below) rather than growing WORK/rescaling every
+# hand-tuned coordinate -- gives every edge real breathing room for any
+# future OUTLINE_DILATE_WORK/FINAL combination, at the cost of a small,
+# likely unnoticeable reduction in how much of its own 26x26 frame the
+# opaque pawn fills.
+CONTENT_SCALE = 0.90
+CONTENT_CENTRE = WORK / 2
+
+
+def sc(*coords):
+    """
+    Function: sc
+    Summary: Scale a flat sequence of x,y,x,y,... pixel coordinates
+             (as PIL's ellipse/rectangle/polygon calls take, whether as
+             a single bounding-box tuple or several point tuples spread
+             via *args at the call site) around CONTENT_CENTRE by
+             CONTENT_SCALE -- see CONTENT_SCALE's own comment for why.
+    Syntax:  sc(x0, y0, x1, y1, ...)
+    Input:   coords - any number of raw x/y numbers, alternating.
+    Output:  a tuple of the same length, each scaled toward/away from
+             the canvas centre.
+    """
+    return tuple(CONTENT_CENTRE + (c - CONTENT_CENTRE) * CONTENT_SCALE for c in coords)
+
+
+def sc_pts(points):
+    """
+    Function: sc_pts
+    Summary: Same as sc(), but for a list of (x, y) point tuples (the
+             form PIL's polygon() takes), returning the same list shape.
+    Syntax:  sc_pts([(x0, y0), (x1, y1), ...])
+    Input:   points - a list of (x, y) tuples.
+    Output:  a list of (x, y) tuples, each scaled toward/away from the
+             canvas centre.
+    """
+    return [tuple(sc(x, y)) for x, y in points]
+
 
 def draw_pawn_silhouette(draw):
     """
@@ -136,16 +194,16 @@ def draw_pawn_silhouette(draw):
     Output:  none. Draws in place.
     """
     # Head (sphere/finial).
-    draw.ellipse((100, 18, 220, 138), fill=255)
+    draw.ellipse(sc(100, 18, 220, 138), fill=255)
     # Neck collar -- a flattened disc, wider than the stem, overlapping
     # the head's base for a smooth join.
-    draw.ellipse((104, 126, 216, 172), fill=255)
+    draw.ellipse(sc(104, 126, 216, 172), fill=255)
     # Stem -- gently tapers outward toward the base.
-    draw.polygon([(130, 158), (190, 158), (206, 250), (114, 250)], fill=255)
+    draw.polygon(sc_pts([(130, 158), (190, 158), (206, 250), (114, 250)]), fill=255)
     # Base, upper ring.
-    draw.polygon([(108, 248), (212, 248), (232, 276), (88, 276)], fill=255)
+    draw.polygon(sc_pts([(108, 248), (212, 248), (232, 276), (88, 276)]), fill=255)
     # Base, lower foot -- the widest part.
-    draw.rounded_rectangle((76, 276, 244, 302), radius=10, fill=255)
+    draw.rounded_rectangle(sc(76, 276, 244, 302), radius=10 * CONTENT_SCALE, fill=255)
 
 
 def masked_shape(shapes_fn, silhouette_mask):
@@ -172,16 +230,16 @@ def highlight_shapes(d):
     # A soft "shine" patch on the head's upper-left, and a matching
     # band down the stem's left edge -- the same upper-left light
     # source convention the reference pixel-art pawns use.
-    d.ellipse((95, 35, 165, 100), fill=255)
-    d.polygon([(125, 160), (155, 160), (145, 235), (120, 235)], fill=255)
+    d.ellipse(sc(95, 35, 165, 100), fill=255)
+    d.polygon(sc_pts([(125, 160), (155, 160), (145, 235), (120, 235)]), fill=255)
 
 
 def shadow_shapes(d):
     # A patch on the lower-right of the head, and down the stem's
     # and base's right edge.
-    d.ellipse((165, 60, 220, 130), fill=255)
-    d.polygon([(165, 175), (200, 175), (205, 248), (175, 248)], fill=255)
-    d.rectangle((195, 248, 240, 300), fill=255)
+    d.ellipse(sc(165, 60, 220, 130), fill=255)
+    d.polygon(sc_pts([(165, 175), (200, 175), (205, 248), (175, 248)]), fill=255)
+    d.rectangle(sc(195, 248, 240, 300), fill=255)
 
 
 def dot_shapes(d):
@@ -189,7 +247,7 @@ def dot_shapes(d):
     # the top of the head -- kept deliberately small (a "shine", not
     # a second highlight region the size of the band above it) and
     # always solid (not dithered, see build_pawn_image()'s doc comment).
-    d.ellipse((122, 46, 138, 62), fill=255)
+    d.ellipse(sc(122, 46, 138, 62), fill=255)
 
 
 def build_pawn_image(fill_rgb):

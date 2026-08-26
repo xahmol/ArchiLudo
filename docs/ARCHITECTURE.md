@@ -2088,6 +2088,48 @@ overcompensated").
   recognisable) rather than only judging by the numbers this time.
 - Not yet re-confirmed live.
 
+**Round 7.33**: a real bug in the sprite generation script itself
+(`assets/generate_icon_sprites.py`), unrelated to RISC OS/Wimp clipping
+at all -- per explicit live user report that round 7.32's pawns "look
+way better again but are now always cropped of the black line at the
+bottom", every single pawn, every position. That consistency (not
+intermittent, not position-dependent) was the tell that this was a
+different class of bug from rounds 7.21-7.28's redraw/clip-scoping
+issues -- checked the generated pixels directly rather than theorising
+about Wimp behaviour further (this project's "ground truth
+verification" habit).
+
+- **Root cause**: `draw_pawn_silhouette()`'s hand-drawn shapes span
+  y=18 (head top) to y=302 (base bottom) inside the `WORK=320`
+  supersample canvas -- only 18 WORK units of margin on each side
+  *before* `OUTLINE_DILATE_WORK`'s dilation (17, set in round 7.32)
+  even runs. After dilation, that left just 1 WORK unit of surviving
+  margin on both edges -- nowhere near enough for `final_alpha`'s own
+  BOX-resize antialiasing to represent a soft edge, so the outermost
+  ring of the dilated outline was being clipped against the WORK
+  canvas boundary itself, before the sprite ever reached
+  `Wimp_PlotIcon`. The base (a flat `rounded_rectangle`, full width
+  right up to its own boundary) clips far more visibly than the head
+  (a curved ellipse, only a single-pixel-wide sliver actually reaches
+  its extreme y) -- exactly matching "cropped at the bottom", never
+  reported at the top.
+- **Fix**: a new `CONTENT_SCALE = 0.90` shrinks the whole hand-drawn
+  design slightly around the canvas centre (`sc()`/`sc_pts()` helpers,
+  applied to every coordinate in `draw_pawn_silhouette()`/
+  `highlight_shapes()`/`shadow_shapes()`/`dot_shapes()`) rather than
+  growing `WORK` or rescaling every hand-tuned coordinate by hand --
+  gives every edge real breathing room (margin after dilation now ~15
+  WORK units, not 1) for any future `OUTLINE_DILATE_WORK`/`FINAL`
+  combination too. `FINAL`/`PAWN_SIZE` themselves untouched (still 26/
+  52) -- this is a small, deliberately subtle reduction in how much of
+  its own frame the opaque pawn fills, not another size cut.
+- **Verified by inspecting actual generated pixels before rebuilding**
+  (not just judging by the formula this time): both the bottom row's
+  alpha (now fully transparent, a real gap) and an 8x nearest-neighbour
+  zoom (clean black outline on all four sides, dither still legible)
+  were checked directly against the regenerated PNG. Not yet re-
+  confirmed live in Arculator.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
