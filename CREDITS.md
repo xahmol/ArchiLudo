@@ -39,7 +39,11 @@ to -- this file consolidates all of it in one place.
 - **Steve Fryatt** -- the `wimp-prog` WIMP-C-programming tutorial guide,
   used as the conceptual/architectural reference for this project's event
   loop (his SFLib/GCCSDK code itself isn't used, since it doesn't build
-  under ArchieSDK -- see `docs/BUILDCHAIN.md`).
+  under ArchieSDK -- see `docs/BUILDCHAIN.md`), and specifically Chapter
+  17 ("Creating an Application Directory") as the direct structural
+  template for `build/!ArchiLudo/`'s `!Run`/`!Sprites`/`!Sprites22`
+  layout (round 7.36 -- see `docs/BUILDCHAIN.md`'s "Application
+  directory" section for what was adapted vs. followed as-is).
   `https://www.stevefryatt.org.uk/risc-os/wimp-prog`. Full local mirror:
   `~/riscos-dev/wimp-prog-mirror/`.
 

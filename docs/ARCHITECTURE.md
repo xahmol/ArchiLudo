@@ -52,15 +52,18 @@ cheaply -- worth asking whether the gradient path is still wanted at
 all before investing in it). Don't start that larger implementation
 unprompted either way.
 
-**Still open, not blocking any of the above:** building a proper
-`!ArchiLudo` application directory (per an earlier explicit user
-request, now also covering a `!Sprites`/`!Sprites22` app-icon pair --
-`!Sprites11` should NOT be built, it uses new-style sprite encoding
-genuine RISC OS 3.10 doesn't understand, see round 7.16) -- blocked on
-an explicit `AskUserQuestion` consultation on design choices (app icon,
-`!Boot`/`!Run`/`!Help` scope, save-file filetype registration, Makefile
-`deploy`/`zip` changes) that has not happened yet; do not build this
-without asking first, per that instruction.
+**Done, round 7.36**: the `!ArchiLudo` application directory (this
+section's earlier note said it was blocked on a design-choice
+consultation -- superseded by the user directly specifying the design
+instead, so it went ahead without a separate `AskUserQuestion` round).
+`build/!ArchiLudo/` now holds `!RunImage,ff8`/`!Run,feb`/
+`!Sprites,ff9`/`!Sprites22,ff9`/`PawnSprites,ff9` -- see
+`docs/BUILDCHAIN.md`'s "Application directory" section for the full
+structure, and this file's own "Round 7.36" entry below for how it was
+built. `!Sprites11` was NOT built, per the original note's own
+reasoning (new-style sprite encoding genuine RISC OS 3.10 doesn't
+understand -- see round 7.16). Save-file filetype registration was
+NOT done either -- out of scope for this round, revisit if wanted.
 
 ## Layering
 
@@ -2222,6 +2225,50 @@ a new one").
   single extra "Continue" click), rather than changing the save format
   to track it.
 - Not yet confirmed live.
+
+**Round 7.36**: the `!ArchiLudo` application directory, per explicit
+user request pointing directly at Steve Fryatt's wimp-prog tutorial,
+Chapter 17 ("Creating an Application Directory") plus a specific icon
+design ("suggested icon is one red pawn and a die") -- resolving the
+design-consultation block this file's "Resume here" section had noted
+much earlier, since the user specified the design directly instead.
+Full structure and reasoning: `docs/BUILDCHAIN.md`'s new "Application
+directory" section (what was adapted from the tutorial vs. followed
+as-is, e.g. dropping the DDE-specific `*RMEnsure` block since
+ArchieSDK doesn't need it -- confirmed against a real ArchieSDK demo's
+own shipped `!Run` file) and `~/.claude/makefile_conventions.md`'s new
+"RISC OS Application Directories" section (general lessons for future
+projects: `!`-in-target-name quoting, the `cp -r` repeat-deploy nesting
+gotcha, the `*RMEnsure` toolchain-specificity point).
+
+- **New `assets/generate_app_icon.py`** draws the pawn+die icon once
+  at a square `WORK=320` canvas (same technique as
+  `generate_icon_sprites.py`'s pawn art), then produces both the
+  square-pixel (`!Sprites22`, mode 27, 34x34/17x17) and rectangular-
+  pixel (`!Sprites`, mode 12, 34x17/17x9, via a 2:1 vertical squish of
+  the same canvas before downsampling) versions Fryatt's Table 17.1
+  specifies. Spot-checked at 10-15x nearest-neighbour zoom in both
+  aspect ratios before committing -- both read clearly as "a red pawn
+  next to a die showing five", even at the tiny half-size.
+- **Makefile restructured**: `make all` now builds
+  `build/!ArchiLudo/!RunImage,ff8` (objcopy's output path directly,
+  not a separate rename step) plus copies in `!Run,feb`/`!Sprites,ff9`/
+  `!Sprites22,ff9`/`PawnSprites,ff9` from their checked-in (no comma
+  suffix) sources. `make deploy` now merges the whole directory into
+  hostfs (`cp -r build/!ArchiLudo/. hostfs/!ArchiLudo/`, with the
+  destination `mkdir -p`'d first to dodge the `cp -r` repeat-deploy
+  nesting gotcha) and cleans up any pre-7.36 flat files left over from
+  an older deploy. `make zip`/`make assets` updated to match.
+- **No `src/game_view.c` changes needed at all** for `PawnSprites`/the
+  debug `Log` to keep resolving correctly from inside the app
+  directory -- `resource_path()`'s `set_app_dir()` already just
+  truncates `argv0` at its last `.` separator, which lands on
+  `HostFS:$.!ArchiLudo` (the app directory itself) whether the program
+  was invoked as a bare file or as `!ArchiLudo.!RunImage` -- confirmed
+  by reading that function before assuming a change was needed.
+- Not yet confirmed live (double-click launch from the Filer, icon
+  appearance under at least one square and one non-square screen mode
+  per this project's own multi-mode testing convention).
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and

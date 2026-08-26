@@ -1,0 +1,28 @@
+| ArchiLudo's !Run file -- assembled into the built !ArchiLudo application
+| directory (build/!ArchiLudo/!Run,feb) by the top-level Makefile. See
+| docs/BUILDCHAIN.md's "Application directory" section for the full
+| writeup, and Steve Fryatt's wimp-prog tutorial, Chapter 17
+| ("Creating an Application Directory",
+| https://www.stevefryatt.org.uk/risc-os/wimp-prog/creating-an-application-directory,
+| local mirror at ~/riscos-dev/wimp-prog-mirror/wimp-prog/
+| creating-an-application-directory.html) for the conventions this follows.
+|
+| Deliberately does NOT include that tutorial's own *RMEnsure block for
+| CallASWI/FPEmulator/SharedCLibrary -- those guard against the Acorn DDE's
+| runtime dependencies (the shared C library / floating-point emulator
+| modules a DDE-compiled program branches directly into), which don't apply
+| here: ArchieSDK links its own self-contained libc, confirmed against a
+| real ArchieSDK demo's own !Run file
+| (examples/bydctc/data/!Run,feb in the ArchieSDK checkout), which has no
+| such lines either. The RISC OS version check below is a genuine
+| requirement of this project's own real hardware target, not a toolchain
+| artefact, so it stays.
+
+RMEnsure UtilityModule 3.10 Error This application requires RISC OS 3.10 or later
+
+Set ArchiLudo$Dir <Obey$Dir>
+
+IconSprites <ArchiLudo$Dir>.!Sprites
+
+WimpSlot -min 128K -max 256K
+Run <ArchiLudo$Dir>.!RunImage

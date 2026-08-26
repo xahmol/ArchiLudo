@@ -13,11 +13,13 @@ ifdef CMD_EXE
   DEL     = -del /f
   RMDIR   = rmdir /s /q
   MKDIR   = mkdir
+  CPDIR   = xcopy /E /I /Y
 else
   NULLDEV = /dev/null
   DEL     = $(RM)
   RMDIR   = $(RM) -r
   MKDIR   = mkdir -p
+  CPDIR   = cp -r
 endif
 
 # Toolchain + deployment paths (see .env.example)
@@ -67,17 +69,31 @@ OBJFILES = $(patsubst src/%.c,build/%.o,$(SRCFILES))
 DEPFILES = $(OBJFILES:.o=.d)
 
 ELF      = build/$(APPNAME).elf
-TARGET   = build/$(APPNAME),ff8
 ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
+
+# Proper application directory (build/!ArchiLudo) rather than a flat
+# ArchiLudo,ff8 file directly in hostfs -- see docs/BUILDCHAIN.md's
+# "Application directory" section and app/!Run's own doc comment for the
+# full writeup (follows Steve Fryatt's wimp-prog tutorial, Chapter 17).
+# The leading "!" is an ordinary filename character to Make itself (no
+# special meaning in a target/prerequisite name) and to both Linux and
+# Windows filesystems -- recipe lines below still quote paths for the
+# shell as usual, but target/prerequisite references themselves are
+# never quoted, since Make treats quote characters as literal parts of
+# the name rather than shell-style delimiters.
+APPDIR    = build/!$(APPNAME)
+RUNIMAGE  = $(APPDIR)/!RunImage,ff8
+APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
+            $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprites,ff9
 
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
 .SUFFIXES:
 .PHONY: all clean asm zip docs check-hostfs deploy test assets
 
-all: $(TARGET)
+all: $(APPFILES)
 
-$(TARGET): $(ELF)
+$(RUNIMAGE): $(ELF) | $(APPDIR)
 	$(ARCHIEOBJCOPY) -O binary $< $@
 
 $(ELF): $(OBJFILES)
@@ -86,8 +102,29 @@ $(ELF): $(OBJFILES)
 build/%.o: src/%.c | build
 	$(ARCHIECC) $(CFLAGS) -c $< -o $@
 
+# Static application-directory files -- checked into the repo (app/!Run)
+# or pre-built and checked in (assets/!Sprites, assets/!Sprites22,
+# assets/PawnSprites -- see the `assets` target to regenerate them),
+# just copied into place here with their RISC OS filetype suffix added,
+# matching how PawnSprites,ff9 was already handled before this app-
+# directory restructuring.
+$(APPDIR)/!Run,feb: app/!Run | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/!Sprites,ff9: assets/!Sprites | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/!Sprites22,ff9: assets/!Sprites22 | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/PawnSprites,ff9: assets/PawnSprites | $(APPDIR)
+	cp "$<" "$@"
+
 build:
 	@$(MKDIR) build 2>$(NULLDEV) ; true
+
+$(APPDIR): | build
+	@$(MKDIR) "$(APPDIR)" 2>$(NULLDEV) ; true
 
 -include $(DEPFILES)
 
@@ -101,25 +138,28 @@ check-hostfs:
 	@test -d "$(ARCULATOR_HOSTFS)" || \
 		(echo "ERROR: Arculator hostfs not found at $(ARCULATOR_HOSTFS) -- check ARCULATOR_HOSTFS in .env" && false)
 
-deploy: check-hostfs $(TARGET)
-	cp $(TARGET) "$(ARCULATOR_HOSTFS)/"
-	# Round 7.17: the Wimp_PlotIcon sprite pivot -- load_pawn_sprites()
-	# reads this at startup (see src/game_view.c) via resource_path(),
-	# i.e. from the app's own directory, filetype &FF9 so RISC OS/hostfs
-	# recognises it as a sprite file.
-	cp assets/PawnSprites "$(ARCULATOR_HOSTFS)/PawnSprites,ff9"
-	# Round 6.3 dropped the OLDER assets/Sprites plotting attempt (see
-	# src/game_view.c's plot_pawn() doc comment for the full history) --
-	# remove any stale Sprites,ff9 left over from an earlier deploy so it
-	# can't be mistaken for something the running game still reads.
-	rm -f "$(ARCULATOR_HOSTFS)/Sprites,ff9"
+deploy: check-hostfs $(APPFILES)
+	@$(MKDIR) "$(ARCULATOR_HOSTFS)/!$(APPNAME)" 2>$(NULLDEV) ; true
+	# Trailing "/." on the source copies its CONTENTS into an
+	# already-existing destination -- plain `cp -r SRC DEST` would nest
+	# a second !ArchiLudo one level too deep on every deploy after the
+	# first, since DEST already exists as a directory from the previous
+	# run (the classic cp -r gotcha).
+	$(CPDIR) "$(APPDIR)/." "$(ARCULATOR_HOSTFS)/!$(APPNAME)/"
+	# Pre-app-directory deploys (round 7.17 through 7.34) left a flat
+	# ArchiLudo,ff8/PawnSprites,ff9 directly in hostfs -- remove any
+	# stale copies so they can't be mistaken for what the Filer/iconbar
+	# actually runs now (the app directory above).
+	rm -f "$(ARCULATOR_HOSTFS)/$(APPNAME),ff8" "$(ARCULATOR_HOSTFS)/PawnSprites,ff9" \
+	      "$(ARCULATOR_HOSTFS)/Sprites,ff9"
 
-zip: $(TARGET)
-	$(ARCHIEZIP) -r $(ZIPFILE) $(TARGET) README.md
+zip: $(APPFILES)
+	$(ARCHIEZIP) -r $(ZIPFILE) "$(APPDIR)" README.md
 
 assets:
 	python3 assets/generate_placeholder_art.py
 	python3 assets/generate_icon_sprites.py
+	python3 assets/generate_app_icon.py
 
 test: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "=== $$t ==="; ./$$t || exit 1; done

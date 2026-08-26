@@ -45,20 +45,21 @@ ARCULATOR_HOSTFS = /mnt/d/Retro/Acorn/Arculator_V2.2_Windows/hostfs
 
 | Target | Effect |
 |---|---|
-| `make` / `make all` | build `build/ArchiLudo,ff8` |
+| `make` / `make all` | build the `build/!ArchiLudo` application directory |
 | `make test` | build and run the game-logic unit tests with the host compiler (no ArchieSDK/Arculator needed) |
 | `make clean` | remove `build/` |
-| `make deploy` | copy the built app to the Arculator hostfs folder |
+| `make deploy` | copy `build/!ArchiLudo` to the Arculator hostfs folder |
 | `make zip` | versioned release archive (`build/ArchiLudo-vX.Y.Z-<timestamp>.zip`), RISC OS filetypes preserved |
+| `make assets` | regenerate the pawn sprites and app icon from their Python generators |
 | `make docs` | regenerate `README.pdf` via pandoc |
 | `make asm` | emit generated ARM assembly for the current sources |
 
 Testing: boot `configs/ArchiLudo-ARM3-4MB.cfg` (matches real ARM3/4MB
 hardware) or `configs/ArchiLudo-ARM2-1MB.cfg` (stock ARM2/1MB compatibility
-check) in Arculator with the RISC OS 3.10 ROM, then run `ArchiLudo` from
-HostFS via the Filer. `make deploy` also copies `assets/Sprites` alongside
-it, needed for the pawn artwork.
+check) in Arculator with the RISC OS 3.10 ROM, then double-click `!ArchiLudo`
+from HostFS via the Filer (see `docs/BUILDCHAIN.md`'s "Application
+directory" section for its structure).
 
 **Status**: Phase 1 (see `docs/ARCHITECTURE.md`'s Roadmap) -- a playable
-core loop (iconbar icon, game window, dice, pawn movement) compiles and
-links cleanly, but hasn't been visually verified in Arculator yet.
+core loop, extensively live-tested and refined in Arculator across many
+rounds of feedback (see `docs/ARCHITECTURE.md`'s round history).

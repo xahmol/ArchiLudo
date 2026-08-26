@@ -108,14 +108,18 @@ Two independent build paths share the same source tree:
 ```
 src/*.c  --(arm-archie-gcc, one .o per source, -MMD -MP dependency tracking)-->  build/*.o
 build/*.o --(arm-archie-gcc link, -lOSLib32)-->  build/ArchiLudo.elf
-build/ArchiLudo.elf --(arm-archie-objcopy -O binary)-->  build/ArchiLudo,ff8
+build/ArchiLudo.elf --(arm-archie-objcopy -O binary)-->  build/!ArchiLudo/!RunImage,ff8
 ```
 
-The `,ff8` suffix is the standard convention for representing a RISC OS
-filetype (here, `&FF8` = Absolute, i.e. a directly-runnable executable) on
-a non-RISC-OS filesystem -- see `riscos_wimp_reference.md`'s "Filetypes"
-section. `arm-archie-objcopy -O binary` strips the ELF wrapper down to the
-raw loadable image RISC OS expects.
+`arm-archie-objcopy -O binary` strips the ELF wrapper down to the raw
+loadable image RISC OS expects. Round 7.36 (see
+[ARCHITECTURE.md](ARCHITECTURE.md)) moved the output from a bare
+`build/ArchiLudo,ff8` into a real application directory,
+`build/!ArchiLudo/` -- see "Application directory" below for the full
+structure. The `,ff8`/`,feb`/`,ff9` suffixes are the standard convention
+for representing a RISC OS filetype (`&FF8` = Absolute executable,
+`&FEB` = Obey, `&FF9` = Sprite) on a non-RISC-OS filesystem -- see
+`riscos_wimp_reference.md`'s "Filetypes" section.
 
 Requires `ARCHIESDK` (from `.env`) to be set; the Makefile only enforces
 this for goals that actually need the ARM toolchain (`all`, `deploy`,
@@ -144,9 +148,10 @@ no cross-compiler, no emulator. This is the whole point of keeping
 
 | Target | Effect |
 |---|---|
-| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies `ArchiLudo,ff8` there |
+| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any pre-Round-7.36 flat `ArchiLudo,ff8`/`PawnSprites,ff9`/`Sprites,ff9` left over in hostfs from an older deploy |
 | `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`), which preserves RISC OS filetypes on extraction -- a plain host `zip` would not |
 | `make asm` | emits generated ARM assembly (`arm-archie-gcc -S`) for inspection |
+| `make assets` | regenerates `assets/PawnSprites` and `assets/!Sprites`/`!Sprites22` (the app icon) from their Python generators -- see "Application directory" below |
 | `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) |
 | `make clean` | removes `build/` entirely |
 
@@ -183,9 +188,82 @@ not being mounted in WSL) before `deploy` copies anything there.
 ## Filetype/packaging conventions
 
 See `riscos_wimp_reference.md`'s "Filetypes / packaging" section for the
-full table and the eventual `!ArchiLudo` application-directory structure
-(`!Run`/`!Boot`/`!Sprites`) once double-click launching matters -- the
-current build only produces a bare runnable `ArchiLudo,ff8`.
+full filetype table. `Application directory` below covers ArchiLudo's own
+structure.
+
+## Application directory
+
+Round 7.36, per explicit user request, following Steve Fryatt's wimp-prog
+tutorial, Chapter 17 ("Creating an Application Directory",
+<https://www.stevefryatt.org.uk/risc-os/wimp-prog/creating-an-application-directory>,
+local mirror at
+`~/riscos-dev/wimp-prog-mirror/wimp-prog/creating-an-application-directory.html`).
+`make all` now assembles a real `!ArchiLudo` application directory in
+`build/`, not a bare runnable file:
+
+```
+build/!ArchiLudo/
+  !RunImage,ff8    -- the compiled binary (objcopy output, see above)
+  !Run,feb          -- Obey file the Filer executes on double-click
+                       (checked into the repo as app/!Run, no comma
+                       suffix -- the Makefile adds it when copying)
+  !Sprites,ff9       -- iconbar/Filer icon, rectangular-pixel (90x45dpi,
+                        mode 12) for this project's own non-square screen
+                        modes (12/15/39)
+  !Sprites22,ff9      -- the same icon, square-pixel (90x90dpi, mode 27)
+                         for mode 27
+  PawnSprites,ff9       -- moved inside the app directory from hostfs
+                           root (round 7.17-7.34's old flat-file layout)
+                           -- resource_path()'s argv0-derived app_dir
+                           (src/game_view.c) needed no code change at
+                           all for this: it already just truncates
+                           argv0 at the last "." separator, which lands
+                           on "HostFS:$.!ArchiLudo" regardless of
+                           whether the program was invoked as a bare
+                           file or as an app directory's own !RunImage
+```
+
+**Deliberately does NOT include** the tutorial's own `*RMEnsure` block for
+`CallASWI`/`FPEmulator`/`SharedCLibrary` -- those guard against the Acorn
+DDE's runtime dependencies (the shared C library / floating-point
+emulator modules a DDE-compiled program branches directly into via a
+registration handshake), which don't apply to ArchieSDK: it links its own
+self-contained libc, confirmed against a real ArchieSDK demo's own
+`!Run` file (`examples/bydctc/data/!Run,feb` in the ArchieSDK checkout),
+which has no such lines either. `app/!Run`'s own top-of-file comment has
+the full reasoning. The `RMEnsure UtilityModule 3.10` version check *is*
+kept -- that's a genuine requirement of this project's real hardware
+target (RISC OS 3.10), not a DDE toolchain artefact.
+
+**Icon design**: a red pawn beside a die (`assets/generate_app_icon.py`,
+`make assets` to regenerate) -- per explicit user request ("suggested
+icon is one red pawn and a die"). Drawn once at a square `WORK=320`
+supersample canvas (same anti-aliasing technique as
+`generate_icon_sprites.py`'s pawn art -- solid masks, RGB/alpha resized
+separately to avoid the round 6.3 transparent-edge colour-bleed bug),
+bold and simplified (no dither/shading detail, which would be lost at
+these sizes anyway) since the final sizes are tiny: 34x34/17x17 for the
+square-pixel `!Sprites22`, 34x17/17x9 for the rectangular-pixel
+`!Sprites` (Fryatt's Table 17.1's standard "full size"/"half size"
+dimensions). The rectangular-pixel version is generated by squishing the
+same WORK canvas 2:1 vertically before downsampling -- the same
+"pre-squish the source" trick this project used for its own mode-15
+placeholder art before the round 7.16 mode-27 pivot (see
+`tools/riscos_sprite.py`'s `MODES_BY_BPP` doc comment) -- so mode 12's
+own 2x4-OS-units/pixel stretch brings it back to the right proportions
+on screen, rather than looking squashed. Packed at 4bpp against the
+fixed Wimp palette (`--wimp-palette`, mode 12 for `!Sprites`, mode 27 for
+`!Sprites22` -- `tools/riscos_sprite.py`'s `MODES_BY_BPP[4]` gives 12 as
+the mode-15-aspect non-square 4bpp mode, matching this project's other
+established mode conventions), matching every other icon-plotted sprite
+in this project.
+
+**Not done**: formal resource allocation (Fryatt's tutorial, "A note
+about allocation" -- registering the `ArchiLudo` name/sprite/system-
+variable prefix with RISC OS Open's central database) -- the tutorial
+itself frames this as essential only "before sending an application to
+anyone else," which doesn't apply yet for this personal/hobby project.
+Revisit if ArchiLudo is ever distributed more widely.
 
 ## Known ArchieSDK libc quirks
 
