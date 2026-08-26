@@ -7,6 +7,7 @@
 #include "setup_view.h"
 #include "splash_view.h"
 #include "save_view.h"
+#include "win_view.h"
 
 wimp_t task_handle;
 
@@ -101,6 +102,7 @@ void archiludo_initialise(const char *argv0)
 	build_iconbar_menu();
 	game_view_initialise(argv0);
 	setup_view_initialise();
+	win_view_initialise();
 	splash_view_initialise();
 	splash_view_open();
 	/* After game_view_initialise() -- save_view.c's default pathname is
@@ -128,6 +130,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			game_view_redraw(&block->redraw);
 		else if (block->redraw.w == setup_view_window_handle())
 			setup_view_redraw(&block->redraw);
+		else if (block->redraw.w == win_view_window_handle())
+			win_view_redraw(&block->redraw);
 		else if (block->redraw.w == splash_view_window_handle())
 			splash_view_redraw(&block->redraw);
 		else if (block->redraw.w == save_view_window_handle())
@@ -179,6 +183,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			game_view_click(&block->pointer);
 		} else if (block->pointer.w == setup_view_window_handle()) {
 			setup_view_click(&block->pointer);
+		} else if (block->pointer.w == win_view_window_handle()) {
+			win_view_click(&block->pointer);
 		} else if (block->pointer.w == splash_view_window_handle()) {
 			splash_view_click(&block->pointer);
 		} else if (block->pointer.w == save_view_window_handle()) {

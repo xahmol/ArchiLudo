@@ -347,7 +347,17 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 	if (g->winner == -1 && all_pawns_finished(g, player))
 		g->winner = player;
 
-	if (roll == 6 && g->winner == -1) {
+	/* Round 7.35: checks THIS player's own all_pawns_finished(), not the
+	 * global g->winner == -1 -- per the new "continue playing after the
+	 * first winner" mode (see docs/ARCHITECTURE.md's Round 7.35). The
+	 * old g->winner == -1 check meant that once ANY player won, EVERY
+	 * remaining player permanently lost their own six-goes-again bonus
+	 * for the rest of the game, which was never exercised/noticed while
+	 * the game simply ended at the first winner. A player who just
+	 * finished obviously has nothing left to roll for, but a player who
+	 * hasn't finished should keep the normal bonus regardless of
+	 * whether someone else already has. */
+	if (roll == 6 && !all_pawns_finished(g, player)) {
 		/* Extra roll for the same player -- current_player is left
 		 * unchanged; the caller simply calls ludo_roll() again. Reset
 		 * last_roll (ludo_end_turn() does this for the turn-ending case

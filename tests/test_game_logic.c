@@ -311,6 +311,44 @@ static void test_extra_roll_on_six_keeps_same_player(void)
 	CHECK(g.forced_pawn == -1);
 }
 
+/*
+ * Round 7.35 regression: once ANY player has won (g.winner != -1), every
+ * OTHER player who hasn't finished yet must still keep their own normal
+ * six-goes-again bonus -- per this project's "continue playing after the
+ * first winner" house-rule mode (see docs/ARCHITECTURE.md's Round 7.35).
+ * The bug this guards against checked the global g.winner == -1 instead
+ * of this specific player's own all_pawns_finished(), which meant every
+ * remaining player permanently lost their bonus turn for the rest of the
+ * game the moment anyone won -- never noticed while the game simply ended
+ * at the first winner, since nothing kept playing afterwards to exercise
+ * it.
+ */
+static void test_six_bonus_survives_another_players_win(void)
+{
+	ludo_game g;
+	int i;
+
+	ludo_init(&g);
+	/* Player 0 wins outright. */
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		g.players[0].pawns[i].in_play = 1;
+		g.players[0].pawns[i].finished = 1;
+		g.players[0].pawns[i].steps = LUDO_TOTAL_STEPS - i;
+	}
+	g.winner = 0;
+	/* Player 1 (still racing) is up next, with a pawn ready to move. */
+	g.current_player = 1;
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 0;
+
+	ludo_roll(&g, 6);
+	ludo_move_pawn(&g, 0);
+
+	CHECK(g.winner == 0); /* the win itself is untouched */
+	CHECK(g.current_player == 1); /* still player 1's turn, not advanced */
+	CHECK(g.forced_pawn == -1);
+}
+
 /* A non-six move ends the turn and advances to the next player. */
 static void test_non_six_move_ends_turn(void)
 {
@@ -549,6 +587,7 @@ int main(void)
 	RUN(test_second_finishing_pawn_lands_one_square_short);
 	RUN(test_winner_detected_when_all_pawns_finish);
 	RUN(test_extra_roll_on_six_keeps_same_player);
+	RUN(test_six_bonus_survives_another_players_win);
 	RUN(test_non_six_move_ends_turn);
 	RUN(test_headless_full_games_invariants);
 

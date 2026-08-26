@@ -93,6 +93,49 @@ void game_view_new_game(void);
 int game_view_has_started(void);
 
 /*
+ * Function: game_view_win_continue
+ * Summary: Resume normal turn-based play after src/win_view.c's win-choice
+ *          dialogue has been dismissed (either button -- "Continue" leaves
+ *          the game exactly where it is, "New Game" calls this too before
+ *          opening src/setup_view.c, so its defaults still reflect the
+ *          just-finished game's live player configuration). Marks the
+ *          current winner as acknowledged, so refresh_status()/
+ *          game_view_click() stop treating game.winner != -1 as "paused,
+ *          waiting for a choice" and resume ordinary per-turn behaviour --
+ *          see game_view.c's win_acknowledged doc comment. Idempotent
+ *          (safe to call when there's nothing to acknowledge).
+ * Syntax:  void game_view_win_continue(void);
+ * Input:   none.
+ * Output:  none.
+ */
+void game_view_win_continue(void);
+
+/*
+ * Function: game_view_get_players
+ * Summary: The current (or, for a just-finished game, most recent)
+ *          player configuration -- display names and human/AI status --
+ *          for src/setup_view.c's "New Game" dialogue to default to. Per
+ *          explicit user request ("for new game dialogue, defaults always
+ *          should be the in progress game, unless we just started a new
+ *          one"): setup_view_open() calls this every time it's opened
+ *          (skipped only if game_view_has_started() is still 0, i.e. no
+ *          game has ever been configured yet, in which case setup_view.c
+ *          keeps its own hardcoded first-run defaults).
+ * Syntax:  void game_view_get_players(
+ *              char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+ *              int is_ai[LUDO_PLAYERS]);
+ * Input:   none.
+ * Output:  names - filled with each player's current DISPLAY name (the
+ *                  configured custom name if one was set, otherwise the
+ *                  default colour name, e.g. "GREEN") -- never empty, so
+ *                  the caller can copy it straight into a writable icon.
+ *          is_ai - filled with each player's current human(0)/AI(nonzero)
+ *                  status.
+ */
+void game_view_get_players(char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+                            int is_ai[LUDO_PLAYERS]);
+
+/*
  * Function: game_view_poll_idle
  * Summary: Advance whichever animation is currently running (a dice-roll
  *          or pawn-move animation, see src/game_view.c's turn_step) and

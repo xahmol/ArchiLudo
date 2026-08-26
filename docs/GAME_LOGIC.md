@@ -95,6 +95,21 @@ overshoot check (rule 8's "not a legal move") stays against the fixed
 each pawn's own lower effective ceiling once earlier pawns occupy the
 squares above it.
 
+**Round 7.35**: rule 9's "remaining players may continue" was always the
+documented intent, but a real bug in `ludo_move_pawn()` meant it was never
+actually fair once exercised for real: the six-goes-again check (rule 4)
+tested the global `g->winner == -1` instead of the current player's own
+`all_pawns_finished()`, so the moment ANY player won, EVERY remaining
+player permanently lost their own bonus-roll-on-six for the rest of the
+game -- never noticed while the WIMP UI simply ended the game at the
+first winner (see `src/win_view.c`'s new "continue with remaining
+players" dialogue, `docs/ARCHITECTURE.md`'s Round 7.35, for what finally
+exercised this path for the first time). Fixed to check
+`!all_pawns_finished(g, player)` -- a player who just finished obviously
+has nothing left to roll for, but everyone else keeps the normal rule
+regardless of who else has already won. Regression test:
+`tests/test_game_logic.c`'s `test_six_bonus_survives_another_players_win()`.
+
 ## API
 
 See the docstring comment above each declaration in `game_logic.h` for the

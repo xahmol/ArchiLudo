@@ -24,6 +24,7 @@
 #include "game_logic.h"
 #include "board_layout.h"
 #include "ai.h"
+#include "win_view.h"
 
 /* Round 6: redesigned to match GeoLudo's own screen layout (board on the
  * left, a status/controls panel on the right -- see
@@ -239,6 +240,39 @@ static int throw_shaded = 0;
  * apart from a later one (which just reopens/refocuses the game already
  * in progress). See game_view_has_started(). */
 static int game_started = 0;
+
+/* Round 7.35: whether the CURRENT game.winner (if any) has been
+ * acknowledged via src/win_view.c's "Continue" (or "New Game", which
+ * also acknowledges it before opening setup -- see
+ * game_view_win_continue()). While a player has won but this is still
+ * 0, the game is "paused" -- refresh_status() shows the "X WINS!"
+ * announcement and game_view_click() ignores board/Throw clicks --
+ * waiting for the win dialogue's choice. Once acknowledged, game.winner
+ * stays set (the engine itself never clears it -- see game_logic.c) but
+ * every UI check that used to treat "there's a winner" as "the game is
+ * over" now also requires !win_acknowledged, so ordinary turn-based play
+ * resumes for whichever players haven't finished yet. Reset to 0 by
+ * game_view_new_game() and game_view_load_from_path() (a loaded game's
+ * own winner, if any, needs its own fresh acknowledgement). */
+static int win_acknowledged = 0;
+
+/*
+ * Function: game_paused
+ * Summary: Whether normal turn-based interactivity (board clicks, the
+ *          Throw/Continue button, movable-pawn/hover highlights) should
+ *          be suspended right now because there's a winner the user
+ *          hasn't yet acknowledged via src/win_view.c -- see
+ *          win_acknowledged's own doc comment. Every place that used to
+ *          check game.winner != -1 to mean "the game is over" now checks
+ *          this instead, so play resumes normally once acknowledged.
+ * Syntax:  static int game_paused(void);
+ * Input:   none.
+ * Output:  1 if paused (winner set, not yet acknowledged), 0 otherwise.
+ */
+static int game_paused(void)
+{
+	return game.winner != -1 && !win_acknowledged;
+}
 
 /*
  * Turn/animation phase. STEP_IDLE is the normal interactive state
@@ -648,13 +682,17 @@ static const char *player_display_name(int player)
 
 static void refresh_status(void)
 {
-	/* Only genuinely an "AI's turn" while the game isn't already won --
-	 * once there's a winner, the Throw/Continue icon always reverts to
-	 * "Throw" (its "play again" meaning, see game_view_click()),
-	 * regardless of which player happened to win. */
-	int ai_turn = (game.winner == -1) && player_is_ai[game.current_player];
+	/* Round 7.35: "paused" means there's a winner the user hasn't yet
+	 * acknowledged via src/win_view.c's dialogue -- see win_acknowledged's
+	 * own doc comment. Only genuinely an "AI's turn" while NOT paused
+	 * (either no one has won yet, or someone has but play is continuing) --
+	 * while paused, the Throw/Continue icon always shows "Throw" (its old
+	 * "play again" meaning is gone -- see game_view_click() -- it's simply
+	 * inert while the win dialogue has focus). */
+	int paused = game_paused();
+	int ai_turn = !paused && player_is_ai[game.current_player];
 
-	if (game.winner != -1) {
+	if (paused) {
 		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_display_name(game.winner));
 		snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
 	} else {
@@ -706,8 +744,12 @@ static void refresh_status(void)
 	{
 		int throw_active;
 
-		if (game.winner != -1)
-			throw_active = 1; /* "play again", always clickable once won */
+		if (paused)
+			/* Round 7.35: no longer "play again, always clickable" --
+			 * the win-choice dialogue (src/win_view.c) owns that
+			 * decision now, so the underlying Throw button does
+			 * nothing while paused and should look it. */
+			throw_active = 0;
 		else if (step == STEP_AWAIT_CONTINUE)
 			throw_active = 1;
 		else if (step == STEP_IDLE && !ai_turn
@@ -1441,7 +1483,7 @@ static void draw_highlights(int origin_x, int origin_y)
 	if (!highlight_flash_on)
 		return;
 
-	if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
+	if (step == STEP_IDLE && !game_paused() && !player_is_ai[game.current_player]
 	 && game.last_roll != 0) {
 		unsigned movable = ludo_movable_pawns(&game);
 
@@ -1499,7 +1541,7 @@ static void update_highlight_area(void)
 	col0 = row0 = BOARD_GRID_SIZE;
 	col1 = row1 = -1;
 
-	if (step == STEP_IDLE && game.winner == -1 && !player_is_ai[game.current_player]
+	if (step == STEP_IDLE && !game_paused() && !player_is_ai[game.current_player]
 	 && game.last_roll != 0) {
 		unsigned movable = ludo_movable_pawns(&game);
 
@@ -1724,7 +1766,7 @@ static void draw_full_window_content(int origin_x, int origin_y)
 	 * explicit user request -- yellow in particular read poorly
 	 * against the panel's own light background with no border. */
 	{
-		int player = (game.winner != -1) ? game.winner : game.current_player;
+		int player = game_paused() ? game.winner : game.current_player;
 		int x0 = origin_x + SWATCH_X0;
 		int y1 = origin_y + SWATCH_Y1;
 		/* Mode 15 is 2x4 OS units per physical pixel (non-square --
@@ -1902,11 +1944,29 @@ static board_cell preview_destination(int player, int pawn_index)
  *          if it's now an AI-controlled player's turn (their next action,
  *          even the very first roll of a fresh turn, waits for a
  *          Continue click -- per explicit user request), otherwise
- *          STEP_IDLE for ordinary human play (or a finished game).
+ *          STEP_IDLE for ordinary human play.
+ *
+ *          Round 7.35: also where a fresh win first gets noticed -- if
+ *          game.winner is set and not yet acknowledged (see
+ *          win_acknowledged's own doc comment), this is always the FIRST
+ *          call after the winning move/roll settled (every caller runs
+ *          straight after a ludo_move_pawn()/ludo_roll() that could have
+ *          set it), so opening src/win_view.c's win-choice dialogue right
+ *          here catches it exactly once per win, with no separate
+ *          "did we already show this" tracking needed beyond
+ *          win_acknowledged itself -- once the dialogue's Continue/New
+ *          Game sets it, this branch simply stops matching.
  */
 static void after_settle(void)
 {
-	if (game.winner == -1 && player_is_ai[game.current_player])
+	if (game.winner != -1 && !win_acknowledged) {
+		step = STEP_IDLE;
+		refresh_status();
+		win_view_open(name_text);
+		return;
+	}
+
+	if (!game_paused() && player_is_ai[game.current_player])
 		step = STEP_AWAIT_CONTINUE;
 	else
 		step = STEP_IDLE;
@@ -2174,7 +2234,7 @@ void game_view_poll_idle(void)
 	 * movable-pawn rings cover (see game_view_redraw()) -- checked here
 	 * rather than unconditionally so an idle AI turn, a finished game, or
 	 * a mid-animation frame never computes or shows a stale preview. */
-	if (step != STEP_IDLE || game.winner != -1 || player_is_ai[game.current_player]
+	if (step != STEP_IDLE || game_paused() || player_is_ai[game.current_player]
 	 || game.last_roll == 0) {
 		if (hover_active) {
 			hover_active = 0;
@@ -2249,6 +2309,7 @@ void game_view_new_game(void)
 	ludo_init(&game);
 	game_started = 1;
 	step = STEP_IDLE;
+	win_acknowledged = 0;
 	hover_active = 0;
 	dice_display_face = 0;
 	/* after_settle() itself calls refresh_status() -- see its doc comment.
@@ -2264,6 +2325,25 @@ void game_view_new_game(void)
 int game_view_has_started(void)
 {
 	return game_started;
+}
+
+void game_view_win_continue(void)
+{
+	win_acknowledged = 1;
+	after_settle();
+	redraw_now();
+}
+
+void game_view_get_players(char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
+                            int is_ai[LUDO_PLAYERS])
+{
+	int player;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		strncpy(names[player], player_display_name(player), GAME_VIEW_NAME_LEN - 1);
+		names[player][GAME_VIEW_NAME_LEN - 1] = '\0';
+		is_ai[player] = player_is_ai[player];
+	}
 }
 
 const char *game_view_app_dir(void)
@@ -2413,6 +2493,14 @@ int game_view_load_from_path(const char *path)
 
 	deserialize_game(buf);
 	game_started = 1;
+	/* Round 7.35: a loaded game's own winner (if any -- the save format
+	 * doesn't record whether it had already been acknowledged) always
+	 * needs a fresh acknowledgement -- after_settle() below will open
+	 * src/win_view.c's dialogue again if game.winner != -1, which is a
+	 * one-click "Continue" if the player had already dealt with it
+	 * before saving -- an acceptable minor rough edge rather than
+	 * changing the save file format to track it. */
+	win_acknowledged = 0;
 	hover_active = 0;
 	/* Show whatever die face the save was mid-turn on, if any, rather
 	 * than a blank die until the next throw. */
@@ -2601,7 +2689,7 @@ static void try_move_pawn(int col, int row)
 	/* Only the human player actually clicks pawns: not during an
 	 * animation, an AI's turn (it always picks its own pawn via
 	 * resolve_roll()), or before any roll this turn. */
-	if (step != STEP_IDLE || game.winner != -1 || player_is_ai[game.current_player]
+	if (step != STEP_IDLE || game_paused() || player_is_ai[game.current_player]
 	 || game.last_roll == 0)
 		return;
 
@@ -2675,22 +2763,24 @@ void game_view_click(wimp_pointer *pointer)
 	          ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
 
 	if (pointer->i == ICON_THROW) {
+		/* Round 7.35: no longer a "play again" button once won -- see
+		 * refresh_status()'s throw_active (shaded whenever paused,
+		 * matching this guard). src/win_view.c's dialogue owns the
+		 * Continue/New Game choice now. */
+		if (game_paused())
+			return;
+
 		/* Ignore extra clicks while an animation is already running, or
 		 * outside the two situations this one button actually means
 		 * something in (a human's own "Throw", or an AI turn paused on
 		 * "Continue" -- see refresh_status()). */
 		if (step != STEP_IDLE && step != STEP_AWAIT_CONTINUE)
 			return;
-		if (step == STEP_IDLE && game.winner == -1 && player_is_ai[game.current_player])
+		if (step == STEP_IDLE && player_is_ai[game.current_player])
 			return;
 
 		flash_throw_button();
-
-		if (game.winner != -1) {
-			game_view_new_game();
-		} else {
-			start_roll_animation();
-		}
+		start_roll_animation();
 		return;
 	}
 

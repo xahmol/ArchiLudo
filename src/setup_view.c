@@ -258,21 +258,52 @@ void setup_view_open(void)
 	if (window_handle == (wimp_w) -1)
 		return;
 
+	/* Round 7.35: sync from the actual in-progress (or just-finished)
+	 * game's own live player configuration every time this dialogue is
+	 * opened -- per explicit user request ("for new game dialogue,
+	 * defaults always should be the in progress game, unless we just
+	 * started a new one"). Before this, every icon's indirected buffer
+	 * only ever held whatever setup_view_initialise()'s one-time
+	 * hardcoded defaults or a PREVIOUS session's own edits in this same
+	 * window had left there -- correct the very first time this window
+	 * is ever opened (nothing to sync from yet, game_view_has_started()
+	 * is still 0), stale on every later reopen if the actual game had
+	 * since been reconfigured some other way (e.g. Load). */
+	if (game_view_has_started()) {
+		char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
+		int is_ai[LUDO_PLAYERS];
+		int player;
+
+		game_view_get_players(names, is_ai);
+		for (player = 0; player < LUDO_PLAYERS; player++) {
+			strncpy(name_buffer[player], names[player], GAME_VIEW_NAME_LEN - 1);
+			name_buffer[player][GAME_VIEW_NAME_LEN - 1] = '\0';
+			set_type(player, is_ai[player]);
+		}
+	}
+
 	state.w = window_handle;
 	wimp_get_window_state(&state);
 	state.next = wimp_TOP;
 	wimp_open_window((wimp_open *) &state);
 
+	/* Force-redraw every row now, not just rely on the Wimp's own next
+	 * exposure -- the sync above can change indirected icon text while
+	 * the window is already/about to be visible (set_type() already
+	 * redraws its own icon; the name fields need the same here, since
+	 * they're updated directly rather than through a setter). */
+	{
+		int player;
+
+		for (player = 0; player < LUDO_PLAYERS; player++)
+			wimp_set_icon_state(window_handle, ICON_NAME(player), 0, 0);
+	}
+
 	/* Caret in the first name field, positioned at the end of its
 	 * existing text -- "when moving to a new writable icon, place the
 	 * caret at the end of the existing text" (RISC OS 3 PRM's Wimp
 	 * chapter). height=-1 asks the Wimp to use the icon's own natural
-	 * caret height rather than specifying one explicitly. No need to
-	 * force-redraw anything else here: every icon's indirected buffer
-	 * (names, Human/AI text) already holds whatever it was last set to
-	 * -- by setup_view_initialise()'s defaults, or by the user's own
-	 * previous edits/toggles in this same window -- so simply opening
-	 * the window already shows the right thing. */
+	 * caret height rather than specifying one explicitly. */
 	wimp_set_caret_position(window_handle, ICON_NAME(0), 0, 0, -1,
 	                         (int) strlen(name_buffer[0]));
 }

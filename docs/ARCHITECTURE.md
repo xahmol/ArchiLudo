@@ -2170,6 +2170,59 @@ does stick out of the circle at the bottom") and a direct suggestion
   measurement rather than another theory.
 - Not yet re-confirmed live.
 
+**Round 7.35**: "continue playing after the first winner" + "New Game
+dialogue always defaults to the in-progress game", per explicit user
+request after a full game played through to a win with no logic bugs
+found ("on victory of a player, dialogue should ask to continue with
+remaining players, or to start new game... for new game dialogue,
+defaults always should be the in progress game, unless we just started
+a new one").
+
+- **New module `src/win_view.c`/`include/win_view.h`** -- a small
+  popup shown the instant any player wins (`after_settle()`'s new
+  first check), offering "Continue" or "New Game", following this
+  project's established one-window-per-module pattern
+  (`splash_view.c`'s layout was the closest template).
+- **New `win_acknowledged` flag + `game_paused()` helper** in
+  `game_view.c` -- every UI check that used to treat `game.winner !=
+  -1` as "the game is over" (the "X WINS!" panel display, the Throw/
+  Continue button's shading and click handling, board-click/hover-
+  highlight guards, the swatch colour) now checks `game_paused()`
+  (`game.winner != -1 && !win_acknowledged`) instead, so once
+  "Continue" is chosen, ordinary turn-based play resumes exactly as if
+  nothing had happened -- `game.winner` itself is never cleared (the
+  engine doesn't support un-winning), only the UI's *reaction* to it
+  changes. The Throw/Continue button's old "click it again to play a
+  new game" meaning is gone entirely -- New Game is now only reachable
+  through the win dialogue (or the iconbar menu, as before).
+- **Real engine bug found and fixed while wiring this up**: rule 9
+  ("remaining players may continue") was already the documented design
+  intent (see `docs/GAME_LOGIC.md`'s rule 9), but `ludo_move_pawn()`'s
+  six-goes-again check tested the global `g->winner == -1` rather than
+  the current player's own `all_pawns_finished()` -- meaning every
+  player lost their own bonus-roll-on-six the instant anyone won,
+  never noticed before since nothing previously kept playing past that
+  point to exercise it. Fixed, with a new regression test -- see
+  `docs/GAME_LOGIC.md`'s own "Round 7.35" entry.
+- **`setup_view_open()` now syncs from the live game** every time it's
+  opened, via a new `game_view_get_players()` getter -- previously it
+  only ever showed its own one-time hardcoded defaults or whatever the
+  user had last manually typed/toggled in a *previous* dialogue
+  session, never the actual running (or just-won) game's real
+  configuration. Falls back to the original hardcoded GREEN/RED/BLUE/
+  YELLOW/all-Human defaults only when `game_view_has_started()` is
+  still 0 (nothing to sync from yet). This satisfies both request
+  halves at once: clicking "New Game" from the win dialogue calls
+  `game_view_win_continue()` (marks the win acknowledged) before
+  `setup_view_open()`, so the game just finished is still "the live
+  game" at the moment the sync happens.
+- **Known, accepted rough edge**: the save-file format doesn't record
+  whether a winner had already been acknowledged -- reloading a saved
+  "continuing past a win" game re-shows the win dialogue once (a
+  single extra "Continue" click), rather than changing the save format
+  to track it.
+- Not yet confirmed live.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
@@ -2192,18 +2245,20 @@ ArchiLudo/
     ai.c               -- AI opponent move selection (portable, see docs/AI.md)
     game_view.c         -- the game window: creation, redraw, clicks, animation
     setup_view.c         -- the "New Game" dialogue: names, Human/AI per player
-    splash_view.c          -- the startup/About window (idi8b logo, version, author)
-    save_view.c              -- Save/Load dialogues + drag-and-drop file transfer
-    main.c                     -- WIMP shell (task lifecycle, iconbar, dispatch)
+    win_view.c            -- the "a player has won" Continue/New Game dialogue
+    splash_view.c           -- the startup/About window (idi8b logo, version, author)
+    save_view.c               -- Save/Load dialogues + drag-and-drop file transfer
+    main.c                      -- WIMP shell (task lifecycle, iconbar, dispatch)
   include/
     game_logic.h      -- rules engine API + full rules writeup
     board_layout.h     -- board geometry API
     ai.h                -- AI API
     game_view.h          -- game window API
     setup_view.h          -- setup dialogue API
-    splash_view.h           -- splash/About window API
-    save_view.h               -- Save/Load dialogue + drag-and-drop API
-    archiludo.h                 -- WIMP shell shared declarations
+    win_view.h             -- win-choice dialogue API
+    splash_view.h            -- splash/About window API
+    save_view.h                -- Save/Load dialogue + drag-and-drop API
+    archiludo.h                  -- WIMP shell shared declarations
   tests/
     test_game_logic.c   -- host-side automated test suite (`make test`)
     test_board_layout.c  -- ditto, for board_layout.c
