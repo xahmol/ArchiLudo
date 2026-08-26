@@ -221,7 +221,17 @@ def build_pawn_image(fill_rgb):
             elif silhouette_final.getpixel((x, y)) == 0:
                 colour = OUTLINE_COLOUR
             elif highlight_final.getpixel((x, y)):
-                colour = HIGHLIGHT_COLOUR if (x + y) % 2 == 0 else fill_rgb
+                # A sparser 1-in-4 dot grid, diagonally staggered every
+                # row (not a plain (x%4, y%4) grid, which would still
+                # read as straight vertical/horizontal dot columns) --
+                # per explicit user feedback that the previous 50%
+                # checkerboard read as solid diagonal LINES rather than
+                # a subtle dithered tint. The shadow dither below stays
+                # a full checkerboard (not asked to change, and being
+                # darker/subtler already, is less prone to reading as
+                # "lines" in the first place).
+                is_dot = (x + 2 * y) % 4 == 0
+                colour = HIGHLIGHT_COLOUR if is_dot else fill_rgb
             elif shadow_final.getpixel((x, y)):
                 colour = SHADOW_COLOUR if (x + y) % 2 == 0 else fill_rgb
             else:
