@@ -89,7 +89,7 @@ APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
 .SUFFIXES:
-.PHONY: all clean asm zip docs check-hostfs deploy test assets
+.PHONY: all clean asm zip docs check-hostfs deploy test assets export-sprites import-sprites
 
 all: $(APPFILES)
 
@@ -160,6 +160,18 @@ assets:
 	python3 assets/generate_placeholder_art.py
 	python3 assets/generate_icon_sprites.py
 	python3 assets/generate_app_icon.py
+
+# Hand pixel-editing round-trip (assets/edit/) -- see
+# assets/export_sprites_for_editing.py's own doc comment and
+# assets/edit/README.md (written by export-sprites) for the full
+# workflow. Not part of `assets`/`all` -- export-sprites is a one-off
+# setup step before editing, import-sprites is what actually needs
+# re-running (and re-deploying) after each edit.
+export-sprites:
+	python3 assets/export_sprites_for_editing.py
+
+import-sprites:
+	python3 assets/import_edited_sprites.py
 
 test: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "=== $$t ==="; ./$$t || exit 1; done

@@ -526,6 +526,54 @@ round-trip check, matching this project's usual convention of turning a
 manually-found bug into a permanent check rather than a one-off
 verification. Run with `python3 tools/test_riscos_sprite.py`.
 
+## Round 7.42: hand pixel-editing round-trip (`assets/edit/`)
+
+Per explicit user request ("save PNG versions... so i can try to pixel
+correct them in Photoshop... you can convert the edited version back to
+our application sprites"). Two new scripts, a matched export/import
+pair (see each one's own doc comment for the full detail):
+
+- `assets/export_sprites_for_editing.py` (`make export-sprites`) writes
+  every sprite this project ships (the 4 pawn colours, the 4 app-icon
+  size/aspect variants) into `assets/edit/` as plain PNGs -- both at
+  their real native resolution (e.g. 26x26 for a pawn -- too small to
+  usefully click individual pixels in most editors) and a
+  `Image.NEAREST`-upscaled 16x version (e.g. 416x416) meant to actually
+  be edited, since every source pixel becomes a clean, individually-
+  clickable 16x16 block. Also writes `assets/edit/README.md`, the
+  user-facing workflow instructions (open the `_16x.png`, hard-edged
+  pencil only, save over the same file, run the import script).
+- `assets/import_edited_sprites.py` (`make import-sprites`) downscales
+  each edited `_16x.png` back to native resolution via a
+  majority-colour-per-16x16-block vote (robust to a few stray pixels
+  near a block edge, unlike a plain corner-pixel-per-block downscale --
+  see `downscale_majority()`'s own doc comment), re-quantises against
+  the fixed Wimp palette exactly as `generate_icon_sprites.py`/
+  `generate_app_icon.py` already do, and rebuilds
+  `assets/PawnSprites`/`assets/!Sprites`/`assets/!Sprites22` directly
+  from the result -- bypassing the original Python-drawn designs
+  entirely for whichever sprites were actually edited. Sprites left
+  untouched in `assets/edit/` are rebuilt unchanged from their own
+  existing artwork, so it's safe to edit only some of them.
+
+**Why PNG, not PSD**: Pillow (the only image library available in this
+project's tooling) can only *read* PSD files, not write them, and
+there's no reliable pure-Python PSD writer to reach for instead. Not
+much of a loss here anyway -- every one of these sprites is already a
+single flat "layer" (solid colour regions plus a hard alpha mask, no
+blend modes or multiple layers to preserve), exactly what PNG
+represents natively; PNG is also the normal working format for pixel
+art at this scale in practice, not a compromise forced by tooling
+limits.
+
+**Verified lossless round-trip** before handing this off: ran export
+then import with zero edits made, and diffed the resulting
+`PawnSprites`/`!Sprites`/`!Sprites22` byte-for-byte against the
+originals -- identical. Also confirmed a real edit (painting one whole
+16x16 block a different flat colour) correctly propagates all the way
+through to the packed sprite file and the refreshed canonical native
+PNG.
+
 ## Updating this file
 
 Add a note here if a new mode/bpp is needed (update `MODES_BY_BPP` in the

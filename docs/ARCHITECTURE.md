@@ -2408,6 +2408,26 @@ target's own pixel space can't end up asymmetric the way a resampled
 rounded-rectangle can. Spot-checked at zoom in both sizes -- clean,
 symmetric square corners in both.
 
+**Round 7.42**: a hand pixel-editing round-trip for every sprite this
+project ships, per explicit user request ("save PNG versions or even
+better PSd versions of all sprites so i can try to pixel correct them
+in Photoshop... convert the edited version back to our application
+sprites"). Full writeup: `docs/GRAPHICS_TOOLING.md`'s own "Round 7.42"
+section. Two new scripts (`make export-sprites`/`make import-sprites`):
+`assets/export_sprites_for_editing.py` writes every sprite (4 pawns, 4
+app-icon variants) into `assets/edit/` as native-resolution PNGs plus
+16x-upscaled (`Image.NEAREST`, clean-block) editable copies, with a
+`README.md` explaining the workflow; `assets/import_edited_sprites.py`
+downscales any edited `_16x.png` back down via a majority-colour-per-
+block vote, re-quantises against the fixed Wimp palette, and rebuilds
+`assets/PawnSprites`/`assets/!Sprites`/`assets/!Sprites22` directly.
+PSD export wasn't possible (Pillow can only read PSD, not write it,
+and there's no reliable pure-Python alternative) -- PNG is the normal
+working format for this kind of flat, hard-edged pixel art anyway, not
+really a compromise. Verified lossless (export -> import with no edits
+reproduces the original packed sprite files byte-for-byte) and that a
+real edit correctly propagates through before handing this off.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

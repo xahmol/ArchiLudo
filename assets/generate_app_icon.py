@@ -413,8 +413,16 @@ def main():
     for p in rect_sprs:
         p.unlink()
     print(f"wrote {sprites}")
-    for p in [squished_full_png, squished_half_png]:
-        p.unlink()
+    # Round 7.42: squished_full_png/squished_half_png used to be deleted
+    # here -- kept now (renamed on disk to app_icon_full_rect.png/
+    # app_icon_half_rect.png just above) as stable, native-resolution
+    # reference artifacts, matching how the square-pixel app_icon_full/
+    # half.png and the pawn sprites' own pawn_iconN.png were already
+    # kept. See assets/export_sprites_for_editing.py, which exports all
+    # of these (plus nearest-neighbour-upscaled copies) for hand pixel-
+    # editing in an external tool, and assets/import_edited_sprites.py
+    # to convert edits back into the real packed sprite files.
+    print(f"wrote {squished_full_png}, {squished_half_png}")
 
 
 if __name__ == "__main__":
