@@ -1988,6 +1988,19 @@ the pawns less high an option?").
   before the next screenshot/Log can confirm whether this actually
   closes out the crop investigation.
 
+**Round 7.30**: `PAWN_SIZE` reduced again, 40 -> 36, per explicit live
+user report that round 7.29's 40 wasn't enough margin ("still see
+cropping... give 2 pixels top and bottom more margin, so making pawn 36
+instead of 40?") plus a direct question about the actual rendered size.
+Mode 15's Y axis is 4 OS units/physical pixel, so "2 pixels" of *extra*
+margin on each of the top/bottom edges technically works out closer to
+40 -> 24, but the user's own concrete number (36) was used as the
+instruction rather than the derived arithmetic -- see `PAWN_SIZE`'s own
+doc comment in `src/game_view.c` for the full reasoning, including the
+fallback os_plot circle radii at this size (`body_radius`=11,
+`head_radius`=6, `outline`=3, all `PAWN_SIZE`-derived) for reference.
+Not yet re-confirmed live.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

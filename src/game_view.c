@@ -46,21 +46,29 @@
  * Wimp_PlotIcon sprite path's icon extent (round 7.16/7.17's sprite
  * pivot -- see plot_pawn()'s own doc comment for the full history).
  *
- * Round 7.29: reduced from 48, per explicit user report/suggestion
- * after rounds 7.21-7.28's clip/erase-scoping investigation still
- * hadn't fully eliminated a persistent pawn crop ("Is making the pawns
- * less high an option?"). Whatever the exact remaining mechanism is
- * (PutSpriteScaled's own rendering under a non-square screen mode
- * plausibly painting a few OS units past the icon's nominal extent --
- * see cell_range_to_work_box()'s Round 7.27/7.28 history comment for
- * the theory -- rather than another clip-sizing bug, since round 7.28's
- * widened repaint should have caught any such bug and didn't), giving
- * the icon more margin inside its 64-unit cell (12 units/side at 40,
- * versus 8 at 48) makes the whole erase/redraw scoping far less
- * sensitive to being off by a few units, without having to pin down
- * that exact mechanism. Simpler and more robust than continuing to
- * chase exact clip-boundary correctness. */
-#define PAWN_SIZE     40
+ * Round 7.29 reduced this from 48 to 40 (12 units/side margin inside
+ * the 64-unit CELL, versus 8 at 48), per explicit user report/
+ * suggestion after rounds 7.21-7.28's clip/erase-scoping investigation
+ * still hadn't fully eliminated a persistent pawn crop -- giving the
+ * icon more margin makes the whole erase/redraw scoping far less
+ * sensitive to whatever the last few OS units of overflow actually are
+ * (still not pinned down with certainty; current theory is
+ * PutSpriteScaled's own rendering under a non-square screen mode
+ * painting a little past the icon's nominal extent -- see
+ * cell_range_to_work_box()'s Round 7.27/7.28 history comment), without
+ * needing to identify the exact mechanism first.
+ *
+ * Round 7.30: reduced again, 40 -> 36 (14 units/side margin), per
+ * explicit user report that 40 alone wasn't enough ("still see
+ * cropping... give 2 pixels top and bottom more margin"). Mode 15's Y
+ * axis is 4 OS units per physical pixel (see CLAUDE.md's Testing
+ * section), so "2 pixels" of EXTRA margin on each of the top/bottom
+ * edges would technically want 2*4*2 = 16 more OS units off the height
+ * (40 -> 24) -- but the user's own follow-up number (36, a 4-unit
+ * reduction) was taken as the concrete instruction over the derived
+ * arithmetic, since a bigger jump risks looking too small before it's
+ * confirmed how much margin is actually needed. */
+#define PAWN_SIZE     36
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
  * action status, the current die face (round 6.3 -- GEOS's own
