@@ -87,6 +87,42 @@ WORK = 320
 FULL = 34
 HALF = 17
 
+# Round 7.39: the raw (unscaled) design below spans x=18..306/y=8..306 --
+# only 8-18 WORK units of margin per side before OUTLINE_DILATE_WORK-
+# style dilation even runs, nowhere near enough once that dilation is
+# 18 (round 7.38's widening, for NEAREST-resize robustness -- see
+# build_icon_image()'s own comment). Per live user report ("top black
+# line missing"), the dilated outline was being clipped against the
+# WORK canvas boundary itself before the sprite ever reached
+# Wimp_PlotIcon -- the exact same class of bug
+# assets/generate_icon_sprites.py's CONTENT_SCALE fixed for the pawn
+# sprites in round 7.33 (see that file's own doc comment for the full
+# mechanism). Fixed the same way here: CONTENT_SCALE shrinks every
+# drawn coordinate below around CONTENT_CENTRE via sc()/sc_pts(),
+# giving every edge real margin instead of resizing the canvas or
+# hand-adjusting each hand-picked coordinate.
+CONTENT_SCALE = 0.85
+CONTENT_CENTRE = WORK / 2
+
+
+def sc(*coords):
+    """Scale a flat x,y,x,y,... coordinate sequence around CONTENT_CENTRE
+    by CONTENT_SCALE -- see CONTENT_SCALE's own comment for why."""
+    return tuple(CONTENT_CENTRE + (c - CONTENT_CENTRE) * CONTENT_SCALE for c in coords)
+
+
+def sc_pts(points):
+    """Same as sc(), but for a list of (x, y) point tuples (PIL's
+    polygon() argument form)."""
+    return [tuple(sc(x, y)) for x, y in points]
+
+
+def sc_len(length):
+    """Scale a plain length/radius (not a coordinate -- no CONTENT_CENTRE
+    offset) by CONTENT_SCALE, for radii/step sizes computed independently
+    of sc()'s own coordinate scaling."""
+    return length * CONTENT_SCALE
+
 
 def draw_icon(draw):
     """
@@ -104,31 +140,42 @@ def draw_icon(draw):
     # Pawn -- simplified (no neck-collar/base-ring detail, which would
     # be lost at 17x17 anyway): a round head, a tapering stem, one
     # flared base. Occupies the canvas's left ~60%, full height.
-    draw.ellipse((26, 74, 158, 206), fill=255)              # head
-    draw.polygon([(64, 176), (120, 176), (140, 272), (44, 272)], fill=255)  # stem
-    draw.rounded_rectangle((18, 268, 166, 306), radius=14, fill=255)        # base
+    draw.ellipse(sc(26, 74, 158, 206), fill=255)              # head
+    draw.polygon(sc_pts([(64, 176), (120, 176), (140, 272), (44, 272)]), fill=255)  # stem
+    draw.rounded_rectangle(sc(18, 268, 166, 306), radius=sc_len(14), fill=255)      # base
 
     # Die -- a rounded square overlapping the pawn's upper-right
     # shoulder, per a common two-object icon composition (see this
     # file's module docstring). Shows face "5" -- the most
     # recognisably-a-die pip pattern at a glance, matching
     # src/game_view.c's own plot_dice() face layout.
-    draw.rounded_rectangle((150, 8, 306, 164), radius=18, fill=255)
+    draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
 
 
 def die_pips(draw):
     # Face "5": four corners + centre, same layout as game_view.c's
     # plot_dice() pips[4] entry -- kept visually consistent with the
     # in-game die rather than inventing a different pip arrangement.
+    # Raw (unscaled) die bounding box, then sc() to match draw_icon()'s
+    # own scaling of the same shape -- computing the centre points in
+    # raw space first and scaling each one keeps this exactly in step
+    # with the die's own outline regardless of CONTENT_SCALE's value.
     cx0, cy0, cx1, cy1 = 150, 8, 306, 164
     step = (cx1 - cx0) / 4
-    # Round 7.38: widened 14 -> 17 for the same NEAREST-sampling
-    # robustness reason as outline_dilate above.
-    r = 17
+    # Round 7.39: SQUARE pips, not circles -- per live user report that
+    # the pips "look bit weird and uneven". A small circle downsampled
+    # by NEAREST point-sampling has no guarantee any given row/column
+    # of samples passes through its centre, so different pips (whose
+    # exact sub-pixel position varies slightly) can end up looking like
+    # different, irregular blob shapes. A square's straight edges align
+    # far more predictably with a NEAREST sample grid at these sizes --
+    # the same reasoning that already favoured a flat rounded_rectangle
+    # for the die's own outline over a circle. Round 7.38's radius (17)
+    # kept as the half-size here (now scaled).
+    half = sc_len(17)
     for gx, gy in ((0, 0), (2, 0), (1, 1), (0, 2), (2, 2)):
-        px = cx0 + step + gx * step
-        py = cy0 + step + gy * step
-        draw.ellipse((px - r, py - r, px + r, py + r), fill=255)
+        px, py = sc(cx0 + step + gx * step, cy0 + step + gy * step)
+        draw.rectangle((px - half, py - half, px + half, py + half), fill=255)
 
 
 def build_icon_image():
@@ -147,7 +194,7 @@ def build_icon_image():
 
     die_only = Image.new("L", (WORK, WORK), 0)
     draw = ImageDraw.Draw(die_only)
-    draw.rounded_rectangle((150, 8, 306, 164), radius=18, fill=255)
+    draw.rounded_rectangle(sc(150, 8, 306, 164), radius=sc_len(18), fill=255)
 
     pips = Image.new("L", (WORK, WORK), 0)
     die_pips(ImageDraw.Draw(pips))

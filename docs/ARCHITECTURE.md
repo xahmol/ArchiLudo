@@ -2327,6 +2327,35 @@ itself: anti aliassing makes it fuzzy").
   Filer-scan quirk is also possible, separate from anything this
   project's own code controls).
 
+**Round 7.39**: app icon fully working (Filer directory icon confirmed
+live -- round 7.38's lowercase-sprite-name theory was correct), two
+follow-up fixes per live user report ("pips of dice look bit weird and
+uneven though and top black line missing").
+
+- **Top outline missing -- same bug class as round 7.33's pawn sprite,
+  just not caught in time**: the die's own top edge (`y=8` in the raw
+  design) minus round 7.38's widened `outline_dilate` (18) goes
+  negative, clipping the dilated outline against the `WORK` canvas
+  boundary itself. Checking the full combined pawn+die bounding box
+  afterwards showed every edge was actually at risk (margins from -10
+  to 0 units after dilation), not just the top -- the user's report
+  happened to name the most visible one. Fixed the same way as round
+  7.33: a new `CONTENT_SCALE = 0.85` (`assets/generate_app_icon.py`)
+  shrinks every drawn coordinate around the canvas centre via new
+  `sc()`/`sc_pts()`/`sc_len()` helpers, giving 12-21 units of real
+  margin on every edge instead of hand-adjusting each coordinate.
+  Verified this time by checking the actual generated alpha channel's
+  four edges are fully transparent (zero) before even looking at a
+  render, not just visually spot-checking.
+- **Uneven pips -- switched from circles to squares**: a small circle
+  downsampled by `NEAREST` point-sampling has no guarantee any given
+  row/column of samples passes through its centre, so different pips
+  (whose exact sub-pixel position varies slightly) ended up looking
+  like different, irregular blob shapes. A square's straight edges
+  align far more predictably with a `NEAREST` sample grid at these
+  sizes -- the same reasoning that already favoured the die's own flat
+  `rounded_rectangle` outline over a circular one.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
