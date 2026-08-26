@@ -2130,6 +2130,46 @@ verification" habit).
   were checked directly against the regenerated PNG. Not yet re-
   confirmed live in Arculator.
 
+**Round 7.34**: a small, pragmatic fix for the last piece of the crop
+investigation, per direct live user diagnosis after round 7.33's fix
+("did not solve the cropping though when something moves passed" --
+i.e. a *different*, smaller crop than round 7.33's, only during nearby
+animation) plus a precise visual comparison against the cell's own
+marker circle ("Pawn does not stick above the circle at the top... but
+does stick out of the circle at the bottom") and a direct suggestion
+("Can't we move pawn slightly up?").
+
+- **This confirms round 7.27's original diagnosis was right all
+  along**, just never landed cleanly: `cell_range_to_work_box()`'s own
+  `+8` request-box padding (on `y1` only, needed for its own PRM-
+  documented reason -- round 7.21/7.22) can still bleed up to 8 OS
+  units into the row *above* a redraw box's own `row0`, eating into
+  that row's bottom edge. `PAWN_SIZE=52` in the 64-unit `CELL` only
+  gives 6 units of margin per side -- less than the 8-unit worst case
+  -- so a pawn's bottom edge can still be reached by up to 2 of those
+  units. (Rounds 7.27/7.28 tried to fix this at the erase/repaint level
+  twice and both attempts were reverted for other costs -- narrowing
+  the erase caused an under-erase trail, widening the repaint cost
+  visible flicker for no benefit -- see their own history entries.)
+- **Fix**: a new `PAWN_Y_NUDGE = 4` (`src/game_view.c`) shifts a pawn's
+  own centre up by 4 OS units in `plot_pawn()`, applied uniformly to
+  both the static and mid-animation position -- giving the bottom edge
+  10 units of clearance (comfortably past the 8-unit worst case) at the
+  cost of only 2 off the top's spare margin. Safe specifically because
+  the padding is asymmetric (`y1` only, never `y0`) -- nothing
+  analogous ever bleeds downward into a pawn's top from the row above,
+  confirmed by the user's own live visual comparison.
+- Much lower-risk than another attempt at precisely re-tuning the
+  erase/redraw clip boundaries a third time -- a plain position offset
+  can't introduce a new class of bug the way narrowing an erase
+  rectangle or widening a repaint range already has, twice. The user
+  also offered reverting the whole sprite pivot back to `os_plot`
+  circles as an alternative if this round still didn't hold -- worth
+  keeping in mind as a fallback, but not taken here since this fix is
+  simple, targeted, and directly derived from a precise live
+  measurement rather than another theory.
+- Not yet re-confirmed live.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

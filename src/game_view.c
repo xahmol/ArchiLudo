@@ -79,6 +79,23 @@
  * enough to contain the sprite with no dead padding. */
 #define PAWN_SIZE     52
 
+/* Round 7.34: how far up (in OS units) plot_pawn() shifts a pawn's own
+ * centre from its cell's true centre -- see plot_pawn()'s own doc
+ * comment for the full derivation. Cell_range_to_work_box()'s +8
+ * request-box padding (needed for its own reason, on y1 only) can
+ * still bleed up to 8 OS units into the row ABOVE a redraw box's own
+ * row0, eating into that row's bottom edge; PAWN_SIZE=52 in the
+ * 64-unit CELL only gives 6 units of margin there (less than 8), so a
+ * pawn's bottom edge can still be reached by 2 of those units. Shifting
+ * the pawn's centre up by 4 gives the bottom edge 10 units of
+ * clearance (comfortably past the 8-unit worst case) while costing the
+ * top edge only 2 (6-4), which is safe: the same padding is never
+ * applied to a box's y0/lower edge, so nothing analogous ever bleeds
+ * downward into a pawn's top from the row above -- confirmed live by
+ * the user's own comparison against the cell's marker circle ("does
+ * not stick above... but does stick out... at the bottom"). */
+#define PAWN_Y_NUDGE 4
+
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
  * action status, the current die face (round 6.3 -- GEOS's own
  * dice1..6.gbm, see plot_dice(); previously nothing showed the roll's
@@ -847,6 +864,27 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 
 		cell_centre_work(cell.col, cell.row, &wx, &wy);
 	}
+	/* Round 7.34: nudge the pawn's own centre up by a few OS units --
+	 * per explicit live user report/diagnosis after round 7.33 fixed
+	 * the sprite's own generation margin but a smaller crop persisted
+	 * specifically "when something moves passed" ("Pawn does not stick
+	 * above the circle at the top... but does stick out of the circle
+	 * at the bottom"). That's consistent with round 7.27's original
+	 * (correct) diagnosis, never actually fully resolved: cell_range_
+	 * to_work_box()'s own +8 request padding (needed for its own
+	 * documented reason, see that function's doc comment) is on y1 --
+	 * the numerically-larger/visually-upper edge of a redraw box -- so
+	 * it can still bleed into the row ABOVE the redraw range from that
+	 * row's own bottom edge, and the sprite's real per-side margin (6
+	 * units at PAWN_SIZE=52 in a 64-unit CELL) is less than that 8-unit
+	 * pad. Rather than re-attempt precisely re-tuning the erase/request
+	 * clip boundaries again (rounds 7.27/7.28 already tried narrowing
+	 * the erase and widening the repaint, respectively, and both were
+	 * reverted for other costs -- see docs/ARCHITECTURE.md's history),
+	 * simply give the bottom edge more of the pawn's own existing spare
+	 * top margin instead -- cheap, low-risk, and directly matches what
+	 * the user visually confirmed has room to give. */
+	wy += PAWN_Y_NUDGE;
 	cx = origin_x + wx;
 	cy = origin_y + wy;
 
