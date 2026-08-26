@@ -1169,8 +1169,16 @@ static void update_move_animation_area(void)
 
 		/* Erase whatever the previous tick left here first -- see
 		 * fill_window_background()'s doc comment for why this is
-		 * necessary with Wimp_UpdateWindow specifically. */
-		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
+		 * necessary with Wimp_UpdateWindow specifically. Round 7.21:
+		 * this used to erase redraw.box, not redraw.clip -- see
+		 * update_dice_area()'s doc comment for why that's wrong
+		 * (.box is the window's WHOLE visible area, not the small
+		 * region actually being updated), which meant every single
+		 * tick of this animation wiped the *entire visible window* to
+		 * background colour, not just this small few-cell patch --
+		 * exactly the "everything on screen redraws" symptom reported
+		 * live. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}
@@ -1195,18 +1203,25 @@ static void update_dice_area(void)
 
 	redraw.w = window_handle;
 	redraw.box.x0 = DICE_CENTRE_X - DICE_SIZE / 2;
-	redraw.box.x1 = DICE_CENTRE_X + DICE_SIZE / 2;
 	redraw.box.y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
-	redraw.box.y1 = DICE_CENTRE_Y + DICE_SIZE / 2;
+	/* +4/+8 padding on the upper bounds only (round 7.21) -- per the PRM
+	 * (wimp.html's Wimp_UpdateWindow entry), the request block's maximum
+	 * x/y are EXCLUSIVE ("work area maximum x coordinate (exclusive)"),
+	 * unlike fill_rect()'s os_PLOT_RECTANGLE, which treats its own x1/y1
+	 * as INCLUSIVE (paints through that coordinate). Requesting exactly
+	 * DICE_CENTRE+SIZE/2 as an exclusive upper bound can come back with
+	 * an actual paintable clip one pixel short of what plot_dice() then
+	 * tries to fill -- matching the reported symptom exactly (only the
+	 * *upper* edges, top and right, cropped; x0/y0 are lower/inclusive-
+	 * either-way bounds and were never affected). Padding is deliberately
+	 * larger than the minimum one-pixel gap (2 OS units in mode 15's X,
+	 * 4 in Y) needs, since asking for a slightly bigger update region
+	 * than strictly necessary is harmless -- the Wimp still clips to
+	 * whatever's actually visible/exposed -- while asking for too little
+	 * silently crops content with no error anywhere. */
+	redraw.box.x1 = DICE_CENTRE_X + DICE_SIZE / 2 + 4;
+	redraw.box.y1 = DICE_CENTRE_Y + DICE_SIZE / 2 + 8;
 
-	/* Temporary diagnostic (round 7.21) -- per explicit user report that
-	 * the die's top and right border lines are cropped/halved on real
-	 * Arculator rendering, remove once diagnosed. Logs both what was
-	 * REQUESTED (before wimp_update_window()) and what the Wimp actually
-	 * REPORTS back on each iteration -- if these differ, the Wimp itself
-	 * is clipping the update to something smaller than the die's full
-	 * box; if they match, the bug is downstream (plot_dice()'s own
-	 * fill_rect() calls or a pixel-rounding effect), not this request. */
 	debug_log("update_dice_area: requested box=(%d,%d,%d,%d)\n",
 	          redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
 
@@ -1356,8 +1371,10 @@ static void update_highlight_area(void)
 		/* See fill_window_background()'s doc comment -- the ring's own
 		 * radius extends past the marker/pawn underneath it, so without
 		 * this a thin remnant of the "on" phase ring could survive an
-		 * "off" phase. */
-		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
+		 * "off" phase. Round 7.21: erase redraw.clip, not redraw.box --
+		 * see update_dice_area()'s doc comment; .box is the whole
+		 * window's visible area, not this small region. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
@@ -1475,7 +1492,10 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
-		fill_window_background(redraw.box.x0, redraw.box.y0, redraw.box.x1, redraw.box.y1);
+		/* Round 7.21: erase redraw.clip, not redraw.box -- see
+		 * update_dice_area()'s doc comment; .box is the whole window's
+		 * visible area, not this small region. */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
 	}

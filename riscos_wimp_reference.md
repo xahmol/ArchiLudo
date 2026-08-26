@@ -165,16 +165,51 @@ rectangles to be updated are **not** cleared by the Wimp first" and "this
 can be called **at any time**, not just in response to a
 `Redraw_Window_Request`." The critical difference from
 `Wimp_RedrawWindow`, easy to get wrong: **`Wimp_UpdateWindow` takes the
-rectangle as *input*** (`w, x0, y0, x1, y1`, all in work-area OS units),
-not output — only `.w` is meaningful on entry to `Wimp_RedrawWindow`,
-where the Wimp computes the redraw rectangle itself, but
-`Wimp_UpdateWindow` needs the caller to supply `.box` (and, per OSLib's
-`wimp_draw` struct, that's the same field `Wimp_RedrawWindow` treats as
-output-only) *before* the call. Leaving it as uninitialised stack
-garbage produces a nonsense "rectangle" and the SWI reports nothing to
-redraw — `more` comes back false immediately, and the drawing call
-inside the loop never runs at all, which reads exactly like "nothing
-happens," not an obvious "wrong input" error. The correct shape:
+rectangle as *input*** (`w, x0, y0, x1, y1`, work-area OS units, upper
+bounds **exclusive** — see below), not output — only `.w` is meaningful
+on entry to `Wimp_RedrawWindow`, where the Wimp computes the redraw
+rectangle itself, but `Wimp_UpdateWindow` needs the caller to supply
+`.box` before the call. Leaving it as uninitialised stack garbage
+produces a nonsense "rectangle" and the SWI reports nothing to redraw —
+`more` comes back false immediately, and the drawing call inside the
+loop never runs at all, which reads exactly like "nothing happens," not
+an obvious "wrong input" error.
+
+**A second, easy-to-miss field mistake, found the hard way (ArchiLudo
+round 7.21) after the pattern above had already been "working" for
+several rounds**: `wimp_draw`'s `.box` field means something **different
+on output than the paragraph above's INPUT use might suggest** — per the
+PRM (`wimp.html`'s `Wimp_RedrawWindow` entry, whose block format
+`Wimp_UpdateWindow` explicitly shares): once inside the `while (more)`
+loop, `.box` holds **the window's whole VISIBLE AREA in screen
+coordinates** ("the first four words are the position of the window's
+work area on the screen"), not the small rectangle actually being
+updated this iteration. The rectangle you actually want — "an area
+within the visible work area... The graphics clip window is set to the
+returned rectangle" — is a **separate field entirely**, `.clip` (OSLib's
+`wimp_draw` struct: `w, box, xscroll, yscroll, clip`, matching the PRM's
+own R1+28..40 "current graphics window" words). Confirmed directly from
+a real Log capture: a `Wimp_UpdateWindow` requesting a tiny 72x72-unit
+box came back with `.box` exactly equal to the *entire window's*
+on-screen extent, unrelated in scale to what was asked for.
+
+**Why this matters, concretely**: the OS automatically clips actual
+drawing to `.clip` regardless of what your own code reads, so a leaf
+drawing function that always paints its full intended area (like a
+die face that fills its whole box every call) can still end up
+silently cropped if `.clip` — for whatever reason, e.g. an
+inclusive/exclusive boundary mismatch, see below — comes back smaller
+than intended; nothing errors, content is just quietly missing on
+specific edges. Far worse: an **erase-before-draw step is not
+automatically clipped in the same forgiving way** — if you erase using
+`.box` (the whole visible window) instead of `.clip` (the actual small
+region), you wipe the **entire visible window** to background colour on
+every single tick of what was meant to be a small scoped update,
+producing a full-window flash/redraw on every animation frame — a bug
+that can hide in plain sight for a long time, since the small content
+drawn back on top *looks* like a correctly-scoped update, and the
+damage (everything else transiently going blank) can read as "the whole
+UI flickers" rather than pointing at the actual mechanism.
 
 ```c
 wimp_draw redraw;
@@ -182,17 +217,37 @@ osbool more;
 
 redraw.w = window_handle;
 redraw.box.x0 = ...; redraw.box.y0 = ...;  /* work-area coords, INPUT */
-redraw.box.x1 = ...; redraw.box.y1 = ...;
+redraw.box.x1 = ...; redraw.box.y1 = ...;  /* upper bounds EXCLUSIVE */
 
 more = wimp_update_window(&redraw);
 while (more) {
     int origin_x = redraw.box.x0 - redraw.xscroll;
     int origin_y = redraw.box.y1 - redraw.yscroll;
+    /* Erase using redraw.CLIP, never redraw.box (see above) -- .clip is
+     * the actual small paintable rectangle this iteration, in screen
+     * coordinates, already clipped to whatever's visible/exposed. */
+    fill_window_background(redraw.clip.x0, redraw.clip.y0,
+                            redraw.clip.x1, redraw.clip.y1);
     /* draw the small changed area here, inline, every iteration --
      * there is no later Redraw_Window_Request coming for this call */
     more = wimp_get_rectangle(&redraw);
 }
 ```
+
+**A third, related subtlety, also from round 7.21**: the PRM states the
+*input* box's maximum x/y ("work area maximum x coordinate") are
+**exclusive**, unlike `OS_Plot`'s own rectangle-fill (`os_PLOT_RECTANGLE`),
+which treats its own x1/y1 as *inclusive* (paints through that
+coordinate). Requesting an update box whose x1/y1 exactly equal the
+content's true edge can come back with a paintable `.clip` one pixel
+short of what the content then tries to fill — visible as a crop on
+just the *upper* edges (the maximum-x/max-y sides), never the lower
+ones, since only the upper bound has the inclusive/exclusive ambiguity.
+Padding the requested box's x1/y1 by a little more than one pixel's
+worth (in whatever the target mode's OS-units-per-pixel happens to be)
+is a cheap, safe guard — over-requesting is harmless (the Wimp still
+clips to what's actually exposed), under-requesting silently crops
+content with no error anywhere.
 
 Confirmed against real, shipped example code, not just the PRM's
 one-line description: `github.com/marutan/ro-chess`'s `icon_update()`

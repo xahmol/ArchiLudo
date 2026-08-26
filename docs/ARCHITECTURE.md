@@ -1638,6 +1638,69 @@ distinct home-column squares. New direct unit test:
 `test_second_finishing_pawn_lands_one_square_short()`, the exact
 reported scenario.
 
+**Round 7.21**: a genuinely significant redraw bug, found while chasing
+what looked at first like a small, cosmetic report ("die picture crops
+the upper black line and halves the right black line"). Static analysis
+of `plot_dice()`/`update_dice_area()`'s coordinate math found nothing --
+everything landed on clean mode-15 pixel-boundary multiples -- so
+diagnostic logging was added instead (this project's established
+practice for "code looks right, screen is wrong" bugs). The Log
+capture revealed the real story: **`wimp_draw`'s `.box` field, once
+inside the `while (more)` redraw loop, is the window's *entire visible
+area* in screen coordinates, not the small rectangle actually being
+updated** -- confirmed directly against the PRM (`wimp.html`'s
+`Wimp_RedrawWindow` entry, whose block format `Wimp_UpdateWindow`
+shares: "the first four words are the position of the window's work
+area on the screen"). The *actual* per-iteration paintable rectangle is
+a separate field, `.clip` ("current graphics window... an area within
+the visible work area... The graphics clip window is set to the
+returned rectangle") -- which this project's entire scoped-redraw
+machinery, built up across rounds 7.10-7.20, had never once read or
+used.
+
+This turned out to have two distinct consequences, of very different
+severity:
+
+- **The die crop itself**: `plot_dice()` always paints its whole
+  intended box unconditionally, relying on the OS's automatic clip
+  (set to `.clip`) to restrict it correctly -- so if `.clip` came back
+  even slightly smaller than the die's box on specific edges, the
+  excess would be silently cropped with no error anywhere. The PRM
+  separately notes the *input* box's maximum x/y are **exclusive**,
+  unlike `os_PLOT_RECTANGLE`'s own inclusive x1/y1 -- exactly explaining
+  why only the *upper* edges (top, right) were affected and never the
+  lower ones. Fixed by padding `update_dice_area()`'s requested box's
+  x1/y1 by a few OS units (over-requesting is harmless; under-
+  requesting silently crops).
+- **A much bigger, previously-undiagnosed bug**: `update_move_animation_area()`,
+  `update_highlight_area()`, and `update_settle_diff_area()` all erase
+  their scoped region with `fill_window_background(redraw.box.x0, ...)`
+  before redrawing content -- since `.box` is actually the *entire
+  visible window*, not the small few-cell region these functions
+  compute and request, **every single tick of every one of these
+  animations was wiping the whole visible window to background colour**,
+  not just the small intended patch -- exactly matching a live user
+  report ("everything on screen redraws on every dice throw") that,
+  until this point, had no explained mechanism. `redraw_now()` has the
+  same `.box`-based erase call, but is unaffected -- it deliberately
+  requests the *entire* window already, so erasing "the whole visible
+  area" there is what was wanted all along, not a bug. Fixed by
+  switching the three genuinely-scoped functions to erase
+  `redraw.clip` instead.
+
+**Why this survived rounds 7.10 through 7.20 despite repeated live
+testing**: the small content drawn back on top of the (wrongly) fully-
+erased window *looks* like a correctly-scoped update in isolation --
+the visible symptom is "everything else transiently flashes/goes blank
+around the small thing that changed," which reads as general UI
+flicker rather than pointing at a specific mechanism, especially once
+several rounds of *other*, real flicker fixes (Wimp_ForceRedraw ->
+Wimp_UpdateWindow, animation-segment scoping, settle-diff scoping) had
+already visibly improved things. Documented as a general lesson (not
+project-specific) in `riscos_wimp_reference.md`'s "Animating a small
+region..." section, both project and canonical `~/.claude/` copies, so
+this exact field confusion doesn't recur in a future project.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
