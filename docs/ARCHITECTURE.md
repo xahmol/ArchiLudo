@@ -2270,6 +2270,27 @@ gotcha, the `*RMEnsure` toolchain-specificity point).
   appearance under at least one square and one non-square screen mode
   per this project's own multi-mode testing convention).
 
+**Round 7.37**: fixed a plain oversight in round 7.36 -- the whole
+app-icon sprite/`IconSprites` pipeline was built and deployed, but
+`main.c`'s `create_iconbar_icon()` was never actually changed to use
+it, per live user report ("application dir works, but sprite does not
+render... task bar icon is still the old AL letter one"). Changed from
+a plain-text `"AL"` icon (`wimp_ICON_TEXT`) to a sprite icon
+(`wimp_ICON_SPRITE`, `data.sprite = "!ArchiLudo"`) -- no local sprite
+area needed, since `app/!Run`'s `IconSprites` line already loads it
+into the Wimp's shared sprite pool before this task's `Wimp_Initialise`
+even runs.
+
+The Filer's OWN icon for the `!ArchiLudo` directory itself (as opposed
+to the iconbar icon this round fixes) is a separate mechanism -- per
+Fryatt's tutorial, the Filer only probes a directory's `!Sprites` file
+the first time it scans the folder *containing* it, so a Filer window
+that was already open (or already scanned hostfs) before `!Sprites`
+existed there won't retroactively pick it up without being closed and
+reopened (or the parent re-viewed fresh) -- not necessarily a code bug,
+unconfirmed until re-tested after a Filer window refresh specifically
+(not just relaunching the app itself, which is a different window).
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

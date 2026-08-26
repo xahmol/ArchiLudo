@@ -27,6 +27,29 @@ static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
  *          the first time, or reopens the game already in progress
  *          afterwards (see main_dispatch(), game_view_has_started());
  *          MENU click shows the shared app menu.
+ *
+ *          Round 7.37: plots the real "!ArchiLudo" sprite (a red pawn
+ *          beside a die -- see assets/generate_app_icon.py,
+ *          docs/BUILDCHAIN.md's "Application directory" section) instead
+ *          of the placeholder "AL" text icon this used before the round
+ *          7.36 application-directory work -- that work built and
+ *          deployed the sprite but never actually wired the iconbar icon
+ *          to use it, a plain oversight found via live user report ("task
+ *          bar icon is still the old AL letter one"). Plain (non-
+ *          indirected) sprite icon: `app/!Run`'s `IconSprites
+ *          <ArchiLudo$Dir>.!Sprites` line (run before this task even
+ *          starts, see main()'s own doc comment -- Wimp_Initialise
+ *          happens after !Run's IconSprites line executes) has already
+ *          loaded "!ArchiLudo"/"sm!ArchiLudo" into the Wimp's shared
+ *          sprite pool by the time this runs, so no local sprite area is
+ *          needed here (contrast game_view.c's pawn sprites, which use a
+ *          private malloc()'d area precisely because THEY aren't meant to
+ *          be globally shared). Falls back to the Wimp's own generic
+ *          "application" pool sprite if "!ArchiLudo" isn't found for any
+ *          reason (e.g. run directly as a bare file during development,
+ *          bypassing !Run) -- this is Wimp_CreateIcon's own standard
+ *          missing-sprite behaviour, nothing this code needs to handle
+ *          explicitly.
  */
 static void create_iconbar_icon(void)
 {
@@ -37,11 +60,9 @@ static void create_iconbar_icon(void)
 	iconbar_icon.icon.extent.y0 = 0;
 	iconbar_icon.icon.extent.x1 = 68;
 	iconbar_icon.icon.extent.y1 = 68;
-	iconbar_icon.icon.flags = wimp_ICON_TEXT | wimp_ICON_HCENTRED | wimp_ICON_VCENTRED
+	iconbar_icon.icon.flags = wimp_ICON_SPRITE | wimp_ICON_HCENTRED | wimp_ICON_VCENTRED
 	                        | (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	iconbar_icon.icon.data.text[0] = 'A';
-	iconbar_icon.icon.data.text[1] = 'L';
-	iconbar_icon.icon.data.text[2] = '\0';
+	strncpy(iconbar_icon.icon.data.sprite, "!ArchiLudo", 12);
 
 	wimp_create_icon(&iconbar_icon);
 }
