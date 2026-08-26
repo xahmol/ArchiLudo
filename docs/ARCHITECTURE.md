@@ -1955,6 +1955,39 @@ pawn images.
   screenshot/Log can tell us whether both the crop AND the trail are
   actually gone together.
 
+**Round 7.29**: stepped back from the clip/erase-scoping chase (rounds
+7.21-7.28) per explicit live user report/suggestion -- round 7.28's
+wider repaint neither fixed the crop nor was worth its own cost ("Still
+cropped pawns, and the wide repaint increases the flicker. Is making
+the pawns less high an option?").
+
+- **Reverted** round 7.28's one-extra-cell-wider `draw_board_region()`
+  repaint in all three of `update_move_animation_area()`/
+  `update_highlight_area()`/`update_settle_diff_area()` back to the
+  plain, tight `col0..col1`/`row0..row1` range (matching round
+  7.21-7.26) -- it added a real, reported flicker cost without actually
+  fixing the crop, so there was no reason to keep it.
+- **`PAWN_SIZE` reduced from 48 to 40** (`src/game_view.c`) -- the
+  user's own suggestion, and a more robust fix than continuing to chase
+  the exact remaining clip/erase-boundary edge case: since
+  `Wimp_PlotIcon`'s icon extent is what `PutSpriteScaled` scales the
+  sprite *to*, shrinking it gives the icon more margin inside its fixed
+  64-unit cell (12 units/side at 40, versus 8 at 48) -- roughly 50% more
+  headroom -- so whatever the last few OS units of overflow actually are
+  (still not pinned down with certainty; the current working theory,
+  recorded in `cell_range_to_work_box()`'s history comment, is
+  `PutSpriteScaled`'s own rendering under the non-square screen modes
+  this project must support painting a little past the icon's nominal
+  extent) become far less likely to reach a cell boundary at all,
+  without needing to identify the exact mechanism first. Also fixed a
+  stale doc comment on `PAWN_SIZE` left over from round 6.3 (claimed
+  "this project no longer plots any sprites at all", predating round
+  7.16/7.17's sprite pivot entirely).
+- Not yet re-confirmed live -- as with every round since 7.25, needs a
+  full quit-and-relaunch in Arculator (not just hostfs replacement)
+  before the next screenshot/Log can confirm whether this actually
+  closes out the crop investigation.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

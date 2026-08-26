@@ -41,12 +41,26 @@
  * ArchiLudo's earlier solid square grid. */
 #define MARKER_RADIUS 22
 
-/* Pawn's on-screen size in OS units (square) -- see plot_pawn(). Round
- * 6.3 dropped sprite-based pawn art (see that function's doc comment)
- * for a programmatically-drawn shape, same as board entry markers
- * (round 6.1, see plot_start_marker()) and dice (round 6.3, see
- * plot_dice()) -- this project no longer plots any sprites at all. */
-#define PAWN_SIZE     48
+/* Pawn's on-screen size in OS units (square) -- see plot_pawn(). Used
+ * both for the os_plot fallback's circle radii and for the real
+ * Wimp_PlotIcon sprite path's icon extent (round 7.16/7.17's sprite
+ * pivot -- see plot_pawn()'s own doc comment for the full history).
+ *
+ * Round 7.29: reduced from 48, per explicit user report/suggestion
+ * after rounds 7.21-7.28's clip/erase-scoping investigation still
+ * hadn't fully eliminated a persistent pawn crop ("Is making the pawns
+ * less high an option?"). Whatever the exact remaining mechanism is
+ * (PutSpriteScaled's own rendering under a non-square screen mode
+ * plausibly painting a few OS units past the icon's nominal extent --
+ * see cell_range_to_work_box()'s Round 7.27/7.28 history comment for
+ * the theory -- rather than another clip-sizing bug, since round 7.28's
+ * widened repaint should have caught any such bug and didn't), giving
+ * the icon more margin inside its 64-unit cell (12 units/side at 40,
+ * versus 8 at 48) makes the whole erase/redraw scoping far less
+ * sensitive to being off by a few units, without having to pin down
+ * that exact mechanism. Simpler and more robust than continuing to
+ * chase exact clip-boundary correctness. */
+#define PAWN_SIZE     40
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
  * action status, the current die face (round 6.3 -- GEOS's own
@@ -1266,34 +1280,14 @@ static void update_move_animation_area(void)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.28 (replaces round 7.27's ERASE_CLAMP_MAX attempt -- see
-	 * that macro's doc comment for the bleed problem it was chasing).
-	 * Round 7.27 shrank the ERASE to the true, unpadded cell edge, which
-	 * did stop it bleeding into a neighbour's territory -- but per
-	 * explicit live user report ("pawn is now not erased", a visible
-	 * multi-frame trail), it also stopped erasing whatever a pawn's OWN
-	 * real Wimp_PlotIcon-rendered footprint paints in that same padding
-	 * zone on the tick(s) it's the *animating* pawn itself: the +8 pad
-	 * was quietly serving two purposes at once (guarding the PRM's
-	 * documented request-side exclusive-upper-bound shortfall, AND
-	 * covering however many OS units PutSpriteScaled's own rounding
-	 * paints past the icon's nominal 48-unit extent), and narrowing the
-	 * erase broke the second one. Fixed the other way round instead:
-	 * leave the erase exactly as wide as the Wimp grants it (matches
-	 * round 7.21-7.26 behaviour, known correct for the pawn's own
-	 * content), and instead widen what gets *repainted* by one extra
-	 * cell specifically on the padded sides (col1+1, row0-1) so that
-	 * ANY neighbour cell the erase's padding zone could reach is always
-	 * covered by this same call's draw_board_region() -- erased content
-	 * is guaranteed to be repainted, not just guaranteed to stay inside
-	 * the erased region. draw_col1/draw_row0 are used only for the
-	 * draw_board_region() call below; col0/row0/col1/row1 themselves
-	 * (and the request box built from them) are untouched, so the
-	 * Wimp_UpdateWindow request size is unchanged from round 7.26. */
-	{
-	int draw_col1 = col1 + 1; if (draw_col1 >= BOARD_GRID_SIZE) draw_col1 = BOARD_GRID_SIZE - 1;
-	int draw_row0 = row0 - 1; if (draw_row0 < 0) draw_row0 = 0;
-
+	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
+	 * per live user report it neither fixed the crop nor was worth its
+	 * own cost ("the wide repaint increases the flicker"). The actual
+	 * fix for the crop is PAWN_SIZE's own reduction (see its doc
+	 * comment) -- giving the icon more margin inside its cell rather
+	 * than trying to precisely track whatever the last few OS units of
+	 * clip/erase-scoping edge case was. Back to the plain, tight
+	 * col0..col1/row0..row1 range here, matching round 7.21-7.26. */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1311,9 +1305,8 @@ static void update_move_animation_area(void)
 		 * exactly the "everything on screen redraws" symptom reported
 		 * live. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		draw_board_region(origin_x, origin_y, col0, draw_row0, draw_col1, row1);
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
-	}
 	}
 }
 
@@ -1494,14 +1487,10 @@ static void update_highlight_area(void)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.28: widen the REPAINT (not the erase) by one extra cell on
-	 * the padded sides -- see update_move_animation_area()'s doc comment
-	 * for the full history of why (round 7.27's erase-shrinking attempt
-	 * fixed the crop but broke erasure of the ring's own overflow). */
-	{
-	int draw_col1 = col1 + 1; if (draw_col1 >= BOARD_GRID_SIZE) draw_col1 = BOARD_GRID_SIZE - 1;
-	int draw_row0 = row0 - 1; if (draw_row0 < 0) draw_row0 = 0;
-
+	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
+	 * see update_move_animation_area()'s doc comment for why (didn't fix
+	 * the crop, cost extra flicker; PAWN_SIZE's own reduction is the
+	 * actual fix). Back to the plain, tight range. */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1514,10 +1503,9 @@ static void update_highlight_area(void)
 		 * see update_dice_area()'s doc comment; .box is the whole
 		 * window's visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		draw_board_region(origin_x, origin_y, col0, draw_row0, draw_col1, row1);
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		draw_highlights(origin_x, origin_y);
 		more = wimp_get_rectangle(&redraw);
-	}
 	}
 }
 
@@ -1633,13 +1621,9 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.28: widen the REPAINT (not the erase) by one extra cell on
-	 * the padded sides -- see update_move_animation_area()'s doc comment
-	 * for the full history of why. */
-	{
-	int draw_col1 = col1 + 1; if (draw_col1 >= BOARD_GRID_SIZE) draw_col1 = BOARD_GRID_SIZE - 1;
-	int draw_row0 = row0 - 1; if (draw_row0 < 0) draw_row0 = 0;
-
+	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
+	 * see update_move_animation_area()'s doc comment for why. Back to
+	 * the plain, tight range. */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1649,9 +1633,8 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 		 * update_dice_area()'s doc comment; .box is the whole window's
 		 * visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
-		draw_board_region(origin_x, origin_y, col0, draw_row0, draw_col1, row1);
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
-	}
 	}
 }
 
