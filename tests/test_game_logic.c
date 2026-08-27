@@ -389,6 +389,166 @@ static void test_one_short_overshoot_not_movable(void)
 }
 
 /*
+ * Multi-rule-set toggles (see include/game_logic.h's ludo_rules and
+ * ludo_default_rules()) -- each test below starts from ludo_init()'s MEJN
+ * defaults, then flips exactly one toggle via ludo_set_rules() so any
+ * unrelated regression would show up as a failure in one of the many
+ * MEJN-default tests above instead of being masked here.
+ */
+
+/* own_pawn_capture off: landing on one of your own pawns shares the
+ * square instead of sending it home (contrast with
+ * test_own_pawn_sent_home_on_ring_collision() above, the MEJN-default
+ * behaviour this is the opposite of). */
+static void test_own_pawn_capture_off_shares_square(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.own_pawn_capture = 0;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 5; /* ring square 5, sitting there already */
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 2; /* ring square 2 */
+
+	ludo_roll(&g, 3); /* pawn 1: 2 + 3 = 5, lands on pawn 0's square */
+	CHECK(ludo_move_pawn(&g, 1) == 0); /* no capture reported */
+
+	CHECK(g.players[0].pawns[0].in_play == 1); /* still there, untouched */
+	CHECK(g.players[0].pawns[0].steps == 5);
+	CHECK(g.players[0].pawns[1].steps == 5); /* sharing the square */
+}
+
+/* mandatory_six_release off: a six no longer auto-releases a home pawn
+ * via ludo_roll() -- instead, releasing that pawn becomes one of the
+ * choices ludo_movable_pawns() reports, alongside any other legal move,
+ * and picking it via ludo_move_pawn() performs the release (with the
+ * usual six-grants-a-bonus-roll behaviour, but no "must move this pawn
+ * next" obligation, since the player chose it rather than having it
+ * forced on them). */
+static void test_optional_six_release_offers_choice(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* optional release, no own-pawn capture */
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 10; /* another pawn also has a legal move */
+
+	ludo_roll(&g, 6);
+
+	CHECK(g.players[0].pawns[0].in_play == 0); /* NOT auto-released */
+	CHECK(g.just_released == 0);
+	/* Both the home pawn (0) and the already-in-play pawn (1) are offered. */
+	CHECK((ludo_movable_pawns(&g) & (1u << 0)) != 0);
+	CHECK((ludo_movable_pawns(&g) & (1u << 1)) != 0);
+
+	ludo_move_pawn(&g, 0); /* player chooses to release pawn 0 */
+
+	CHECK(g.players[0].pawns[0].in_play == 1);
+	CHECK(g.players[0].pawns[0].steps == 0);
+	CHECK(g.forced_pawn == -1); /* no follow-up obligation, unlike the mandatory path */
+	CHECK(g.pending_forced_pawn == -1);
+	CHECK(g.current_player == 0); /* six still grants its usual bonus roll */
+	CHECK(g.last_roll == 0); /* bonus roll pending, same as any other six */
+}
+
+/* overshoot_bounce on: a roll that would carry a pawn past the very end
+ * of its home column instead bounces it backward by the remainder. */
+static void test_overshoot_bounce_moves_backward(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.overshoot_bounce = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = LUDO_TOTAL_STEPS - 2; /* needs exactly 2 to finish */
+
+	ludo_roll(&g, 5); /* 2 forward to the end, 3 pips left over -> bounce back 3 */
+	CHECK((ludo_movable_pawns(&g) & 1u) != 0); /* now legal, unlike the bounce-off default */
+	ludo_move_pawn(&g, 0);
+
+	CHECK(g.players[0].pawns[0].steps == LUDO_TOTAL_STEPS - 3);
+	CHECK(g.players[0].pawns[0].finished == 0);
+}
+
+/* overshoot_bounce on, extreme case: a bounce large enough to overshoot
+ * back past the home column's own entrance is clamped there rather than
+ * continuing onto the shared ring (see resolve_move_destination()'s own
+ * doc comment in game_logic.c for why -- this project's 4-square home
+ * column is shorter than a die's max value, unlike classic Ludo's
+ * 6-square stretch which never hits this case). */
+static void test_overshoot_bounce_clamped_at_home_column_entrance(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.overshoot_bounce = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = LUDO_RING_LENGTH + 1; /* 1 square into the home column */
+	/* No home pawn left for MEJN's own mandatory_six_release to auto-place
+	 * on this six -- unrelated to the bounce toggle under test, but a six
+	 * would otherwise release one of these instead of leaving pawn 0 up
+	 * for a plain move. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 5;
+	g.players[0].pawns[2].in_play = 1;
+	g.players[0].pawns[2].steps = 6;
+	g.players[0].pawns[3].in_play = 1;
+	g.players[0].pawns[3].steps = 7;
+
+	ludo_roll(&g, 6); /* needs 2 to finish -- overshoot by 4, would bounce to entrance-1 */
+	CHECK((ludo_movable_pawns(&g) & 1u) != 0);
+	ludo_move_pawn(&g, 0);
+
+	CHECK(g.players[0].pawns[0].steps == LUDO_RING_LENGTH); /* clamped, not onto the ring */
+}
+
+/* no_six_needed_last_pawn on: a player's own LAST pawn still at home may
+ * be released on any roll, not just a six -- but only once it really is
+ * the last one (with others still home, only a six qualifies, same as
+ * ever). */
+static void test_no_six_needed_for_last_home_pawn(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	r.no_six_needed_last_pawn = 1;
+	ludo_set_rules(&g, &r);
+
+	/* Three of the four pawns already in play -- pawn 3 is the last one home. */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[2].in_play = 1;
+
+	ludo_roll(&g, 4); /* not a six, but the last-home-pawn exception applies */
+	CHECK((ludo_movable_pawns(&g) & (1u << 3)) != 0);
+
+	ludo_move_pawn(&g, 3);
+	CHECK(g.players[0].pawns[3].in_play == 1);
+	CHECK(g.players[0].pawns[3].steps == 0);
+	CHECK(g.current_player == 1); /* non-six release ends the turn normally */
+}
+
+/*
  * Function: test_headless_full_games_invariants
  * Summary: Play out many complete, real, randomly-rolled games start to
  *          finish through nothing but the public API (exactly what
@@ -589,6 +749,11 @@ int main(void)
 	RUN(test_extra_roll_on_six_keeps_same_player);
 	RUN(test_six_bonus_survives_another_players_win);
 	RUN(test_non_six_move_ends_turn);
+	RUN(test_own_pawn_capture_off_shares_square);
+	RUN(test_optional_six_release_offers_choice);
+	RUN(test_overshoot_bounce_moves_backward);
+	RUN(test_overshoot_bounce_clamped_at_home_column_entrance);
+	RUN(test_no_six_needed_for_last_home_pawn);
 	RUN(test_headless_full_games_invariants);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",

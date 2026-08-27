@@ -51,6 +51,50 @@ that exercises every rule described here.
    skips already-finished players in `ludo_end_turn()` rather than ending
    the game).
 
+## Rule-set variants (`ludo_rules`)
+
+Since Round 7.43 (Phase 1 of the multiple rule-set / house-rule variant
+system -- see `docs/ARCHITECTURE.md`'s own "Round 7.43" entry and its
+"Resume here" section for the full plan and remaining phases), the
+rules above are no longer the *only* ruleset the engine can play --
+they're `LUDO_VARIANT_MEJN`'s defaults, one of three presets. Every game
+has a `ludo_rules` (`g->rules`) picking, independently, how each of 7
+toggles behaves; `ludo_init()` always sets MEJN's own defaults (matching
+the numbered rules above exactly, so nothing described there changes for
+existing code), and `ludo_set_rules()` overrides them when a different
+preset or a hand-picked combination is wanted.
+
+| Toggle | Off / default value | On / alternate value |
+|---|---|---|
+| `mandatory_six_release` | Rolling a six *mandatorily* releases a home pawn if one is available, with an obligation to move it next roll (rule 3 above; MEJN default) | Releasing is just one of the player's ordinary movable choices on a qualifying roll, no obligation |
+| `own_pawn_capture` | Landing on your own other pawn sends it home too (rule 6 above; MEJN default) | The two pawns simply share the square |
+| `overshoot_bounce` | A roll overshooting the home column's end is not a legal move (rule 8 above; MEJN default) | The pawn bounces backward off the end by the remainder instead (clamped at the home column's own entrance -- this project's 4-square home column is shorter than a die's max value, so a bounce can't always be absorbed the way classic Ludo's 6-square stretch can) |
+| `blockade` | *(Phase 2 -- not yet implemented)* | Two or more of a player's pawns stacked on one ring square block every other player |
+| `backward_movement` | *(Phase 2 -- not yet implemented, exact mechanic pending re-verification)* | A pawn may move backward under some as-yet-unspecified condition |
+| `free_home_column` | Own pawns block each other in the home column, same as the shared ring (rule 7 above) | Home column is exempt -- pawns may pass/land on their own other pawns freely *(Phase 2 -- not yet implemented)* |
+| `no_six_needed_last_pawn` | Entering play always needs a six | A player's own *last* pawn still at home (their other three already in play/finished) may be released on any roll |
+
+**Presets** (`ludo_default_rules()`):
+
+| Toggle | Mens Erger Je Niet | Ludo | Pachisi-style |
+|---|---|---|---|
+| `mandatory_six_release` | 1 | 0 | 0 |
+| `own_pawn_capture` | 1 | 0 | 0 |
+| `overshoot_bounce` | 0 | 0 | 1 |
+| `blockade` | 0 | 0 | 1 |
+| `backward_movement` | 0 | 0 | 1 |
+| `free_home_column` | 0 | 0 | 1 |
+| `no_six_needed_last_pawn` | 0 | 0 | 0 |
+
+**"Pachisi-style" authenticity caveat**: this preset is a curated
+combination of toggles this engine actually has (evoking Pachisi's
+best-known distinguishing features -- blockading, bounce-back,
+backward movement, free home-column play), **not** a faithful
+reimplementation of traditional Pachisi. Real Pachisi uses a different
+board shape with safe squares and a cowrie-shell throw mechanic instead
+of a single six-sided die, neither of which this project's 40-square
+MEJN-shaped board or single-die `ludo_roll()` attempts to reproduce.
+
 ## Position model
 
 A pawn's position is a single integer, `steps`, counting squares

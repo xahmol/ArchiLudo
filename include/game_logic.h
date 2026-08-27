@@ -131,6 +131,105 @@
 #define LUDO_TOTAL_STEPS        (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH - 1)
 
 /*
+ * Type: ludo_variant
+ * Summary: Which named preset a ludo_rules value was last set from -- a
+ *          pure UI/display convenience (see ludo_default_rules()); the
+ *          engine itself only ever reads the individual toggles in
+ *          ludo_rules, never branches on this field. LUDO_VARIANT_MEJN
+ *          matches this header's own default "Mens Erger Je Niet" rules
+ *          text above; LUDO_VARIANT_LUDO and LUDO_VARIANT_PACHISI are
+ *          real-world-inspired alternate presets -- see
+ *          ludo_default_rules()'s own doc comment (in game_logic.c) for
+ *          exactly what each one sets, including the "Pachisi-style"
+ *          authenticity caveat (it's a curated preset built from the
+ *          toggles this engine actually has, not a faithful
+ *          reimplementation of traditional Pachisi's own board/dice
+ *          mechanics, which don't fit this project's board at all).
+ */
+typedef enum {
+	LUDO_VARIANT_MEJN,
+	LUDO_VARIANT_LUDO,
+	LUDO_VARIANT_PACHISI
+} ludo_variant;
+
+/*
+ * Type: ludo_rules
+ * Summary: The configurable house-rule toggles that vary between
+ *          ArchiLudo's supported rule-set variants -- see
+ *          ludo_default_rules() for each variant's own defaults, and
+ *          docs/GAME_LOGIC.md for what each toggle actually changes
+ *          about play. A ludo_game's own g->rules is set once, at
+ *          ludo_init() (defaults to LUDO_VARIANT_MEJN, this project's
+ *          original and still-default ruleset) and optionally
+ *          overridden afterwards via ludo_set_rules().
+ *
+ *   variant                  - which preset produced these values (see
+ *                              ludo_variant's own comment -- display only).
+ *   mandatory_six_release    - 1: rolling a six *mandatorily* releases a
+ *                              home pawn if one is available, and the
+ *                              player must move that specific pawn with
+ *                              their next roll (this project's original,
+ *                              default behaviour). 0: releasing is one of
+ *                              the player's ordinary movable choices on a
+ *                              six, alongside any other legal move, with
+ *                              no follow-up obligation.
+ *   own_pawn_capture         - 1: landing exactly on a square already
+ *                              occupied by one of the *same* player's
+ *                              other pawns sends that pawn home too, the
+ *                              same as landing on an opponent (default).
+ *                              0: no effect -- the two pawns simply share
+ *                              the square (this is also the starting
+ *                              point for the "blockade" toggle below,
+ *                              which adds the *opponent*-blocking half).
+ *   overshoot_bounce         - 0: a roll that would carry a pawn past the
+ *                              very end of its home column is simply not
+ *                              a legal move for that pawn (default). 1:
+ *                              such a pawn instead "bounces" off the end
+ *                              and moves backward by the remainder,
+ *                              clamped to never bounce back past the
+ *                              home column's own entrance onto the
+ *                              shared ring (see resolve_move_destination()
+ *                              in game_logic.c for exactly why that clamp
+ *                              exists -- this project's 4-square home
+ *                              column is shorter than a die's max value).
+ *   blockade                 - 0: no effect (default). 1: two or more of
+ *                              the same player's pawns sharing one ring
+ *                              square (only reachable at all when
+ *                              own_pawn_capture is off) block every other
+ *                              player's pawns from landing on, or passing
+ *                              through, that square.
+ *   backward_movement        - 0: no effect (default). 1: TODO -- exact
+ *                              mechanic not yet implemented, needs
+ *                              re-verification against its cited source
+ *                              before implementation (see the "multiple
+ *                              rule sets" planning notes) -- reserved
+ *                              here so the struct shape doesn't need to
+ *                              change again once it is.
+ *   free_home_column         - 0: a player's own pawns block each other
+ *                              in the home column, the same single-file
+ *                              rule as the shared ring (default). 1: the
+ *                              home column is exempt from that blocking
+ *                              -- pawns may pass or land on their own
+ *                              other pawns there freely.
+ *   no_six_needed_last_pawn  - 0: entering play always requires a six,
+ *                              with no exception (default). 1: if this is
+ *                              a player's OWN LAST pawn still waiting at
+ *                              home (their other three are all already in
+ *                              play or finished), any roll releases it,
+ *                              not just a six.
+ */
+typedef struct {
+	ludo_variant variant;
+	int mandatory_six_release;
+	int own_pawn_capture;
+	int overshoot_bounce;
+	int blockade;
+	int backward_movement;
+	int free_home_column;
+	int no_six_needed_last_pawn;
+} ludo_rules;
+
+/*
  * Type: ludo_pawn
  * Summary: State of a single pawn.
  *   in_play  - 0 while still waiting in the home base, 1 once released.
@@ -173,6 +272,10 @@ typedef struct {
  *                         outside game_logic.c.
  *   winner              - index of the first player to finish all four
  *                         pawns, or -1 if the game is still undecided.
+ *   rules               - the house-rule toggles in effect for this game
+ *                         (see ludo_rules) -- set to LUDO_VARIANT_MEJN's
+ *                         defaults by ludo_init(), optionally overridden
+ *                         afterwards via ludo_set_rules().
  */
 typedef struct {
 	ludo_player players[LUDO_PLAYERS];
@@ -183,16 +286,51 @@ typedef struct {
 	int pending_forced_pawn;
 	int just_released;
 	int winner;
+	ludo_rules rules;
 } ludo_game;
 
 /*
  * Function: ludo_init
- * Summary: Set up a brand new game: all pawns at home, player 0 to start.
+ * Summary: Set up a brand new game: all pawns at home, player 0 to start,
+ *          rules defaulted to LUDO_VARIANT_MEJN (this project's original
+ *          ruleset -- see ludo_set_rules() to pick a different variant or
+ *          override individual toggles).
  * Syntax:  void ludo_init(ludo_game *g);
  * Input:   g - pointer to an (uninitialised) game to fill in.
  * Output:  none. g is fully initialised on return.
  */
 void ludo_init(ludo_game *g);
+
+/*
+ * Function: ludo_default_rules
+ * Summary: The starting ludo_rules for one of the three supported
+ *          variants -- see docs/GAME_LOGIC.md and ludo_variant's own
+ *          doc comment for what each variant represents, and
+ *          game_logic.c's own implementation for the exact per-variant
+ *          matrix. A UI (or test) can call this directly to get a
+ *          variant's defaults, then flip individual toggles before
+ *          passing the result to ludo_set_rules().
+ * Syntax:  ludo_rules ludo_default_rules(ludo_variant variant);
+ * Input:   variant - which preset to build.
+ * Output:  a fully populated ludo_rules value for that variant.
+ */
+ludo_rules ludo_default_rules(ludo_variant variant);
+
+/*
+ * Function: ludo_set_rules
+ * Summary: Replace a game's active rule set. Deliberately separate from
+ *          ludo_init() (which always sets MEJN defaults) rather than a
+ *          parameter to it, so every existing call site/test that just
+ *          wants ordinary MEJN behaviour is unaffected -- call this only
+ *          when a non-default ruleset is actually wanted, any time after
+ *          ludo_init() (including mid-game, though the intended use is
+ *          right after ludo_init() or right after loading a save).
+ * Syntax:  void ludo_set_rules(ludo_game *g, const ludo_rules *rules);
+ * Input:   g     - the game in progress.
+ *          rules - the rules to adopt (copied by value).
+ * Output:  none.
+ */
+void ludo_set_rules(ludo_game *g, const ludo_rules *rules);
 
 /*
  * Function: ludo_roll
@@ -246,6 +384,16 @@ int ludo_no_move_possible(const ludo_game *g);
  *          grants the player another roll (six was rolled) or ends their
  *          turn (any other value) -- the caller does not need to call
  *          ludo_end_turn() itself after a move.
+ *
+ *          When rules.mandatory_six_release is off, pawn_index may also
+ *          refer to a pawn still waiting at home (in_play == 0) --
+ *          ludo_movable_pawns() includes such a pawn's bit whenever the
+ *          roll is a six (or, with rules.no_six_needed_last_pawn, any
+ *          roll for a player's own last home pawn); this releases it
+ *          instead of moving an on-board pawn, the same as the automatic
+ *          mandatory-release path does, but as a chosen move rather than
+ *          an involuntary one, so no "must move this pawn next" obligation
+ *          is created.
  * Syntax:  int ludo_move_pawn(ludo_game *g, int pawn_index);
  * Input:   g          - the game in progress.
  *          pawn_index - index (0..LUDO_PAWNS-1) of one of the pawns

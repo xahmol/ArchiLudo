@@ -5,65 +5,47 @@
 *(Delete/replace this section once the in-progress work below is
 confirmed and settled -- it exists purely so a session that starts
 cold, with no conversation history, knows exactly where things stood
-and what to do next. Last updated 2026-08-26, commit pending -- see
-`git log` for the actual latest; everything described below is
-committed and pushed, working tree clean. Full background/reasoning:
-round 7.16 in `docs/GRAPHICS_TOOLING.md`, rounds 7.17-7.20 just above in
-this file's Phase 1 notes, `docs/GAME_LOGIC.md`'s "Round 7.20" note, and
-the [[archiludo-sprite-pivot-plan]] memory.)*
+and what to do next. Last updated 2026-08-27, commit pending -- see
+`git log` for the actual latest.)*
 
-**Sprite rendering itself is confirmed working** -- the round 7.18
-coordinate-space bug (pawns not rendering at all) is fixed and the user
-has since given live, on-screen feedback on the pawns' *look*, so
-rendering itself is no longer in question.
+**Pawn rendering, shading, and the crop bug are all confirmed done** --
+sprite rendering (round 7.18), the dithered 16-colour pawn shading
+(round 7.19), the round 7.20 home-column stacking rules bug, and the
+final pawn-crop fix (`PAWN_Y_NUDGE`, round 7.34) were all live-confirmed
+by the user ("No cropping so far"). The gradient-shaded ("256 colour
+depth") pawn-look alternative was explored
+(`assets/experiments/gradient_preview.py`) but never picked up after the
+user settled on the dithered look -- still sitting there unused if ever
+revisited, not on any current plan.
 
-**Two things fixed this same live-testing round, neither yet
-re-confirmed by the user after the fix:**
-1. **Round 7.19, pawn shading**: per explicit user feedback ("not
-   entirely happy with the new 16 colour pawn look... dither between
-   white and player colour, and similarly for the grey"), the flat
-   white/grey highlight/shadow blocks were replaced with a checkerboard
-   dither against the player's own hue. Built, deployed. Check for the
-   user's reaction to this before doing any further pawn-art tuning.
-2. **Round 7.20, a real rules bug**: pawns were stacking on the same
-   final home-column square once more than one of a player's pawns had
-   finished (`home_column_blocked()` wrongly exempted finished pawns
-   from blocking). Fixed by ground-truthing GEOS's actual "shrinking
-   finish line" mechanic (`finish_threshold_for()`) -- see
-   `docs/GAME_LOGIC.md`'s "Round 7.20" and the dedicated new test
-   `test_second_finishing_pawn_lands_one_square_short()`. All ~10.16M
-   headless-simulation checks pass. Built, deployed. Check for the
-   user's confirmation this actually resolved what they saw before
-   considering it done.
+**The `!ArchiLudo` application directory, its icon, and the hand
+pixel-editing round-trip are all done and confirmed** (rounds 7.36-7.42)
+-- see `docs/BUILDCHAIN.md`'s "Application directory" section and
+`docs/GRAPHICS_TOOLING.md`'s "Round 7.42" section. `!Sprites11` was
+deliberately not built (new-style sprite encoding genuine RISC OS 3.10
+doesn't understand). Save-file filetype registration was not done --
+out of scope, revisit if wanted.
 
-**Still pending a decision, not blocking either of the above:** whether
-to build the full `OS_SpriteOp 52` + `ColourTrans`-table plotting path
-needed to ship a smoother gradient-shaded pawn look ("256 colour
-depth"). A preview (`assets/experiments/gradient_preview.py` --
-exploratory, NOT wired into the game, kept in the repo specifically so
-this survives a session restart) was generated and iterated on twice
-per direct user feedback ("too dark" -> "a notch brighter still"),
-currently at `LIGHT_BLEND=0.45`/`DARK_MULT=0.68` (see that script's own
-"Tuning history" docstring) -- the user had not given final sign-off on
-this exact iteration as of round 7.19/7.20's feedback (they may have
-moved on to the dithered 16-colour version instead, which addresses
-some of the same "doesn't look like the player's colour" concern more
-cheaply -- worth asking whether the gradient path is still wanted at
-all before investing in it). Don't start that larger implementation
-unprompted either way.
-
-**Done, round 7.36**: the `!ArchiLudo` application directory (this
-section's earlier note said it was blocked on a design-choice
-consultation -- superseded by the user directly specifying the design
-instead, so it went ahead without a separate `AskUserQuestion` round).
-`build/!ArchiLudo/` now holds `!RunImage,ff8`/`!Run,feb`/
-`!Sprites,ff9`/`!Sprites22,ff9`/`PawnSprites,ff9` -- see
-`docs/BUILDCHAIN.md`'s "Application directory" section for the full
-structure, and this file's own "Round 7.36" entry below for how it was
-built. `!Sprites11` was NOT built, per the original note's own
-reasoning (new-style sprite encoding genuine RISC OS 3.10 doesn't
-understand -- see round 7.16). Save-file filetype registration was
-NOT done either -- out of scope for this round, revisit if wanted.
+**In progress now: the multiple rule-set / house-rule variant system.**
+Full plan (context, per-toggle rule inventory, engine/AI/UI/save-format
+design, phased rollout) is at
+`/home/xahmol/.claude/plans/i-want-to-scaffolf-dreamy-lantern.md` --
+approved by the user, including an added "AI changes" section after the
+user caught it missing from the first draft ("Assume we also need to
+adapt AI rules, do not see that mentioned?"). Rollout is 6 phases;
+**Phase 1 is done** (this file's "Round 7.43" entry below) -- the
+`ludo_rules`/`ludo_variant` types, `ludo_default_rules()`/
+`ludo_set_rules()`, and the three straightforward toggles (six-release,
+own-pawn capture, overshoot bounce), all tested, `make test` green.
+**Next: Phase 2** -- the four remaining toggles (blockade, backward
+movement, free home-column, no-six-needed-last-pawn). The plan
+explicitly flags that rules 5 (backward movement) and 6 (free
+home-column) need their exact mechanics re-verified against
+<https://nl.wikipedia.org/wiki/Mens_erger_je_niet!> before writing any
+code for them specifically -- do this first, don't implement from the
+plan's own paraphrase alone. After Phase 2: Phase 3 (AI adaptation in
+`src/ai.c`), Phase 4 (`rules_view.c` UI, live Arculator test), Phase 5
+(save-format bump to `"ALS2"`), Phase 6 (final docs pass).
 
 ## Layering
 
@@ -2427,6 +2409,61 @@ working format for this kind of flat, hard-edged pixel art anyway, not
 really a compromise. Verified lossless (export -> import with no edits
 reproduces the original packed sprite files byte-for-byte) and that a
 real edit correctly propagates through before handing this off.
+
+**Round 7.43**: Phase 1 of the multiple rule-set / house-rule variant
+system, per the approved plan at
+`/home/xahmol/.claude/plans/i-want-to-scaffolf-dreamy-lantern.md` (see
+this file's "Resume here" section for the plan's own summary and
+rollout order). `include/game_logic.h` gained `ludo_variant`
+(`LUDO_VARIANT_MEJN`/`_LUDO`/`_PACHISI`) and `ludo_rules` (7 toggles +
+which variant produced them); `ludo_game` gained a `rules` field.
+`ludo_init()`'s own signature and behaviour are unchanged (still sets
+MEJN defaults internally, via the new `ludo_default_rules()`) --
+`ludo_set_rules()` is the new, separate entry point for a non-default
+ruleset, so every one of the many existing `ludo_init(&g)` call sites
+across the test suite keeps testing MEJN behaviour unchanged.
+
+Three toggles wired into their existing decision points:
+- **`own_pawn_capture`**: `capture_at()` gained one guard clause
+  (`if (p == player && !g->rules.own_pawn_capture) continue;`) --
+  landing on your own pawn now simply shares the square when off.
+- **`overshoot_bounce`**: a new shared helper,
+  `resolve_move_destination()`, replaces the inline overshoot-reject
+  math that used to live separately in `compute_movable_pawns()` and
+  `ludo_move_pawn()` (they'd have silently drifted apart otherwise). When
+  on, a roll that overshoots the home column's end bounces the pawn
+  backward by the remainder instead of being illegal. Since this
+  project's 4-square home column is *shorter* than a die's max value
+  (unlike classic Ludo's 6-square stretch, which always exactly absorbs
+  the largest possible overshoot), a big enough bounce can reach back
+  past the home column's own entrance -- clamped there rather than
+  spilling back onto the shared ring, a judgement call with no rule-book
+  precedent found, documented inline. This also required making
+  `home_column_blocked()` **direction-aware**: it used to assume
+  `to_steps > from_steps` (forward-only movement) and would have wrongly
+  reported "clear" for a bounce's backward path -- it now checks
+  whichever direction `to_steps` actually indicates.
+- **`mandatory_six_release`**: when off, `ludo_roll()`'s old
+  unconditional auto-release block only runs `&& g->rules.mandatory_six_release`
+  now; instead, `compute_movable_pawns()` offers releasing a home pawn
+  as one of the player's ordinary movable choices (on a six, or -- with
+  `no_six_needed_last_pawn` also on -- any roll, but only once it's
+  truly this player's *last* pawn still at home) and `ludo_move_pawn()`
+  gained an `if (!p->in_play)` branch performing the actual release when
+  that choice is picked. Deliberately does not create the mandatory
+  path's "must move this pawn next" obligation, since that exists to
+  compensate for the release being involuntary -- it isn't, when chosen.
+
+Five new tests in `tests/test_game_logic.c`, one per toggle plus the
+`no_six_needed_last_pawn` combination, each starting from `ludo_init()`
+and flipping exactly one toggle via `ludo_set_rules()` so a regression
+elsewhere would show up in one of the many existing MEJN-default tests
+instead of being masked. `make test`: 22 tests, all passing (up from
+17). Full cross-compile (`make clean && make all`) also verified clean.
+Not yet done: Phase 2 (the remaining four toggles, needs a Wikipedia
+re-verification step first -- see "Resume here"), Phase 3 (AI), Phase 4
+(UI), Phase 5 (save format), Phase 6 (docs, including this project's own
+`docs/GAME_LOGIC.md`, updated alongside this round).
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
