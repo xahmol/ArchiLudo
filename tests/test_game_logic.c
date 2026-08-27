@@ -548,6 +548,211 @@ static void test_no_six_needed_for_last_home_pawn(void)
 	CHECK(g.current_player == 1); /* non-six release ends the turn normally */
 }
 
+/* free_home_column on: a player's own pawns may pass or land on each
+ * other in the home column (contrast with test_home_column_blocking()
+ * above, the off-by-default behaviour this is the opposite of). */
+static void test_free_home_column_allows_passing(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.free_home_column = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 41; /* 1 square into the home column */
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 38; /* still on the ring, about to enter it */
+
+	ludo_roll(&g, 4); /* pawn 1 would land on 42, passing pawn 0 at 41 */
+	CHECK((ludo_movable_pawns(&g) & (1u << 1)) != 0); /* no longer blocked */
+
+	ludo_move_pawn(&g, 1);
+	CHECK(g.players[0].pawns[1].steps == 42);
+}
+
+/* blockade on: 2+ of one player's pawns stacked on a ring square block
+ * every other player from landing on OR passing through that square
+ * (only reachable in the first place with own_pawn_capture off, since
+ * capture would otherwise prevent the stack from forming). */
+static void test_blockade_blocks_landing_and_passing_through(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	/* Sub-case 1: landing exactly on the blockaded square. */
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* own_pawn_capture off, blockade off by default */
+	r.blockade = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 5; /* ring_square(1, 5) == 15 */
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 5; /* stacked on the same square -- a blockade */
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10; /* ring_square(0, 10) == 10 */
+
+	ludo_roll(&g, 5); /* would land exactly on square 15 -- blockaded */
+	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
+
+	/* Sub-case 2: passing through (not landing on) the blockaded square. */
+	ludo_init(&g);
+	ludo_set_rules(&g, &r);
+
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 5;
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 5;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10;
+
+	ludo_roll(&g, 6); /* would land on square 16, but must cross blockaded 15 first */
+	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
+}
+
+/* The same stacked-pawns setup with blockade off (the default even for
+ * the Ludo variant): landing on or passing through the square is fine --
+ * it isn't a barrier unless the rule is specifically turned on. */
+static void test_blockade_off_allows_landing_and_passing(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* blockade off by default */
+	ludo_set_rules(&g, &r);
+
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 5;
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 5;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10;
+
+	ludo_roll(&g, 6); /* would cross square 15 and land on 16 */
+	CHECK((ludo_movable_pawns(&g) & 1u) != 0);
+}
+
+/* blockade on: a barricade sitting on a player's own start square also
+ * refuses releasing a new pawn there -- both under mandatory six-release
+ * (falls through to the "no legal action" bookkeeping, using up one of
+ * the three tries) and under optional release (simply not offered as a
+ * movable choice). */
+static void test_blockade_blocks_release_at_own_start_square(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	/* Mandatory six-release (MEJN + blockade). */
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.blockade = 1;
+	ludo_set_rules(&g, &r);
+
+	/* Player 1's two pawns stacked exactly on player 0's own start
+	 * square: ring_square(1, 30) == (10 + 30) % 40 == 0. */
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 30;
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 30;
+
+	ludo_roll(&g, 6);
+	CHECK(g.players[0].pawns[0].in_play == 0); /* release refused */
+	CHECK(g.just_released == 0);
+	CHECK(g.tries_remaining == 2); /* counted as a wasted attempt, like no six at all */
+
+	/* Optional release (Ludo + blockade): same barricade, but release
+	 * should simply not be offered as a movable choice. */
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	r.blockade = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 30;
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 30;
+
+	ludo_roll(&g, 6);
+	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
+}
+
+/* backward_movement on: a pawn already on the ring may move backward by
+ * the current roll as an alternative to its ordinary forward move. */
+static void test_backward_movement_moves_pawn_back(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	r.backward_movement = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10;
+
+	ludo_roll(&g, 4);
+	CHECK((ludo_movable_pawns_backward(&g) & 1u) != 0);
+	ludo_move_pawn_backward(&g, 0);
+
+	CHECK(g.players[0].pawns[0].steps == 6);
+}
+
+/* backward_movement on: a pawn cannot move backward past its own start
+ * square (it can't "un-release" itself off the ring). */
+static void test_backward_movement_cannot_pass_start(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	r.backward_movement = 1;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 2;
+
+	ludo_roll(&g, 5); /* 2 - 5 = -3, past the start square */
+	CHECK((ludo_movable_pawns_backward(&g) & 1u) == 0);
+}
+
+/* backward_movement + blockade both on: a backward move is blocked by a
+ * barricade on its path exactly like a forward one. */
+static void test_backward_movement_blocked_by_blockade(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_PACHISI); /* backward_movement + blockade both on */
+	ludo_set_rules(&g, &r);
+
+	/* Player 1's two pawns stacked at absolute ring square 8:
+	 * ring_square(1, 38) == (10 + 38) % 40 == 8. */
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 38;
+	g.players[1].pawns[1].in_play = 1;
+	g.players[1].pawns[1].steps = 38;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10; /* ring_square(0, 10) == 10 */
+
+	ludo_roll(&g, 4); /* backward path: 9, 8, 7, 6 -- crosses the blockaded square 8 */
+	CHECK((ludo_movable_pawns_backward(&g) & 1u) == 0);
+
+	ludo_roll(&g, 1); /* backward path: 9 only -- clear */
+	CHECK((ludo_movable_pawns_backward(&g) & 1u) != 0);
+}
+
 /*
  * Function: test_headless_full_games_invariants
  * Summary: Play out many complete, real, randomly-rolled games start to
@@ -731,6 +936,124 @@ static void test_headless_full_games_invariants(void)
 	}
 }
 
+/*
+ * Function: test_headless_full_games_pachisi_variant_invariants
+ * Summary: A second, smaller-scale headless full-game simulation (see
+ *          test_headless_full_games_invariants() above for the original,
+ *          MEJN-only version and its own rationale) -- this one plays
+ *          out many complete games under the full "Pachisi-style" preset
+ *          (ludo_default_rules(LUDO_VARIANT_PACHISI): optional
+ *          six-release, own-pawn capture off, overshoot bounce-back,
+ *          blockade, backward movement, and free home-column
+ *          manoeuvring all active together), exercising every Phase 1/2
+ *          rule-toggle code path in combination -- something no
+ *          individual per-toggle test above can do.
+ *
+ *          Move selection deliberately prefers any legal FORWARD move
+ *          over a backward one whenever both exist (only resorting to
+ *          ludo_move_pawn_backward() when it's the sole legal option --
+ *          which does happen sometimes, e.g. when a blockade seals off
+ *          every forward path) -- purely to keep games converging in a
+ *          bounded number of rolls under fully random play; it isn't
+ *          meant to be realistic strategy (that's ai.c's job).
+ *
+ *          Checks looser invariants than the MEJN version above: several
+ *          of its exact-arithmetic assumptions (a movable pawn's steps
+ *          always equal before + roll, never past LUDO_TOTAL_STEPS) are
+ *          specifically NOT true once bounce-back and backward movement
+ *          are active, so this only asserts what must still hold
+ *          regardless -- every pawn's steps stays in its valid range,
+ *          finished pawns still occupy distinct squares
+ *          (finish_threshold_for()'s own invariant, untouched by any of
+ *          the Phase 2 toggles), and the game terminates. Per the
+ *          multi-rule-set plan's own testing section, this is meant to
+ *          catch a gross regression (a crash, an infinite game, an
+ *          out-of-range value) from the combination of rules working
+ *          together -- not to pin down each toggle's exact behaviour,
+ *          which the focused per-toggle tests above already do.
+ */
+static void test_headless_full_games_pachisi_variant_invariants(void)
+{
+	int game_num;
+	ludo_rules rules = ludo_default_rules(LUDO_VARIANT_PACHISI);
+
+	srand(20260827u); /* fixed seed -- reproducible across runs */
+
+	for (game_num = 0; game_num < 200; game_num++) {
+		ludo_game g;
+		int roll_num;
+		const int max_rolls = 5000;
+
+		ludo_init(&g);
+		ludo_set_rules(&g, &rules);
+
+		for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+			int roller = g.current_player;
+			int player, pawn;
+			unsigned forward_mask, backward_mask;
+			struct { int pawn; int backward; } candidates[LUDO_PAWNS];
+			int candidate_count = 0, chosen;
+
+			ludo_roll(&g, 0);
+
+			for (player = 0; player < LUDO_PLAYERS; player++) {
+				int finished_steps[LUDO_PAWNS], nf = 0;
+				int ii, jj;
+
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+					const ludo_pawn *p = &g.players[player].pawns[pawn];
+
+					CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
+					if (p->finished)
+						finished_steps[nf++] = p->steps;
+				}
+				for (ii = 0; ii < nf; ii++)
+					for (jj = ii + 1; jj < nf; jj++)
+						if (finished_steps[jj] < finished_steps[ii]) {
+							int tmp = finished_steps[ii];
+
+							finished_steps[ii] = finished_steps[jj];
+							finished_steps[jj] = tmp;
+						}
+				for (ii = 0; ii < nf; ii++)
+					CHECK(finished_steps[ii] == LUDO_TOTAL_STEPS - nf + 1 + ii);
+			}
+
+			if (g.current_player != roller)
+				continue; /* turn passed automatically */
+
+			forward_mask = ludo_movable_pawns(&g);
+			backward_mask = ludo_movable_pawns_backward(&g);
+			if (forward_mask == 0 && backward_mask == 0)
+				continue; /* genuinely stuck this roll */
+
+			if (forward_mask != 0) {
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+					if (forward_mask & (1u << pawn)) {
+						candidates[candidate_count].pawn = pawn;
+						candidates[candidate_count].backward = 0;
+						candidate_count++;
+					}
+			} else {
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+					if (backward_mask & (1u << pawn)) {
+						candidates[candidate_count].pawn = pawn;
+						candidates[candidate_count].backward = 1;
+						candidate_count++;
+					}
+			}
+			chosen = rand() % candidate_count;
+
+			if (candidates[chosen].backward)
+				ludo_move_pawn_backward(&g, candidates[chosen].pawn);
+			else
+				ludo_move_pawn(&g, candidates[chosen].pawn);
+		}
+
+		CHECK(roll_num < max_rolls); /* every game actually finished within the cap */
+	}
+}
+
 int main(void)
 {
 	RUN(test_new_game_starts_correctly);
@@ -754,7 +1077,15 @@ int main(void)
 	RUN(test_overshoot_bounce_moves_backward);
 	RUN(test_overshoot_bounce_clamped_at_home_column_entrance);
 	RUN(test_no_six_needed_for_last_home_pawn);
+	RUN(test_free_home_column_allows_passing);
+	RUN(test_blockade_blocks_landing_and_passing_through);
+	RUN(test_blockade_off_allows_landing_and_passing);
+	RUN(test_blockade_blocks_release_at_own_start_square);
+	RUN(test_backward_movement_moves_pawn_back);
+	RUN(test_backward_movement_cannot_pass_start);
+	RUN(test_backward_movement_blocked_by_blockade);
 	RUN(test_headless_full_games_invariants);
+	RUN(test_headless_full_games_pachisi_variant_invariants);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,

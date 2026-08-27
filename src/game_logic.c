@@ -120,6 +120,121 @@ static int capture_at(ludo_game *g, int player, int pawn_index, int steps)
 }
 
 /*
+ * Function: pawns_stacked_at (internal)
+ * Summary: Count how many of `owner`'s own on-ring, unfinished pawns
+ *          currently occupy ring square `square` -- used by
+ *          ring_blockade_at() to detect a blockade (2 or more of the
+ *          same player's pawns sharing one ring square, only reachable
+ *          at all when g->rules.own_pawn_capture is off, since capture
+ *          would otherwise send the earlier one home the moment a
+ *          second pawn lands on it).
+ * Syntax:  static int pawns_stacked_at(const ludo_game *g, int owner, int square);
+ * Input:   g      - the game in progress.
+ *          owner  - the player whose pawns to count.
+ *          square - absolute ring square (0..LUDO_RING_LENGTH-1).
+ * Output:  number of owner's pawns sitting on that square (0, 1, or more).
+ */
+static int pawns_stacked_at(const ludo_game *g, int owner, int square)
+{
+	int i, count = 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		const ludo_pawn *p = &g->players[owner].pawns[i];
+
+		if (p->in_play && !p->finished && p->steps < LUDO_RING_LENGTH
+		 && ring_square(owner, p->steps) == square)
+			count++;
+	}
+	return count;
+}
+
+/*
+ * Function: ring_blockade_at (internal)
+ * Summary: Whether ring square `square` is currently blockaded against
+ *          `mover` -- the g->rules.blockade house rule: 2 or more of some
+ *          OTHER player's pawns sharing that square form a barrier that
+ *          no other player's pawn may land on or pass through (a
+ *          player's own pawns are of course never blocked by their own
+ *          blockade). Always 0 when the rule is off.
+ * Syntax:  static int ring_blockade_at(const ludo_game *g, int mover, int square);
+ * Input:   g      - the game in progress.
+ *          mover  - the player who would be landing on/passing the
+ *                   square (excluded from the check).
+ *          square - absolute ring square (0..LUDO_RING_LENGTH-1).
+ * Output:  1 if blockaded against `mover`, 0 otherwise.
+ */
+static int ring_blockade_at(const ludo_game *g, int mover, int square)
+{
+	int p;
+
+	if (!g->rules.blockade)
+		return 0;
+
+	for (p = 0; p < LUDO_PLAYERS; p++) {
+		if (p != mover && pawns_stacked_at(g, p, square) >= 2)
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Function: ring_path_blocked (internal)
+ * Summary: Whether moving `player`'s pawn from ring position `from_steps`
+ *          by `delta` squares (positive = forward, negative = backward,
+ *          see g->rules.backward_movement) would land on, or pass
+ *          through, a square blockaded against `player` (see
+ *          ring_blockade_at()). Only squares still on the shared ring
+ *          are checked -- once a forward path would enter the home
+ *          column, or a backward path would reach back past the
+ *          player's own start square, there's nothing further shared
+ *          with any other player left to check.
+ * Syntax:  static int ring_path_blocked(const ludo_game *g, int player,
+ *                                       int from_steps, int delta);
+ * Input:   g          - the game in progress.
+ *          player     - the moving pawn's owner.
+ *          from_steps - the moving pawn's steps before the move (must be
+ *                       < LUDO_RING_LENGTH -- still on the shared ring).
+ *          delta      - squares to move, positive (forward) or negative
+ *                       (backward).
+ * Output:  1 if any square actually crossed is blockaded, 0 if the path
+ *          is clear.
+ */
+static int ring_path_blocked(const ludo_game *g, int player, int from_steps, int delta)
+{
+	int forward = (delta >= 0);
+	int distance = forward ? delta : -delta;
+	int i;
+
+	for (i = 1; i <= distance; i++) {
+		int steps = from_steps + (forward ? i : -i);
+
+		if (steps < 0 || steps >= LUDO_RING_LENGTH)
+			break; /* left the shared ring -- nothing further to check */
+
+		if (ring_blockade_at(g, player, ring_square(player, steps)))
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Function: release_blocked_by_blockade (internal)
+ * Summary: Whether releasing a new pawn from home is currently prevented
+ *          because another player's blockade (see ring_blockade_at())
+ *          sits on `player`'s own start square -- a released pawn always
+ *          lands there, so a barrier there blocks entry into play just
+ *          as it blocks passing through it anywhere else on the ring.
+ * Syntax:  static int release_blocked_by_blockade(const ludo_game *g, int player);
+ * Input:   g      - the game in progress.
+ *          player - the player who would be releasing a pawn.
+ * Output:  1 if blocked, 0 otherwise (always 0 when rules.blockade is off).
+ */
+static int release_blocked_by_blockade(const ludo_game *g, int player)
+{
+	return ring_blockade_at(g, player, ring_square(player, 0));
+}
+
+/*
  * Function: home_column_blocked (internal)
  * Summary: Whether moving a pawn from "from_steps" to "to_steps" (both at
  *          or past the start of the home column) would pass through or
@@ -152,6 +267,18 @@ static int capture_at(ludo_game *g, int player, int pawn_index, int steps)
  *          the pawn's own starting square (from_steps), with every other
  *          square actually passed through or landed on checked in
  *          whichever direction the move actually travels.
+ *
+ *          g->rules.free_home_column disables this check entirely (see
+ *          its own doc comment in game_logic.h) -- the Dutch Wikipedia
+ *          source cited by the multi-rule-set plan for this house rule
+ *          ("dat er binnen de eindcirkels gemanoeuvreerd wordt") gives no
+ *          further detail beyond "own pawns may manoeuvre freely within
+ *          the home stretch," so this is read as simply disabling
+ *          single-file blocking outright -- note finish_threshold_for()
+ *          is a *separate* mechanism (not gated by this rule) and still
+ *          gives each successive finishing pawn its own distinct final
+ *          square, so finished pawns never end up sharing one square
+ *          even with free manoeuvring on.
  * Syntax:  static int home_column_blocked(const ludo_game *g, int player,
  *                                         int pawn_index, int from_steps,
  *                                         int to_steps);
@@ -168,6 +295,9 @@ static int home_column_blocked(const ludo_game *g, int player, int pawn_index,
                                 int from_steps, int to_steps)
 {
 	int j;
+
+	if (g->rules.free_home_column)
+		return 0;
 
 	for (j = 0; j < LUDO_PAWNS; j++) {
 		const ludo_pawn *op;
@@ -298,7 +428,10 @@ static int finish_threshold_for(const ludo_game *g, int player, int pawn_index)
  *          qualifies any roll when this is the player's own last pawn
  *          still at home. ludo_roll()'s own automatic-release block only
  *          runs at all when rules.mandatory_six_release is on, so the
- *          two never both offer a release for the same roll.
+ *          two never both offer a release for the same roll. Either way,
+ *          a release is refused (not offered as movable) when
+ *          rules.blockade has the player's own start square barricaded
+ *          by another player (see release_blocked_by_blockade()).
  * Syntax:  static unsigned compute_movable_pawns(const ludo_game *g);
  * Input:   g - the game in progress, after a roll has been recorded.
  * Output:  bitmask of movable pawns for the current player (see
@@ -331,7 +464,8 @@ static unsigned compute_movable_pawns(const ludo_game *g)
 			is_last_home_pawn = (others_home == 0);
 		}
 
-		if (home_pawn != -1 && (g->last_roll == 6 || is_last_home_pawn))
+		if (home_pawn != -1 && (g->last_roll == 6 || is_last_home_pawn)
+		 && !release_blocked_by_blockade(g, player))
 			mask |= (unsigned) (1u << home_pawn);
 	}
 
@@ -345,9 +479,70 @@ static unsigned compute_movable_pawns(const ludo_game *g)
 		if (!resolve_move_destination(g, player, i, g->last_roll, &new_steps))
 			continue; /* would overshoot past the end of the home column (bounce disabled) */
 
+		if (p->steps < LUDO_RING_LENGTH
+		 && ring_path_blocked(g, player, p->steps, g->last_roll))
+			continue; /* a barricade (rules.blockade) is on/across the ring path */
+
 		if (new_steps >= LUDO_RING_LENGTH
 		 && home_column_blocked(g, player, i, p->steps, new_steps))
 			continue; /* blocked by our own pawn in the home column (finished or not) */
+
+		mask |= (unsigned) (1u << i);
+	}
+	return mask;
+}
+
+/*
+ * Function: compute_movable_pawns_backward (internal)
+ * Summary: The rule evaluation behind ludo_movable_pawns_backward() --
+ *          shared with ludo_move_pawn_backward() the same way
+ *          compute_movable_pawns() is shared between ludo_roll() and
+ *          ludo_movable_pawns(). Always 0 unless g->rules.backward_movement
+ *          is on.
+ *
+ *          The Dutch Wikipedia source cited by the multi-rule-set plan
+ *          for this house rule only says "soms staat men toe dat een
+ *          pion ook achteruit mag slaan" (sometimes a pawn is also
+ *          allowed to move backward) with no further detail -- this is
+ *          implemented as the simplest reading: a pawn already on the
+ *          shared ring may, as an alternative to its ordinary forward
+ *          move with the same roll, move backward by that many squares
+ *          instead, as long as doing so doesn't carry it back past its
+ *          own start square (it can't "un-release" itself off the ring)
+ *          and (with rules.blockade also on) doesn't cross a barricaded
+ *          square. Deliberately does NOT extend into the home column --
+ *          nothing in the source suggests backward movement applies
+ *          there, and the home column already has its own, separate
+ *          "free manoeuvring" toggle (rules.free_home_column).
+ * Syntax:  static unsigned compute_movable_pawns_backward(const ludo_game *g);
+ * Input:   g - the game in progress, after a roll has been recorded.
+ * Output:  bitmask of pawns that may legally move backward with this roll.
+ */
+static unsigned compute_movable_pawns_backward(const ludo_game *g)
+{
+	int player = g->current_player;
+	unsigned mask = 0;
+	int i;
+
+	if (!g->rules.backward_movement || g->just_released)
+		return 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		const ludo_pawn *p = &g->players[player].pawns[i];
+		int new_steps;
+
+		if (g->forced_pawn != -1 && g->forced_pawn != i)
+			continue; /* obligated to move a specific pawn this roll */
+
+		if (!p->in_play || p->finished || p->steps >= LUDO_RING_LENGTH)
+			continue;
+
+		new_steps = p->steps - g->last_roll;
+		if (new_steps < 0)
+			continue; /* can't back off the ring past the start square */
+
+		if (ring_path_blocked(g, player, p->steps, -g->last_roll))
+			continue; /* a barricade (rules.blockade) is on/across the backward path */
 
 		mask |= (unsigned) (1u << i);
 	}
@@ -454,11 +649,15 @@ int ludo_roll(ludo_game *g, int forced_roll)
 	 * pawn is instead offered as one of the player's ordinary movable
 	 * choices by compute_movable_pawns() (see its own doc comment), and
 	 * ludo_move_pawn() performs the actual release when that choice is
-	 * picked. The two paths never overlap for the same roll. */
+	 * picked. The two paths never overlap for the same roll. A blockade
+	 * (rules.blockade) sitting on the player's own start square blocks
+	 * this release too -- see release_blocked_by_blockade() -- in which
+	 * case this falls through to the same "no legal action" bookkeeping
+	 * below as if there were no home pawn to release at all. */
 	if (roll == 6 && g->forced_pawn == -1 && g->rules.mandatory_six_release) {
 		int home_pawn = find_home_pawn(g, g->current_player);
 
-		if (home_pawn != -1) {
+		if (home_pawn != -1 && !release_blocked_by_blockade(g, g->current_player)) {
 			ludo_pawn *p = &g->players[g->current_player].pawns[home_pawn];
 
 			p->in_play = 1;
@@ -474,7 +673,9 @@ int ludo_roll(ludo_game *g, int forced_roll)
 		}
 	}
 
-	if (compute_movable_pawns(g) == 0) {
+	/* A backward move (rules.backward_movement) counts as a legal action
+	 * too -- a player who can only move backward isn't actually stuck. */
+	if (compute_movable_pawns(g) == 0 && compute_movable_pawns_backward(g) == 0) {
 		g->tries_remaining--;
 		if (g->tries_remaining <= 0)
 			ludo_end_turn(g);
@@ -487,9 +688,17 @@ unsigned ludo_movable_pawns(const ludo_game *g)
 	return compute_movable_pawns(g);
 }
 
+unsigned ludo_movable_pawns_backward(const ludo_game *g)
+{
+	return compute_movable_pawns_backward(g);
+}
+
 int ludo_no_move_possible(const ludo_game *g)
 {
-	return compute_movable_pawns(g) == 0;
+	/* Since the multi-rule-set work: a player who can only move backward
+	 * (rules.backward_movement) is not actually stuck, so both
+	 * directions must be empty for this to be true. */
+	return compute_movable_pawns(g) == 0 && compute_movable_pawns_backward(g) == 0;
 }
 
 int ludo_move_pawn(ludo_game *g, int pawn_index)
@@ -584,6 +793,35 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 	} else {
 		ludo_end_turn(g);
 	}
+
+	return captured;
+}
+
+int ludo_move_pawn_backward(ludo_game *g, int pawn_index)
+{
+	int player = g->current_player;
+	ludo_pawn *p = &g->players[player].pawns[pawn_index];
+	int roll = g->last_roll;
+	int captured;
+
+	/* ludo_movable_pawns_backward() already confirmed p->steps - roll
+	 * stays >= 0 and doesn't cross a blockaded square -- no further
+	 * legality check needed here, mirroring ludo_move_pawn()'s own
+	 * "the caller only ever passes an already-reported-movable pawn"
+	 * contract. */
+	p->steps -= roll;
+	captured = capture_at(g, player, pawn_index, p->steps);
+
+	g->forced_pawn = -1; /* this roll's obligation, if any, is now fulfilled */
+
+	/* A backward move can never finish a pawn (steps only decreases), so
+	 * no winner check is needed here unlike ludo_move_pawn() -- but a
+	 * six rolled still grants its usual bonus roll regardless of which
+	 * direction the player chose to use it for. */
+	if (roll == 6 && !all_pawns_finished(g, player))
+		g->last_roll = 0;
+	else
+		ludo_end_turn(g);
 
 	return captured;
 }

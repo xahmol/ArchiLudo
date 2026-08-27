@@ -197,20 +197,46 @@ typedef enum {
  *                              square (only reachable at all when
  *                              own_pawn_capture is off) block every other
  *                              player's pawns from landing on, or passing
- *                              through, that square.
- *   backward_movement        - 0: no effect (default). 1: TODO -- exact
- *                              mechanic not yet implemented, needs
- *                              re-verification against its cited source
- *                              before implementation (see the "multiple
- *                              rule sets" planning notes) -- reserved
- *                              here so the struct shape doesn't need to
- *                              change again once it is.
+ *                              through, that square (see
+ *                              ring_blockade_at() in game_logic.c). A
+ *                              release (a pawn entering play) is also
+ *                              refused, not just ordinary ring movement,
+ *                              if the player's own start square is
+ *                              itself blockaded.
+ *   backward_movement        - 0: no effect (default). 1: a pawn already
+ *                              on the shared ring may move backward by
+ *                              the current roll instead of forward, via
+ *                              the separate ludo_movable_pawns_backward()/
+ *                              ludo_move_pawn_backward() pair rather than
+ *                              the ordinary forward-only API (see their
+ *                              own doc comments) -- as long as doing so
+ *                              doesn't carry it back past its own start
+ *                              square, and (with blockade also on)
+ *                              doesn't cross a blockaded square. Does not
+ *                              extend into the home column (its own
+ *                              separate free_home_column toggle below
+ *                              covers manoeuvring there). The cited
+ *                              source for this house rule
+ *                              (nl.wikipedia.org's "Mens erger je niet!"
+ *                              article) gives no further mechanical
+ *                              detail beyond permitting it in general,
+ *                              so this is this project's own
+ *                              (documented) reading of an underspecified
+ *                              rule -- see docs/GAME_LOGIC.md.
  *   free_home_column         - 0: a player's own pawns block each other
  *                              in the home column, the same single-file
  *                              rule as the shared ring (default). 1: the
  *                              home column is exempt from that blocking
  *                              -- pawns may pass or land on their own
- *                              other pawns there freely.
+ *                              other pawns there freely (note: a
+ *                              successive pawn's own *finishing* square
+ *                              still shrinks by one for each pawn that's
+ *                              already finished -- see
+ *                              finish_threshold_for() in game_logic.c --
+ *                              a separate mechanism this toggle does not
+ *                              affect, so finished pawns still never
+ *                              literally share one square even with this
+ *                              on).
  *   no_six_needed_last_pawn  - 0: entering play always requires a six,
  *                              with no exception (default). 1: if this is
  *                              a player's OWN LAST pawn still waiting at
@@ -368,12 +394,33 @@ int ludo_roll(ludo_game *g, int forced_roll);
 unsigned ludo_movable_pawns(const ludo_game *g);
 
 /*
+ * Function: ludo_movable_pawns_backward
+ * Summary: Report which of the current player's pawns can legally move
+ *          BACKWARD by the most recent roll -- only ever non-zero when
+ *          rules.backward_movement is on (see ludo_rules' own doc
+ *          comment). A completely separate bitmask from
+ *          ludo_movable_pawns(): a pawn can appear in neither, either, or
+ *          (if legal in both directions) both, and the caller/UI decides
+ *          which direction to actually apply via ludo_move_pawn() or
+ *          ludo_move_pawn_backward() respectively.
+ * Syntax:  unsigned ludo_movable_pawns_backward(const ludo_game *g);
+ * Input:   g - the game in progress, after a call to ludo_roll().
+ * Output:  bitmask where bit N is set if pawn N may legally move
+ *          backward; 0 if none can (including whenever
+ *          rules.backward_movement is off).
+ */
+unsigned ludo_movable_pawns_backward(const ludo_game *g);
+
+/*
  * Function: ludo_no_move_possible
- * Summary: Convenience test equivalent to (ludo_movable_pawns(g) == 0).
+ * Summary: Convenience test for whether the current player has no legal
+ *          action at all with this roll -- forward AND (if
+ *          rules.backward_movement is on) backward, so a player who can
+ *          only move backward is correctly NOT reported stuck.
  * Syntax:  int ludo_no_move_possible(const ludo_game *g);
  * Input:   g - the game in progress, after a call to ludo_roll().
- * Output:  1 if the current player cannot move any pawn with this roll,
- *          0 otherwise.
+ * Output:  1 if the current player cannot move any pawn (in either
+ *          direction) with this roll, 0 otherwise.
  */
 int ludo_no_move_possible(const ludo_game *g);
 
@@ -403,6 +450,26 @@ int ludo_no_move_possible(const ludo_game *g);
  * Output:  1 if this move captured an opponent's pawn, 0 otherwise.
  */
 int ludo_move_pawn(ludo_game *g, int pawn_index);
+
+/*
+ * Function: ludo_move_pawn_backward
+ * Summary: Move one of the current player's pawns BACKWARD by the most
+ *          recent roll (see ludo_movable_pawns_backward() and
+ *          rules.backward_movement). Applies capture-on-landing (same
+ *          rules.own_pawn_capture logic as a forward move) and either
+ *          grants the player another roll (six was rolled) or ends their
+ *          turn, same as ludo_move_pawn() -- but a backward move can
+ *          never finish a pawn, so no win detection is needed here.
+ * Syntax:  int ludo_move_pawn_backward(ludo_game *g, int pawn_index);
+ * Input:   g          - the game in progress.
+ *          pawn_index - index (0..LUDO_PAWNS-1) of one of the pawns
+ *                       reported movable by ludo_movable_pawns_backward().
+ *                       Passing a pawn that isn't currently backward-
+ *                       movable is a caller error and produces undefined
+ *                       board state.
+ * Output:  1 if this move captured an opponent's pawn, 0 otherwise.
+ */
+int ludo_move_pawn_backward(ludo_game *g, int pawn_index);
 
 /*
  * Function: ludo_end_turn

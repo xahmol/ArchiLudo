@@ -8,6 +8,11 @@ cold, with no conversation history, knows exactly where things stood
 and what to do next. Last updated 2026-08-27, commit pending -- see
 `git log` for the actual latest.)*
 
+Note on dates: this section and the round entries below record when
+each round's *work* happened, which may be a different calendar day
+than whatever the system clock reports "today" as by the time a later
+session reads this -- don't reconcile the two.
+
 **Pawn rendering, shading, and the crop bug are all confirmed done** --
 sprite rendering (round 7.18), the dithered 16-colour pawn shading
 (round 7.19), the round 7.20 home-column stacking rules bug, and the
@@ -37,15 +42,25 @@ adapt AI rules, do not see that mentioned?"). Rollout is 6 phases;
 `ludo_rules`/`ludo_variant` types, `ludo_default_rules()`/
 `ludo_set_rules()`, and the three straightforward toggles (six-release,
 own-pawn capture, overshoot bounce), all tested, `make test` green.
-**Next: Phase 2** -- the four remaining toggles (blockade, backward
-movement, free home-column, no-six-needed-last-pawn). The plan
-explicitly flags that rules 5 (backward movement) and 6 (free
-home-column) need their exact mechanics re-verified against
-<https://nl.wikipedia.org/wiki/Mens_erger_je_niet!> before writing any
-code for them specifically -- do this first, don't implement from the
-plan's own paraphrase alone. After Phase 2: Phase 3 (AI adaptation in
-`src/ai.c`), Phase 4 (`rules_view.c` UI, live Arculator test), Phase 5
-(save-format bump to `"ALS2"`), Phase 6 (final docs pass).
+**Phase 2 is now also done** (this file's "Round 7.44" entry below) --
+the three remaining unimplemented toggles: blockade, backward movement,
+and free home-column. Re-verified the two flagged rules against
+<https://nl.wikipedia.org/wiki/Mens_erger_je_niet!> first, as the plan
+required -- the source turned out to give no real mechanical detail for
+either, so both are this project's own documented judgement call (see
+`docs/GAME_LOGIC.md`'s "Backward movement and free home-column" note).
+`make test` green (30 tests, including a new 200-game headless
+simulation under the full Pachisi-style preset with every toggle active
+at once), clean cross-compile.
+
+**Next: Phase 3** -- AI adaptation in `src/ai.c` (`score_move()`'s
+own-pawn-collision scoring needs gating on `rules.own_pawn_capture`, and
+a new scoring path is needed for releasing a pawn from home now that
+it's sometimes a genuine choice rather than automatic -- see the plan's
+own "AI changes" section for the full detail). After that: Phase 4
+(`rules_view.c` UI, live Arculator test -- this project's first true ESG
+radio-button group and popup-menu-as-dropdown), Phase 5 (save-format
+bump to `"ALS2"`), Phase 6 (final docs pass).
 
 ## Layering
 
@@ -2464,6 +2479,67 @@ Not yet done: Phase 2 (the remaining four toggles, needs a Wikipedia
 re-verification step first -- see "Resume here"), Phase 3 (AI), Phase 4
 (UI), Phase 5 (save format), Phase 6 (docs, including this project's own
 `docs/GAME_LOGIC.md`, updated alongside this round).
+
+**Round 7.44**: Phase 2 of the multiple rule-set / house-rule variant
+system -- the three toggles Phase 1 left unimplemented. Re-verified the
+plan's two flagged rules against
+<https://nl.wikipedia.org/wiki/Mens_erger_je_niet!> first, as required
+before writing any code for them: the article's "Aangepaste
+spelregels" section confirms both variants exist but gives essentially
+no mechanical detail beyond permitting them in general ("soms staat men
+toe dat een pion ook achteruit mag slaan" / "...of dat er binnen de
+eindcirkels gemanoeuvreerd wordt") -- so both are implemented as this
+project's own documented reading rather than a literal transcription
+(full detail: `docs/GAME_LOGIC.md`'s "Backward movement and free
+home-column" note).
+
+- **`free_home_column`**: the simplest of the three -- `home_column_blocked()`
+  gained a one-line early-return when the rule is on, disabling its
+  single-file check entirely. `finish_threshold_for()` is untouched (a
+  separate mechanism), so finished pawns still queue into distinct
+  squares even with free manoeuvring active.
+- **`blockade`**: a genuinely new mechanic -- three new internal
+  helpers, `pawns_stacked_at()` (counts a player's own pawns on one ring
+  square), `ring_blockade_at()` (2+ of some *other* player's pawns on a
+  square = blockaded against everyone else), and `ring_path_blocked()`
+  (walks every ring square a move would actually cross, in either
+  direction, checking each for a blockade). Wired into
+  `compute_movable_pawns()`'s ring-movement branch, and into both
+  release paths (`ludo_roll()`'s mandatory auto-release and
+  `compute_movable_pawns()`'s optional-release bit) via a fourth
+  helper, `release_blocked_by_blockade()`, since a released pawn always
+  lands on the player's own start square -- a barricade sitting there
+  blocks entering play, not just ordinary ring movement.
+- **`backward_movement`**: exposed via a genuinely new, parallel public
+  API rather than folded into the existing forward-only one -- a pawn
+  can have a legal forward move, a legal backward move, both, or
+  neither for the same roll, which a single bitmask can't represent
+  unambiguously. `ludo_movable_pawns_backward()`/`ludo_move_pawn_backward()`
+  mirror `ludo_movable_pawns()`/`ludo_move_pawn()`'s own shape and
+  internal-helper-sharing pattern (`compute_movable_pawns_backward()`,
+  shared the same way `compute_movable_pawns()` already was).
+  Restricted to pawns still on the shared ring (not the home column,
+  which has its own separate toggle) and to not moving back past the
+  pawn's own start square; still subject to `ring_path_blocked()` when
+  `blockade` is also on. `ludo_roll()`'s and `ludo_no_move_possible()`'s
+  own "is this player actually stuck" checks were both updated to also
+  consult the new backward bitmask -- a player who can only move
+  backward isn't stuck, even though the forward-only check alone would
+  have said otherwise.
+
+Eight new focused tests (one or two per toggle, covering both the
+positive and negative case for blockade specifically -- landing-on vs.
+passing-through, and blocked vs. unblocked release) plus a new 200-game
+headless simulation under the *entire* Pachisi-style preset (every
+toggle active simultaneously) checking looser invariants than the
+original MEJN simulation (exact-arithmetic assumptions like "steps
+after == steps before + roll" no longer hold once bounce-back and
+backward movement are in play) -- steps-in-range and the finished-pawns-
+occupy-distinct-squares invariant still do, and do still hold. `make
+test`: 30 tests, all passing (up from 22). Full cross-compile also
+verified clean. Not yet done: Phase 3 (AI adaptation), Phase 4 (UI),
+Phase 5 (save format), Phase 6 (docs, beyond what this round and Round
+7.43 already updated) -- see "Resume here".
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
