@@ -45,6 +45,36 @@
  * can find it genuinely easier to beat. LUDO_AI_HARD is reserved for a
  * possible future minimax/lookahead search -- see docs/ARCHITECTURE.md's
  * Roadmap.
+ *
+ * Round 7.45 (multi-rule-set Phase 3): score_move() previously baked in
+ * three assumptions that only held under the engine's original one-and-
+ * only MEJN ruleset -- fixed once game_logic.c grew a configurable
+ * g->rules (see game_logic.h's ludo_rules):
+ * - Own-pawn collision was scored as a real setback unconditionally --
+ *   only true when g->rules.own_pawn_capture is on. Now gated (see
+ *   score_landing_at()), with a small new positive term for forming a
+ *   blockade (g->rules.blockade) instead.
+ * - A pawn's destination was computed as a naive p->steps + roll --
+ *   wrong under g->rules.overshoot_bounce, where the actual landing
+ *   square can bounce backward off the end of the home column. Fixed by
+ *   calling game_logic.c's own ludo_resolve_move_destination() rather
+ *   than duplicating (and risking drifting from) that math.
+ * - Releasing a pawn from home was never a scored move at all -- under
+ *   the original mandatory six-release, ludo_roll() always released
+ *   automatically before the AI ever got a choice. Now scored via the
+ *   new score_release(), reached whenever score_move() is asked to
+ *   score a pawn that's still in_play == 0 (only possible at all when
+ *   g->rules.mandatory_six_release is off -- see
+ *   compute_movable_pawns()'s own doc comment in game_logic.c).
+ *
+ * Backward movement (g->rules.backward_movement) and blockade-aware
+ * strategy are NOT deeply scored -- per the multi-rule-set plan, real
+ * strategic sophistication for those is an explicit stretch goal, not a
+ * v1 requirement. The only hard requirement is that the AI never gets
+ * stuck or picks something illegal when they're active. See
+ * ludo_ai_choose_pawn_backward()/score_move_backward() below, a
+ * deliberately much simpler fallback used only when no forward move is
+ * available at all.
  */
 
 #include "ai.h"
@@ -79,6 +109,24 @@
  * already in its home stretch. */
 #define WEIGHT_HOME_COLUMN_ADVANCE_BASE     2000
 #define WEIGHT_HOME_COLUMN_ADVANCE_PER_STEP  100
+
+/* Round 7.45: releasing a pawn is only ever a *scored* decision when
+ * g->rules.mandatory_six_release is off (see score_release()) -- a
+ * first-pass heuristic, not deeply tuned. Scaled down per pawn the
+ * player already has racing, on the reasoning that a 4th pawn joining
+ * the board matters less than a 2nd. */
+#define WEIGHT_RELEASE_BASE               3000
+#define WEIGHT_RELEASE_PER_PAWN_ALREADY_OUT 300
+
+/* Round 7.45: a small, deliberately modest bonus for landing on a square
+ * already occupied by one of the player's own pawns when doing so forms
+ * or reinforces a blockade (g->rules.blockade) instead of sending that
+ * pawn home (which only happens when g->rules.own_pawn_capture is also
+ * off -- the two can only coexist in the first place under that
+ * combination). Kept intentionally small/neutral, per the multi-rule-set
+ * plan's own framing of blockade strategy as a stretch goal, not
+ * something to score aggressively in a first pass. */
+#define WEIGHT_BLOCKADE_FORM                800
 
 /* A capture is worth extra when the captured pawn was this close (or
  * closer) to leaving the ring for its home column -- losing that much
@@ -138,21 +186,158 @@ static int is_entry_square(int square)
 }
 
 /*
+ * Function: score_landing_at (internal)
+ * Summary: Score the collision/capture consequences of `player`'s pawn
+ *          `pawn_index` landing on ring square `square` -- shared by
+ *          score_move() (a normal move landing on the ring) and
+ *          score_release() (a release landing on the player's own entry
+ *          square), so the two can never disagree about how a capture
+ *          (or the lack of one, under g->rules.own_pawn_capture) is
+ *          scored.
+ * Syntax:  static int score_landing_at(const ludo_game *g, int player,
+ *                                      int pawn_index, int square);
+ * Output:  the total capture/collision/blockade score contribution for
+ *          landing there (may be 0, negative, or positive).
+ */
+static int score_landing_at(const ludo_game *g, int player, int pawn_index, int square)
+{
+	int other_player, other_pawn, score = 0;
+
+	for (other_player = 0; other_player < LUDO_PLAYERS; other_player++) {
+		for (other_pawn = 0; other_pawn < LUDO_PAWNS; other_pawn++) {
+			const ludo_pawn *op = &g->players[other_player].pawns[other_pawn];
+			int op_square;
+
+			if (other_player == player && other_pawn == pawn_index)
+				continue;
+			if (!op->in_play || op->finished || op->steps >= LUDO_RING_LENGTH)
+				continue;
+
+			op_square = ring_square(other_player, op->steps);
+			if (op_square != square)
+				continue;
+
+			if (other_player == player) {
+				if (g->rules.own_pawn_capture) {
+					/* Sends our own earlier pawn home -- a real
+					 * setback, scaled by how far it had already come. */
+					score += WEIGHT_OWN_COLLISION_BASE
+					       + WEIGHT_OWN_COLLISION_PER_STEP * op->steps;
+				} else if (g->rules.blockade) {
+					/* No capture (the rule is off) -- joining that
+					 * pawn here instead forms/reinforces a blockade. */
+					score += WEIGHT_BLOCKADE_FORM;
+				}
+				/* own_pawn_capture off and blockade off: no effect
+				 * either way -- the two pawns simply share the square. */
+			} else {
+				score += WEIGHT_CAPTURE;
+				if (op->steps >= LUDO_RING_LENGTH - NEAR_HOME_RING_SQUARES_REMAINING)
+					score += WEIGHT_CAPTURE_NEAR_HOME;
+			}
+		}
+	}
+	return score;
+}
+
+/*
+ * Function: score_release (internal)
+ * Summary: Score bringing home pawn `pawn_index` into play this turn --
+ *          only reachable at all when g->rules.mandatory_six_release is
+ *          off (see compute_movable_pawns()'s own doc comment in
+ *          game_logic.c): under the mandatory default, ludo_roll()
+ *          releases automatically before any choice is ever offered, so
+ *          this scoring path was never needed until release became
+ *          optional. The release lands exactly on the player's own
+ *          entry square (steps == 0) -- NOT advanced further by the
+ *          roll (see game_logic.c's ludo_move_pawn(), the "!p->in_play"
+ *          branch: the roll places the pawn, it doesn't also move it).
+ *
+ *          First-pass heuristic (see WEIGHT_RELEASE_BASE's own comment),
+ *          not deeply tuned -- still subject to the same capture-on-
+ *          landing scoring (score_landing_at()) any other move to that
+ *          square would get, since the entry square is exactly where
+ *          captures on release actually happen (game_logic.c's
+ *          ludo_roll()/ludo_move_pawn() both call capture_at() right
+ *          after releasing).
+ * Syntax:  static int score_release(const ludo_game *g, int player, int pawn_index);
+ */
+static int score_release(const ludo_game *g, int player, int pawn_index)
+{
+	int new_square = ring_square(player, 0);
+	int already_racing = 0, i, score;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		if (i != pawn_index && g->players[player].pawns[i].in_play
+		 && !g->players[player].pawns[i].finished)
+			already_racing++;
+	}
+
+	score = WEIGHT_RELEASE_BASE - WEIGHT_RELEASE_PER_PAWN_ALREADY_OUT * already_racing;
+	score += score_landing_at(g, player, pawn_index, new_square);
+	/* new_square is always an entry square by construction (it's the
+	 * player's own start square) -- this is exactly the scenario
+	 * WEIGHT_ENTRY_SQUARE_LAND represents (exposed to any player
+	 * releasing there next), so it applies here too. */
+	score += WEIGHT_ENTRY_SQUARE_LAND;
+
+	for (i = 0; i < LUDO_PLAYERS; i++) {
+		int other_pawn;
+
+		if (i == player)
+			continue;
+		for (other_pawn = 0; other_pawn < LUDO_PAWNS; other_pawn++) {
+			const ludo_pawn *op = &g->players[i].pawns[other_pawn];
+			int op_square;
+
+			if (!op->in_play || op->finished || op->steps >= LUDO_RING_LENGTH)
+				continue;
+
+			op_square = ring_square(i, op->steps);
+			if (ring_distance_behind(op_square, new_square) <= DANGER_RANGE)
+				score += WEIGHT_DANGER_STILL_IN;
+		}
+	}
+
+	return score;
+}
+
+/*
  * Function: score_move (internal)
  * Summary: Score how good it would be for `player` to move pawn
  *          `pawn_index` this turn, per the weights above. Higher is
  *          better; ludo_ai_choose_pawn() picks the movable pawn with the
  *          highest score.
+ *
+ *          When pawn_index refers to a pawn still waiting at home
+ *          (in_play == 0), this is a release rather than an ordinary
+ *          move -- delegated entirely to score_release(), since none of
+ *          the ring-position-based scoring below applies to a pawn
+ *          that isn't on the board yet.
  */
 static int score_move(const ludo_game *g, int player, int pawn_index)
 {
 	const ludo_pawn *p = &g->players[player].pawns[pawn_index];
 	int roll = g->last_roll;
-	int new_steps = p->steps + roll;
+	int new_steps;
 	int score = 0;
 	int old_square, new_square;
-	int old_on_ring = p->in_play && p->steps < LUDO_RING_LENGTH;
-	int new_on_ring = new_steps < LUDO_RING_LENGTH;
+	int old_on_ring, new_on_ring;
+
+	if (!p->in_play)
+		return score_release(g, player, pawn_index);
+
+	/* Uses game_logic.c's own authoritative destination calculation
+	 * (rather than a naive p->steps + roll) so scoring can never
+	 * disagree with where the move would actually land under
+	 * g->rules.overshoot_bounce -- see ludo_resolve_move_destination()'s
+	 * own doc comment. Only ever fails for an illegal destination, which
+	 * can't happen here: ludo_ai_choose_pawn() only ever scores a pawn
+	 * ludo_movable_pawns() already confirmed movable. */
+	ludo_resolve_move_destination(g, pawn_index, roll, &new_steps);
+
+	old_on_ring = p->steps < LUDO_RING_LENGTH;
+	new_on_ring = new_steps < LUDO_RING_LENGTH;
 
 	if (new_steps >= LUDO_TOTAL_STEPS) {
 		/* This move finishes the pawn -- check whether it's also the
@@ -174,32 +359,7 @@ static int score_move(const ludo_game *g, int player, int pawn_index)
 	if (new_on_ring) {
 		int other_player, other_pawn;
 
-		for (other_player = 0; other_player < LUDO_PLAYERS; other_player++) {
-			for (other_pawn = 0; other_pawn < LUDO_PAWNS; other_pawn++) {
-				const ludo_pawn *op = &g->players[other_player].pawns[other_pawn];
-				int op_square;
-
-				if (other_player == player && other_pawn == pawn_index)
-					continue;
-				if (!op->in_play || op->finished || op->steps >= LUDO_RING_LENGTH)
-					continue;
-
-				op_square = ring_square(other_player, op->steps);
-				if (op_square != new_square)
-					continue;
-
-				if (other_player == player) {
-					/* Sends our own earlier pawn home -- a real setback,
-					 * scaled by how far it had already come. */
-					score += WEIGHT_OWN_COLLISION_BASE
-					       + WEIGHT_OWN_COLLISION_PER_STEP * op->steps;
-				} else {
-					score += WEIGHT_CAPTURE;
-					if (op->steps >= LUDO_RING_LENGTH - NEAR_HOME_RING_SQUARES_REMAINING)
-						score += WEIGHT_CAPTURE_NEAR_HOME;
-				}
-			}
-		}
+		score += score_landing_at(g, player, pawn_index, new_square);
 
 		if (is_entry_square(new_square))
 			score += WEIGHT_ENTRY_SQUARE_LAND;
@@ -266,6 +426,58 @@ int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty
 			continue;
 
 		score = score_move(g, player, pawn);
+		if (best_pawn == -1 || score > best_score) {
+			best_score = score;
+			best_pawn = pawn;
+		}
+	}
+
+	return best_pawn;
+}
+
+/*
+ * Function: score_move_backward (internal)
+ * Summary: Score moving pawn `pawn_index` BACKWARD by the current roll
+ *          (g->rules.backward_movement) -- deliberately much simpler
+ *          than score_move()'s forward scoring, since real backward-
+ *          movement strategy is an explicit stretch goal, not a v1
+ *          requirement (see this file's top-of-file comment). Reuses
+ *          score_landing_at() for capture-on-landing (still a real
+ *          tactical bonus, cheap to include), then just prefers
+ *          retreating the *least* distance as a tie-breaker among
+ *          several backward options -- not a claim that minimal retreat
+ *          is always the strategically correct choice.
+ * Syntax:  static int score_move_backward(const ludo_game *g, int player,
+ *                                         int pawn_index);
+ */
+static int score_move_backward(const ludo_game *g, int player, int pawn_index)
+{
+	const ludo_pawn *p = &g->players[player].pawns[pawn_index];
+	int roll = g->last_roll;
+	/* ludo_movable_pawns_backward() already confirmed p->steps - roll
+	 * stays >= 0 -- see game_logic.c's compute_movable_pawns_backward(). */
+	int new_steps = p->steps - roll;
+	int new_square = ring_square(player, new_steps);
+	int score;
+
+	score = score_landing_at(g, player, pawn_index, new_square);
+	score += WEIGHT_PROGRESS_PER_STEP * new_steps;
+
+	return score;
+}
+
+int ludo_ai_choose_pawn_backward(const ludo_game *g, unsigned movable_backward)
+{
+	int player = g->current_player;
+	int best_pawn = -1, best_score = 0, pawn;
+
+	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+		int score;
+
+		if (!(movable_backward & (1u << pawn)))
+			continue;
+
+		score = score_move_backward(g, player, pawn);
 		if (best_pawn == -1 || score > best_score) {
 			best_score = score;
 			best_pawn = pawn;

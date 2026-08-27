@@ -217,6 +217,137 @@ static void test_capture_still_beats_home_column_advance(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
 }
 
+/* Round 7.45: with g->rules.own_pawn_capture off, landing on the
+ * player's own other pawn no longer sends it home -- so, unlike
+ * test_avoids_own_collision_when_alternative_exists() above (the
+ * default, own_pawn_capture-on behaviour this is the opposite of), the
+ * AI should have no reason to avoid it, and should prefer it over a
+ * plain, uncontested move whenever it's otherwise the stronger play
+ * (here: it happens to also be a capture of an opponent sharing that
+ * square, which the collision-avoidance bug would previously have
+ * masked entirely). */
+static void test_no_own_collision_avoidance_when_capture_off(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* own_pawn_capture off */
+	ludo_set_rules(&g, &r);
+	g.current_player = 0;
+	g.last_roll = 3;
+
+	/* Pawn 0: ring square 15 -> 18, where pawn 1 (same player) sits --
+	 * under own_pawn_capture off this is a harmless shared square, not a
+	 * setback, so nothing should discourage this move; it also happens
+	 * to be further along than pawn 2's alternative below, so a
+	 * lingering collision penalty (the bug this guards against) would
+	 * be the only thing that could make the AI prefer pawn 2 instead. */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 15;
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 18;
+
+	/* Pawn 2: an ordinary, uncontested move, less progress than pawn 0's. */
+	g.players[0].pawns[2].in_play = 1;
+	g.players[0].pawns[2].steps = 2;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x5, LUDO_AI_NORMAL) == 0);
+}
+
+/* Round 7.45: with g->rules.mandatory_six_release off, releasing a home
+ * pawn is a genuine scored choice (score_release()) rather than
+ * happening automatically before the AI ever gets a say. Given a choice
+ * between releasing a fresh pawn and an ordinary, uncontested ring move,
+ * the AI should prefer releasing -- bringing a new pawn into play is
+ * scored as clearly valuable (WEIGHT_RELEASE_BASE), and an uncontested
+ * ring move earns nothing beyond a small per-step progress tie-breaker. */
+static void test_ai_can_choose_optional_release(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* optional six-release */
+	ludo_set_rules(&g, &r);
+	g.current_player = 0;
+
+	/* Pawn 1: an ordinary, uncontested ring move -- nothing special. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 15;
+
+	ludo_roll(&g, 6);
+	/* Both pawn 0 (release) and pawn 1 (ordinary move) must be offered --
+	 * confirms this is a genuine choice, not a trivial single option. */
+	CHECK((ludo_movable_pawns(&g) & (1u << 0)) != 0);
+	CHECK((ludo_movable_pawns(&g) & (1u << 1)) != 0);
+
+	CHECK(ludo_ai_choose_pawn(&g, ludo_movable_pawns(&g), LUDO_AI_NORMAL) == 0);
+}
+
+/* Round 7.45: score_move() must use game_logic.c's own
+ * ludo_resolve_move_destination() rather than a naive p->steps + roll --
+ * otherwise, under g->rules.overshoot_bounce, a move that actually
+ * bounces backward (nowhere near finishing) could be mis-scored as if it
+ * finished the pawn outright, since the naive sum alone can exceed
+ * LUDO_TOTAL_STEPS. Pawn 0's roll bounces it back to just inside the
+ * home column (real score: an ordinary home-column-entry advance,
+ * ~2200) rather than finishing it (a naive scorer would wrongly return
+ * WEIGHT_FINISH, 6000); pawn 1 makes a genuine, real capture (~4040) --
+ * a score between the two, so the AI's choice directly reveals which
+ * scoring pawn 0 actually got: correct math prefers the real capture
+ * (pawn 1), the old naive bug would have wrongly preferred pawn 0. */
+static void test_ai_scores_bounced_destination_not_naive_overshoot(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_MEJN);
+	r.overshoot_bounce = 1;
+	ludo_set_rules(&g, &r);
+	g.current_player = 0;
+	g.last_roll = 6;
+
+	/* Pawn 0: 2 short of finishing -- rolling 6 overshoots by 4, bounces
+	 * to LUDO_TOTAL_STEPS - 4 == 39, clamped up to LUDO_RING_LENGTH (40,
+	 * the home column entrance) since 39 is back on the shared ring. */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = LUDO_TOTAL_STEPS - 2;
+
+	/* Pawn 1: ring square 2 -> 8, where an opponent (player 2, entry
+	 * square 20) is sitting -- player 2 steps=28 puts them at square
+	 * (20+28)%40=8 too. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 2;
+	g.players[2].pawns[0].in_play = 1;
+	g.players[2].pawns[0].steps = 28;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
+}
+
+/* A trivial sanity check for the backward-movement fallback API: with
+ * only pawn 0 backward-movable, that's what gets chosen. Real backward-
+ * movement strategy isn't scored deeply (see ai.c's top-of-file
+ * comment) -- this only confirms the API picks a legal, non-crashing
+ * choice. */
+static void test_ai_backward_fallback_picks_legal_pawn(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_PACHISI);
+	ludo_set_rules(&g, &r);
+	g.current_player = 0;
+	g.last_roll = 4;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 10;
+
+	CHECK(ludo_ai_choose_pawn_backward(&g, 0x1) == 0);
+}
+
 /* With only one legal move, that's what gets chosen -- the trivial case,
  * but worth a direct check since every other test always offers a
  * choice. */
@@ -342,6 +473,76 @@ static void test_headless_four_ai_games(void)
 	}
 }
 
+/*
+ * Function: test_headless_four_ai_games_pachisi_variant
+ * Summary: The AI equivalent of test_game_logic.c's
+ *          test_headless_full_games_pachisi_variant_invariants() -- all
+ *          four seats AI-controlled under the full Pachisi-style preset
+ *          (every rule toggle active at once), preferring
+ *          ludo_ai_choose_pawn() and only falling back to
+ *          ludo_ai_choose_pawn_backward() when the forward bitmask is
+ *          empty -- exactly the pattern src/game_view.c's own
+ *          advance_ai_turns() is expected to use once Phase 4 wires this
+ *          up (see docs/ARCHITECTURE.md's Round 7.45). Checks only that
+ *          nothing crashes, every AI choice is actually legal, and every
+ *          game terminates -- the same looser invariant style as the
+ *          engine-only Pachisi simulation, for the same reason (bounce/
+ *          backward movement break the exact-arithmetic assumptions the
+ *          original MEJN-only simulation relies on).
+ */
+static void test_headless_four_ai_games_pachisi_variant(void)
+{
+	int game_num;
+	ludo_rules rules = ludo_default_rules(LUDO_VARIANT_PACHISI);
+
+	srand(20260827u); /* same seed as test_game_logic.c's Pachisi simulation */
+
+	for (game_num = 0; game_num < 20; game_num++) {
+		ludo_game g;
+		int roll_num;
+		const int max_rolls = 5000;
+
+		ludo_init(&g);
+		ludo_set_rules(&g, &rules);
+
+		for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+			int roller = g.current_player;
+			int player, pawn;
+			unsigned forward_mask, backward_mask;
+			int chosen;
+
+			ludo_roll(&g, 0);
+
+			for (player = 0; player < LUDO_PLAYERS; player++)
+				for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+					CHECK(g.players[player].pawns[pawn].steps >= 0
+					   && g.players[player].pawns[pawn].steps <= LUDO_TOTAL_STEPS);
+
+			if (g.current_player != roller)
+				continue;
+
+			forward_mask = ludo_movable_pawns(&g);
+			backward_mask = ludo_movable_pawns_backward(&g);
+			if (forward_mask == 0 && backward_mask == 0)
+				continue;
+
+			if (forward_mask != 0) {
+				chosen = ludo_ai_choose_pawn(&g, forward_mask, LUDO_AI_NORMAL);
+				CHECK(chosen >= 0 && chosen < LUDO_PAWNS);
+				CHECK((forward_mask & (1u << chosen)) != 0);
+				ludo_move_pawn(&g, chosen);
+			} else {
+				chosen = ludo_ai_choose_pawn_backward(&g, backward_mask);
+				CHECK(chosen >= 0 && chosen < LUDO_PAWNS);
+				CHECK((backward_mask & (1u << chosen)) != 0);
+				ludo_move_pawn_backward(&g, chosen);
+			}
+		}
+
+		CHECK(roll_num < max_rolls);
+	}
+}
+
 int main(void)
 {
 	RUN(test_prefers_capture);
@@ -351,8 +552,13 @@ int main(void)
 	RUN(test_prefers_escaping_danger);
 	RUN(test_prefers_home_column_advance_over_ring_tactic);
 	RUN(test_capture_still_beats_home_column_advance);
+	RUN(test_no_own_collision_avoidance_when_capture_off);
+	RUN(test_ai_can_choose_optional_release);
+	RUN(test_ai_scores_bounced_destination_not_naive_overshoot);
+	RUN(test_ai_backward_fallback_picks_legal_pawn);
 	RUN(test_only_one_choice);
 	RUN(test_headless_four_ai_games);
+	RUN(test_headless_four_ai_games_pachisi_variant);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,

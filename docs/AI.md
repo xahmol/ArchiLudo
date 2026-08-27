@@ -82,7 +82,9 @@ influence:
 | `WEIGHT_DANGER_STILL_IN` | -300 | After this move, an opponent pawn could reach the new square with one throw next turn. |
 | `WEIGHT_DANGER_ESCAPE` | +400 | The pawn was in that kind of danger *before* the move, and this move gets it out of range. |
 | `WEIGHT_DANGER_APPROACH_OPPONENT` | +150 | This move puts the pawn within one throw of an opponent -- sets up a capture opportunity next turn. |
-| `WEIGHT_OWN_COLLISION_BASE` / `_PER_STEP` | -500, -50/step | Sends one of the player's own other pawns home (see above) -- scaled by how far that pawn had progressed. |
+| `WEIGHT_OWN_COLLISION_BASE` / `_PER_STEP` | -500, -50/step | Sends one of the player's own other pawns home (see above) -- scaled by how far that pawn had progressed. Only applied when `g->rules.own_pawn_capture` is on (Round 7.45). |
+| `WEIGHT_BLOCKADE_FORM` | +800 | Landing on the player's own other pawn when `own_pawn_capture` is off but `g->rules.blockade` is on -- forms/reinforces a blockade instead of a collision. Round 7.45, deliberately modest (blockade strategy is a stretch goal, not v1). |
+| `WEIGHT_RELEASE_BASE` / `_PER_PAWN_ALREADY_OUT` | +3000, -300/pawn | Releasing a home pawn into play (only ever a scored choice when `g->rules.mandatory_six_release` is off) -- Round 7.45, a first-pass heuristic, scaled down slightly for each pawn already racing. |
 | `WEIGHT_HOME_COLUMN_ADVANCE_BASE` / `_PER_STEP` | +2000, +100/step | The move places the pawn in its home column (already there, or crossing in from the ring this move) without finishing it -- risk-free, no capture/danger heuristic can ever apply there, so this rewards it explicitly rather than letting it compete only on `WEIGHT_PROGRESS_PER_STEP`. Added round 7.14, see below. |
 | `WEIGHT_PROGRESS_PER_STEP` | 5 | Small, deliberately minor tie-breaker: prefer the pawn that ends up furthest along. |
 
@@ -117,6 +119,77 @@ there yet"). Sized to clearly beat the ring-tactic bonuses
 `test_prefers_home_column_advance_over_ring_tactic` and
 `test_capture_still_beats_home_column_advance` in `tests/test_ai.c` for
 the exact worked-out scoring these weights were chosen against.
+
+## Round 7.45: adapting to the multi-rule-set system (Phase 3)
+
+`game_logic.c` grew a configurable `g->rules` (see `docs/GAME_LOGIC.md`'s
+"Rule-set variants" section) during Rounds 7.43-7.44, ahead of this
+project's original single, fixed ruleset. Three assumptions baked into
+`score_move()` from when there was only ever one ruleset needed fixing:
+
+- **Own-pawn collision was scored as a real setback unconditionally.**
+  Only true when `g->rules.own_pawn_capture` is on. Extracted into a new
+  shared helper, `score_landing_at()` (used by both `score_move()` for
+  an ordinary move and the new `score_release()` below, so the two can
+  never disagree) -- gated on the rule, with a small new
+  `WEIGHT_BLOCKADE_FORM` bonus instead when `g->rules.blockade` is also
+  on (own_pawn_capture off is a precondition for a blockade to even form
+  in the first place).
+- **A pawn's destination was a naive `p->steps + roll`.** Wrong under
+  `g->rules.overshoot_bounce`, where the true landing square can bounce
+  backward off the end of the home column -- a naive sum well past
+  `LUDO_TOTAL_STEPS` could make `score_move()` think a move finishes (or
+  even wins) the game when it actually bounces back into an ordinary
+  position. Fixed by calling `game_logic.c`'s own new
+  `ludo_resolve_move_destination()` rather than duplicating that math
+  (and risking it drifting out of sync) a second time. See
+  `test_ai_scores_bounced_destination_not_naive_overshoot` in
+  `tests/test_ai.c` for the exact scenario this fixes.
+- **Releasing a pawn from home was never a scored move at all.** Under
+  the original mandatory six-release, `ludo_roll()` always released
+  automatically before the AI (or a human) ever got a choice --
+  `score_move()` had nothing to say about it. Now, whenever
+  `pawn_index` refers to a pawn still at home (`in_play == 0`, only
+  possible when `g->rules.mandatory_six_release` is off), `score_move()`
+  delegates entirely to the new `score_release()`: a first-pass
+  heuristic (`WEIGHT_RELEASE_BASE`, scaled down slightly per pawn
+  already racing) plus the same `score_landing_at()`/danger scoring any
+  other move onto the player's own entry square would get, since
+  releasing lands there and can capture (or be captured, or blockaded)
+  exactly like an ordinary move there would.
+
+**Backward movement** (`g->rules.backward_movement`) is deliberately
+**not** deeply scored -- per the multi-rule-set plan, real strategic
+sophistication for backward movement (and blockade formation beyond the
+one small term above) is an explicit stretch goal, not a v1 requirement.
+A new, parallel, much simpler function pair handles it instead:
+`ludo_ai_choose_pawn_backward()`/`score_move_backward()`, meant to be
+called only as a fallback when `ludo_ai_choose_pawn()`'s own forward
+`movable` bitmask is empty but a legal backward move exists (otherwise a
+player who can only move backward would incorrectly look stuck). It
+still reuses `score_landing_at()` for a real capture-on-landing bonus,
+then just prefers retreating the least distance as a tie-breaker -- no
+attempt at real backward-movement strategy.
+
+**`src/game_view.c`'s `advance_ai_turns()` does not call
+`ludo_ai_choose_pawn_backward()` yet** -- wiring the fallback into the
+actual AI-turn driver is Phase 4 (UI) work, once there's a way to
+actually select a non-MEJN ruleset in a real game. Until then, an
+AI-controlled game only ever runs under `LUDO_VARIANT_MEJN` (today's
+only reachable ruleset from the WIMP shell), which never activates
+`backward_movement`, so this gap has no live effect yet -- but it must
+be addressed as part of Phase 4, or an AI game under a ruleset with
+backward movement on could livelock on a roll where only a backward
+move is legal.
+
+New tests in `tests/test_ai.c` covering all of the above:
+`test_no_own_collision_avoidance_when_capture_off`,
+`test_ai_can_choose_optional_release`,
+`test_ai_scores_bounced_destination_not_naive_overshoot`,
+`test_ai_backward_fallback_picks_legal_pawn`, and a second headless
+four-AI-game simulation, `test_headless_four_ai_games_pachisi_variant`,
+exercising every rule toggle together in combination the way
+`test_headless_four_ai_games` already does for MEJN.
 
 ## Difficulty levels
 

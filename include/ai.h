@@ -60,4 +60,30 @@ typedef enum {
  */
 int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty difficulty);
 
+/*
+ * Function: ludo_ai_choose_pawn_backward
+ * Summary: Choose which of the current player's currently-backward-
+ *          movable pawns an AI-controlled player should move backward
+ *          this turn (see game_logic.h's ludo_movable_pawns_backward(),
+ *          only ever non-empty when g->rules.backward_movement is on).
+ *          A caller should only ever need this as a fallback for a roll
+ *          where ludo_ai_choose_pawn() had nothing to offer at all (its
+ *          own `movable` bitmask was 0) but a backward move exists --
+ *          otherwise a player who can only move backward would
+ *          incorrectly appear stuck. Deliberately much simpler scoring
+ *          than the forward path: real backward-movement strategy is an
+ *          explicit stretch goal, not a v1 requirement (see ai.c's
+ *          top-of-file comment) -- this just avoids getting stuck or
+ *          picking illegally, it doesn't play backward movement well.
+ * Syntax:  int ludo_ai_choose_pawn_backward(const ludo_game *g,
+ *                                           unsigned movable_backward);
+ * Input:   g                - the game in progress, after ludo_roll().
+ *          movable_backward - the bitmask from
+ *                             ludo_movable_pawns_backward(g). Must be
+ *                             non-zero.
+ * Output:  index (0..LUDO_PAWNS-1) of the pawn to move backward -- always
+ *          one of the bits set in `movable_backward`.
+ */
+int ludo_ai_choose_pawn_backward(const ludo_game *g, unsigned movable_backward);
+
 #endif

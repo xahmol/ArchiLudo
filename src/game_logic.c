@@ -826,6 +826,11 @@ int ludo_move_pawn_backward(ludo_game *g, int pawn_index)
 	return captured;
 }
 
+int ludo_resolve_move_destination(const ludo_game *g, int pawn_index, int roll, int *out_steps)
+{
+	return resolve_move_destination(g, g->current_player, pawn_index, roll, out_steps);
+}
+
 void ludo_end_turn(ludo_game *g)
 {
 	int next = g->current_player;

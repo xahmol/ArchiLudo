@@ -472,6 +472,36 @@ int ludo_move_pawn(ludo_game *g, int pawn_index);
 int ludo_move_pawn_backward(ludo_game *g, int pawn_index);
 
 /*
+ * Function: ludo_resolve_move_destination
+ * Summary: Where the current player's pawn `pawn_index` would actually
+ *          land if moved forward by `roll` steps right now -- exposed
+ *          publicly so a caller that needs to reason about a move
+ *          *before* actually applying it (e.g. ai.c's scoring, which
+ *          must know the real destination square to evaluate capture/
+ *          danger there) never has to duplicate this project's own
+ *          overshoot-bounce math (g->rules.overshoot_bounce) and risk it
+ *          drifting out of sync with the authoritative version
+ *          ludo_move_pawn() itself actually uses internally.
+ * Syntax:  int ludo_resolve_move_destination(const ludo_game *g,
+ *                                            int pawn_index, int roll,
+ *                                            int *out_steps);
+ * Input:   g          - the game in progress.
+ *          pawn_index - the pawn being considered (must be in_play --
+ *                       this is only meaningful for a pawn already on
+ *                       the board; a home pawn's "destination" if
+ *                       released is always steps == 0, no calculation
+ *                       needed).
+ *          roll       - the die value being applied.
+ * Output:  1 and *out_steps set to the resulting steps value if this
+ *          would be a legal destination (home-column blocking is a
+ *          separate check, not reflected here -- see
+ *          ludo_movable_pawns()); 0 if it's illegal outright (overshoot
+ *          past the end of the home column with rules.overshoot_bounce
+ *          off).
+ */
+int ludo_resolve_move_destination(const ludo_game *g, int pawn_index, int roll, int *out_steps);
+
+/*
  * Function: ludo_end_turn
  * Summary: End the current player's turn and advance to the next player
  *          who has not already finished all four pawns. Called

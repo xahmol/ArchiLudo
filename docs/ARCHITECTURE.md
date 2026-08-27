@@ -53,14 +53,32 @@ either, so both are this project's own documented judgement call (see
 simulation under the full Pachisi-style preset with every toggle active
 at once), clean cross-compile.
 
-**Next: Phase 3** -- AI adaptation in `src/ai.c` (`score_move()`'s
-own-pawn-collision scoring needs gating on `rules.own_pawn_capture`, and
-a new scoring path is needed for releasing a pawn from home now that
-it's sometimes a genuine choice rather than automatic -- see the plan's
-own "AI changes" section for the full detail). After that: Phase 4
-(`rules_view.c` UI, live Arculator test -- this project's first true ESG
-radio-button group and popup-menu-as-dropdown), Phase 5 (save-format
-bump to `"ALS2"`), Phase 6 (final docs pass).
+**Phase 3 is now also done** (this file's "Round 7.45" entry below,
+`docs/AI.md`'s own "Round 7.45" section has the full detail) -- `ai.c`'s
+`score_move()` no longer assumes MEJN's fixed ruleset: own-pawn-collision
+scoring is gated on `rules.own_pawn_capture` (with a small new
+blockade-formation bonus), pawn destinations go through the engine's own
+`ludo_resolve_move_destination()` instead of naive math (fixes a real
+mis-scoring bug under `overshoot_bounce`), and a new `score_release()`
+handles releasing a pawn from home as a genuine scored choice. A new,
+deliberately simple `ludo_ai_choose_pawn_backward()` handles backward
+movement as a naive fallback (real backward strategy is a stretch goal,
+not v1). **One known gap, flagged for Phase 4**:
+`src/game_view.c`'s `advance_ai_turns()` doesn't call the new backward
+function yet -- harmless today (only `LUDO_VARIANT_MEJN` is reachable
+from the WIMP shell, which never has `backward_movement` on), but Phase
+4 must wire it in before any UI can actually select a ruleset with
+backward movement active, or an AI game could livelock on a roll where
+only a backward move is legal. `make test`: 14 AI tests (up from 9,
+including a second Pachisi-preset four-AI-game headless simulation) plus
+the existing 30 game-logic and 3 board-layout tests, all passing; clean
+cross-compile.
+
+**Next: Phase 4** -- `rules_view.c` UI, live Arculator test (this
+project's first true ESG radio-button group and popup-menu-as-dropdown),
+plus wiring the Phase 3 backward-movement AI gap above into
+`advance_ai_turns()`. After that: Phase 5 (save-format bump to
+`"ALS2"`), Phase 6 (final docs pass).
 
 ## Layering
 
@@ -2540,6 +2558,62 @@ test`: 30 tests, all passing (up from 22). Full cross-compile also
 verified clean. Not yet done: Phase 3 (AI adaptation), Phase 4 (UI),
 Phase 5 (save format), Phase 6 (docs, beyond what this round and Round
 7.43 already updated) -- see "Resume here".
+
+**Round 7.45**: Phase 3 of the multiple rule-set / house-rule variant
+system -- adapting `src/ai.c` to the configurable rules Rounds 7.43-7.44
+introduced. Full detail in `docs/AI.md`'s own "Round 7.45" section;
+summary:
+
+- Extracted `score_landing_at()`, a helper shared by `score_move()` and
+  the new `score_release()`, gating the own-pawn-collision penalty on
+  `g->rules.own_pawn_capture` (previously unconditional -- a real bug
+  the moment `own_pawn_capture` could ever be off) and adding a small
+  `WEIGHT_BLOCKADE_FORM` bonus when landing there forms a blockade
+  instead.
+- Fixed a genuine mis-scoring bug: `score_move()` computed a move's
+  destination as naive `p->steps + roll`, which under
+  `g->rules.overshoot_bounce` could exceed `LUDO_TOTAL_STEPS` and get
+  scored as finishing (or even winning) a move that actually bounces
+  backward into an ordinary position. Fixed by exposing
+  `game_logic.c`'s internal `resolve_move_destination()` publicly as
+  `ludo_resolve_move_destination()` and having `score_move()` call that
+  instead of duplicating the math a second time (and risking it
+  drifting out of sync, exactly what caused this bug in the first
+  place). Caught with a dedicated regression test constructed to score
+  differently under the old vs. new math
+  (`test_ai_scores_bounced_destination_not_naive_overshoot`).
+- Added `score_release()`: releasing a pawn from home (reachable when
+  `g->rules.mandatory_six_release` is off) was never a scored decision
+  at all before this round -- under the original mandatory-release
+  default, `ludo_roll()` always released automatically before any
+  choice existed. First-pass heuristic (`WEIGHT_RELEASE_BASE`, scaled
+  down per pawn already racing), reusing `score_landing_at()` for
+  capture-on-landing since a release lands on (and can capture on) the
+  player's own entry square exactly like an ordinary move there would.
+- Added a new, deliberately simple parallel API for backward movement
+  (`g->rules.backward_movement`): `ludo_ai_choose_pawn_backward()`/
+  `score_move_backward()`. Per the plan's own framing, real backward-
+  movement strategy is a stretch goal, not a v1 requirement -- this only
+  needs to pick something legal without crashing, which it does (reuses
+  `score_landing_at()` for a real capture bonus, otherwise just prefers
+  retreating the least distance).
+
+Five new tests in `tests/test_ai.c` (up from 9 to 14) plus a second
+headless four-AI-game simulation under the full Pachisi-style preset
+(mirroring `tests/test_game_logic.c`'s own engine-only equivalent from
+Round 7.44), exercising `ludo_ai_choose_pawn()` and
+`ludo_ai_choose_pawn_backward()` together across many complete random
+games. `make test` green, clean cross-compile.
+
+**Known gap, deferred to Phase 4** (see "Resume here" above):
+`src/game_view.c`'s `advance_ai_turns()` still only calls
+`ludo_ai_choose_pawn()` -- it doesn't yet fall back to
+`ludo_ai_choose_pawn_backward()` when the forward bitmask is empty but a
+backward move is legal. Harmless today (the WIMP shell can only ever
+reach `LUDO_VARIANT_MEJN`, which never turns on `backward_movement`),
+but must be fixed as part of Phase 4's UI work before a ruleset with
+backward movement on becomes actually selectable, or an AI-controlled
+game could livelock on such a roll.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
