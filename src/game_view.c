@@ -221,6 +221,15 @@ static const char *player_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLOW
 static char configured_name[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 static int player_is_ai[LUDO_PLAYERS];
 
+/* Rules configured from src/setup_view.c's "New Game" dialogue (via
+ * src/rules_view.c's own "Rule Options" dialogue) -- see
+ * game_view_configure_rules()/game_view_get_rules(). Initialised to
+ * LUDO_VARIANT_MEJN's own defaults in game_view_initialise() (matching
+ * what ludo_init() itself already sets on `game`, so a game started
+ * before the Rules dialogue is ever touched behaves identically to
+ * before this multi-rule-set system existed). */
+static ludo_rules configured_rules;
+
 static wimp_w window_handle = (wimp_w) -1;
 static ludo_game game;
 static char name_text[NAME_TEXT_LEN] = "";
@@ -780,6 +789,16 @@ void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_L
 		configured_name[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		player_is_ai[player] = is_ai[player];
 	}
+}
+
+void game_view_configure_rules(const ludo_rules *rules)
+{
+	configured_rules = *rules;
+}
+
+void game_view_get_rules(ludo_rules *rules)
+{
+	*rules = configured_rules;
 }
 
 /*
@@ -2307,6 +2326,7 @@ void game_view_poll_idle(void)
 void game_view_new_game(void)
 {
 	ludo_init(&game);
+	ludo_set_rules(&game, &configured_rules);
 	game_started = 1;
 	step = STEP_IDLE;
 	win_acknowledged = 0;
@@ -2525,6 +2545,7 @@ void game_view_initialise(const char *argv0)
 	set_app_dir(argv0);
 	build_cell_kinds();
 	ludo_init(&game);
+	configured_rules = ludo_default_rules(LUDO_VARIANT_MEJN);
 	load_pawn_sprites();
 
 	def.visible.x0 = 100;

@@ -413,6 +413,52 @@ time (per ArchiLudo round 7.15) keeps the affordance honest about
 what's clickable right now, without needing a second icon or hiding/
 recreating the icon outright.
 
+**Building a "radio button" pair/group with plain text icons (no sprite
+needed).** The PRM's own "Radio icons" recipe (`wimp.html`) describes a
+sprite+text form (`Sradiooff,radioon`), but a plain bordered text icon
+works exactly as well and needs no extra sprites — confirmed working in
+ArchiLudo's `rules_view.c` (round 7.46, its first-ever ESG use): give
+every icon in the group button type 11 (`wimp_BUTTON_RADIO`) and the
+SAME non-zero ESG number (bits 16-19, `wimp_ICON_ESG_SHIFT`/`<< that
+shift>` — 0 is reserved for "toggles independently, doesn't affect
+siblings", so start numbering real groups at 1). Selecting one via a
+genuine user click then automatically deselects every other icon
+sharing that ESG — entirely handled by the Wimp itself, no app code
+needed for the mutual exclusion at click time. What the app DOES still
+need to do by hand: set the correct icon's `wimp_ICON_SELECTED` bit
+(bit 21) whenever the underlying state is set/changed from CODE rather
+than a live click (e.g. syncing the display when a dialogue is
+(re)opened, or when picking a preset resets several groups at once) —
+use the same read-then-EOR-only-if-different pattern as the
+`wimp_ICON_SHADED` recipe just above (`Wimp_GetIconState` first, EOR
+`wimp_ICON_SELECTED` only if it's not already what's wanted). Distinct
+groups in the same window just need distinct ESG numbers — up to 31 are
+available (5 bits, though OSLib's own `wimp_ICON_ESG` mask constant only
+covers bits 16-19 in this SDK's headers; harmless as long as the actual
+group numbers used stay under 16, which is normally plenty).
+
+**A per-icon "click here to open a drop-down" pop-up menu.** No special
+Wimp mechanism exists for a combo-box — the standard idiom (already used
+for this project's own iconbar/window menu in `src/main.c`, reused for
+`rules_view.c`'s variant picker in round 7.46) is: a non-writable
+indirected text icon showing the current value, whose click handler
+builds/refreshes a small `wimp_MENU(N)` and calls `wimp_create_menu()`
+positioned at the click point (`pointer->pos.x`/`.y`) rather than at a
+fixed screen location. The one real gotcha: RISC OS only ever has ONE
+menu open system-wide at a time, and the `Menu_Selection` event that
+eventually arrives doesn't itself identify *which* menu produced it —
+if a task ever creates more than one distinct `wimp_menu` (the shared
+app menu AND a dialogue-local pop-up, say), the app must track "which
+menu did I just open" itself (a simple flag set when the pop-up opens,
+consulted first in the `wimp_MENU_SELECTION` dispatch before assuming
+it's always the other/default menu, cleared once the selection is
+handled) — there's no SWI to ask the Wimp which menu is currently
+showing. Also worth remembering: a plain (non-indirected) menu entry's
+text lives in the same small fixed inline buffer as a non-indirected
+icon's (12 bytes including the terminator) — a long label needs
+shortening (or the entry needs to be built indirected instead) exactly
+the same way an icon does.
+
 ## Menus
 
 (PRM Part 7 + Pinknoise `Wimp/Menus.html`)

@@ -13,6 +13,7 @@
 #include "game_view.h"
 #include "game_logic.h"
 #include "save_view.h"
+#include "rules_view.h"
 
 #define MARGIN        8
 #define ROW_HEIGHT   40
@@ -27,9 +28,10 @@
 
 #define ROWS_HEIGHT (LUDO_PLAYERS * ROW_HEIGHT + (LUDO_PLAYERS - 1) * ROW_GAP)
 #define ROWS_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH + MARGIN)
-/* Three buttons (Start/Load/Cancel) now, not two -- widen the window if
- * that row would otherwise be wider than the name/type rows above it. */
-#define BUTTONS_WIDTH (MARGIN + 3 * BUTTON_WIDTH + 2 * BUTTON_GAP + MARGIN)
+/* Four buttons (Start/Rules/Load/Cancel) now, not three (round 7.46
+ * added "Rules...") -- widen the window if that row would otherwise be
+ * wider than the name/type rows above it. */
+#define BUTTONS_WIDTH (MARGIN + 4 * BUTTON_WIDTH + 3 * BUTTON_GAP + MARGIN)
 #define WINDOW_WIDTH (ROWS_WIDTH > BUTTONS_WIDTH ? ROWS_WIDTH : BUTTONS_WIDTH)
 #define WINDOW_HEIGHT (MARGIN + ROWS_HEIGHT + MARGIN + BUTTON_HEIGHT + MARGIN)
 
@@ -43,17 +45,20 @@
 #define BUTTON_ROW_Y1 (-(MARGIN + ROWS_HEIGHT + MARGIN))
 #define BUTTON_ROW_Y0 (BUTTON_ROW_Y1 - BUTTON_HEIGHT)
 #define START_X0  MARGIN
-#define LOAD_X0   (START_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define RULES_X0  (START_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define LOAD_X0   (RULES_X0 + BUTTON_WIDTH + BUTTON_GAP)
 #define CANCEL_X0 (LOAD_X0 + BUTTON_WIDTH + BUTTON_GAP)
 
-/* One swatch + name + type icon per player, then Start, Load and Cancel. */
+/* One swatch + name + type icon per player, then Start, Rules, Load and
+ * Cancel. */
 #define ICON_SWATCH(player) ((player) * 3)
 #define ICON_NAME(player)   ((player) * 3 + 1)
 #define ICON_TYPE(player)   ((player) * 3 + 2)
 #define ICON_START  (LUDO_PLAYERS * 3)
-#define ICON_LOAD   (LUDO_PLAYERS * 3 + 1)
-#define ICON_CANCEL (LUDO_PLAYERS * 3 + 2)
-#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 3 + 3)
+#define ICON_RULES  (LUDO_PLAYERS * 3 + 1)
+#define ICON_LOAD   (LUDO_PLAYERS * 3 + 2)
+#define ICON_CANCEL (LUDO_PLAYERS * 3 + 3)
+#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 3 + 4)
 
 /* Standard 16-colour Wimp desktop palette approximations of this
  * project's actual (full-RGB) player colours -- plain Wimp icons can
@@ -73,8 +78,16 @@ static char name_buffer[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 static char type_text[LUDO_PLAYERS][6]; /* "Human" or "AI", plus terminator */
 static int type_is_ai[LUDO_PLAYERS];
 static char start_validation[4] = "R1";
+static char rules_validation[4] = "R1";
 static char load_validation[4] = "R1";
 static char cancel_validation[4] = "R1";
+
+/* Pending rules for the next Start click -- see setup_view_configure_rules()
+ * (called by src/rules_view.c's OK button) and game_view_configure_rules()
+ * (applied to the actual game when Start is clicked). Defaults to
+ * LUDO_VARIANT_MEJN, matching this project's original, pre-multi-rule-set
+ * behaviour, until the Rules dialogue is ever touched. Round 7.46. */
+static ludo_rules pending_rules;
 
 static wimp_w window_handle = (wimp_w) -1;
 
@@ -100,6 +113,8 @@ void setup_view_initialise(void)
 {
 	wimp_WINDOW(WINDOW_ICON_COUNT) def;
 	int player;
+
+	pending_rules = ludo_default_rules(LUDO_VARIANT_MEJN);
 
 	def.visible.x0 = 150;
 	def.visible.y0 = 150;
@@ -213,6 +228,22 @@ void setup_view_initialise(void)
 		icon->data.indirected_text.validation = start_validation;
 		icon->data.indirected_text.size = 6;
 
+		icon = &def.icons[ICON_RULES];
+		icon->extent.x0 = RULES_X0;
+		icon->extent.x1 = RULES_X0 + BUTTON_WIDTH;
+		icon->extent.y1 = BUTTON_ROW_Y1;
+		icon->extent.y0 = BUTTON_ROW_Y0;
+		/* Opens src/rules_view.c's "Rule Options" dialogue, seeded with
+		 * this dialogue's own pending_rules -- see setup_view_click(). */
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = "Rules...";
+		icon->data.indirected_text.validation = rules_validation;
+		icon->data.indirected_text.size = 9;
+
 		icon = &def.icons[ICON_LOAD];
 		icon->extent.x0 = LOAD_X0;
 		icon->extent.x1 = LOAD_X0 + BUTTON_WIDTH;
@@ -280,6 +311,10 @@ void setup_view_open(void)
 			name_buffer[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 			set_type(player, is_ai[player]);
 		}
+
+		/* Round 7.46: same "always default to the in-progress game"
+		 * convention, now for rules too -- see game_view_get_rules(). */
+		game_view_get_rules(&pending_rules);
 	}
 
 	state.w = window_handle;
@@ -338,6 +373,16 @@ void setup_view_click(wimp_pointer *pointer)
 		return;
 	}
 
+	if (pointer->i == ICON_RULES) {
+		/* Deliberately does NOT close this window -- the Rules dialogue
+		 * is meant to sit alongside New Game (its OK button calls
+		 * setup_view_configure_rules() and closes only itself), matching
+		 * how a real "sub-dialogue" is expected to layer, unlike Load
+		 * (which fully replaces this dialogue with a different flow). */
+		rules_view_open(&pending_rules);
+		return;
+	}
+
 	if (pointer->i == ICON_LOAD) {
 		wimp_close_window(window_handle);
 		load_view_open();
@@ -352,12 +397,18 @@ void setup_view_click(wimp_pointer *pointer)
 			names[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		}
 		game_view_configure_players(names, type_is_ai);
+		game_view_configure_rules(&pending_rules);
 
 		wimp_close_window(window_handle);
 		game_view_open();
 		game_view_new_game();
 		return;
 	}
+}
+
+void setup_view_configure_rules(const ludo_rules *rules)
+{
+	pending_rules = *rules;
 }
 
 void setup_view_key_pressed(wimp_key *key)

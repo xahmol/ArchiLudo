@@ -2,6 +2,7 @@
 #define SETUP_VIEW_H
 
 #include "oslib/wimp.h"
+#include "game_logic.h"
 
 /*
  * ArchiLudo setup view
@@ -9,12 +10,15 @@
  *
  * The "New Game" dialogue: one row per player with a colour swatch, a
  * writable name field, and a click-to-toggle Human/AI button, plus
- * Start, Load and Cancel. Start applies the settings to src/game_view.c
- * (see game_view_configure_players()) and starts a fresh game; Load
- * skips this dialogue's own setup entirely and opens src/save_view.c's
- * Load dialogue instead, per explicit user request ("the new game
- * dialogue needs a button to optionally load a previously saved game");
- * Cancel closes the dialogue without changing anything.
+ * Start, Rules..., Load and Cancel. Start applies the settings to
+ * src/game_view.c (see game_view_configure_players()/
+ * game_view_configure_rules()) and starts a fresh game; Rules... opens
+ * src/rules_view.c's "Rule Options" dialogue to pick a rule-set variant
+ * and override individual house-rule toggles (round 7.46); Load skips
+ * this dialogue's own setup entirely and opens src/save_view.c's Load
+ * dialogue instead, per explicit user request ("the new game dialogue
+ * needs a button to optionally load a previously saved game"); Cancel
+ * closes the dialogue without changing anything.
  *
  * Kept as its own module (its own window, own icons, own click/redraw/
  * key handling) rather than folded into game_view.c or main.c, matching
@@ -73,12 +77,25 @@ void setup_view_redraw(wimp_draw *redraw);
 /*
  * Function: setup_view_click
  * Summary: Handle a Mouse_Click event in the setup window: toggling a
- *          Human/AI button, or Start/Load/Cancel.
+ *          Human/AI button, or Start/Rules.../Load/Cancel.
  * Syntax:  void setup_view_click(wimp_pointer *pointer);
  * Input:   pointer - the block from Wimp_Poll for a Mouse_Click event.
  * Output:  none.
  */
 void setup_view_click(wimp_pointer *pointer);
+
+/*
+ * Function: setup_view_configure_rules
+ * Summary: Called by src/rules_view.c when its OK button is clicked --
+ *          stores the edited ludo_rules as this dialogue's own pending
+ *          rules (the same way pending player names/AI settings are
+ *          held directly in this module's own buffers), applied to the
+ *          actual game only when Start is next clicked. Round 7.46.
+ * Syntax:  void setup_view_configure_rules(const ludo_rules *rules);
+ * Input:   rules - the rules to adopt as pending. Copied by value.
+ * Output:  none.
+ */
+void setup_view_configure_rules(const ludo_rules *rules);
 
 /*
  * Function: setup_view_key_pressed

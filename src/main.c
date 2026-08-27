@@ -8,6 +8,7 @@
 #include "splash_view.h"
 #include "save_view.h"
 #include "win_view.h"
+#include "rules_view.h"
 
 wimp_t task_handle;
 
@@ -124,6 +125,7 @@ void archiludo_initialise(const char *argv0)
 	game_view_initialise(argv0);
 	setup_view_initialise();
 	win_view_initialise();
+	rules_view_initialise();
 	splash_view_initialise();
 	splash_view_open();
 	/* After game_view_initialise() -- save_view.c's default pathname is
@@ -153,6 +155,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			setup_view_redraw(&block->redraw);
 		else if (block->redraw.w == win_view_window_handle())
 			win_view_redraw(&block->redraw);
+		else if (block->redraw.w == rules_view_window_handle())
+			rules_view_redraw(&block->redraw);
 		else if (block->redraw.w == splash_view_window_handle())
 			splash_view_redraw(&block->redraw);
 		else if (block->redraw.w == save_view_window_handle())
@@ -206,6 +210,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			setup_view_click(&block->pointer);
 		} else if (block->pointer.w == win_view_window_handle()) {
 			win_view_click(&block->pointer);
+		} else if (block->pointer.w == rules_view_window_handle()) {
+			rules_view_click(&block->pointer);
 		} else if (block->pointer.w == splash_view_window_handle()) {
 			splash_view_click(&block->pointer);
 		} else if (block->pointer.w == save_view_window_handle()) {
@@ -233,6 +239,17 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 		break;
 
 	case wimp_MENU_SELECTION:
+		/* rules_view.c's own variant pop-up menu (opened by clicking its
+		 * variant display icon, not the shared iconbar/window menu) is
+		 * the only OTHER menu this task ever creates -- RISC OS only
+		 * ever has one menu open at a time, and a Menu_Selection event
+		 * doesn't itself say which menu it belongs to, so this must be
+		 * checked first rather than assuming it's always the iconbar
+		 * menu below. */
+		if (rules_view_menu_open()) {
+			rules_view_menu_selection(&block->selection);
+			break;
+		}
 		if (block->selection.items[0] == ICONBAR_MENU_NEW_GAME)
 			setup_view_open();
 		else if (block->selection.items[0] == ICONBAR_MENU_SAVE_GAME)

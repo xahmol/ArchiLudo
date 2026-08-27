@@ -179,6 +179,36 @@ void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_L
                                   const int is_ai[LUDO_PLAYERS]);
 
 /*
+ * Function: game_view_configure_rules
+ * Summary: Set the ludo_rules a fresh game should start with, per
+ *          src/rules_view.c's "Rule Options" dialogue (reached via
+ *          src/setup_view.c's "Rules..." button). Mirrors
+ *          game_view_configure_players()'s own two-call pattern: takes
+ *          effect only the next time game_view_new_game() is called
+ *          (which applies it via ludo_set_rules()), not to a game
+ *          already in progress. Round 7.46.
+ * Syntax:  void game_view_configure_rules(const ludo_rules *rules);
+ * Input:   rules - the rules to adopt for the next new game. Copied by
+ *                  value.
+ * Output:  none.
+ */
+void game_view_configure_rules(const ludo_rules *rules);
+
+/*
+ * Function: game_view_get_rules
+ * Summary: The rules the current (or, for a just-finished game, most
+ *          recent) game was actually configured with -- for
+ *          src/setup_view.c's "New Game" dialogue to default to, the
+ *          same "always default to the in-progress game" convention
+ *          game_view_get_players() already follows (round 7.35). Round
+ *          7.46.
+ * Syntax:  void game_view_get_rules(ludo_rules *rules);
+ * Input:   none.
+ * Output:  rules - filled with the currently configured rules.
+ */
+void game_view_get_rules(ludo_rules *rules);
+
+/*
  * Function: game_view_app_dir
  * Summary: This program's own directory (see game_view_initialise()'s
  *          argv0 handling), for src/save_view.c to build a sensible

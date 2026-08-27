@@ -74,11 +74,50 @@ including a second Pachisi-preset four-AI-game headless simulation) plus
 the existing 30 game-logic and 3 board-layout tests, all passing; clean
 cross-compile.
 
-**Next: Phase 4** -- `rules_view.c` UI, live Arculator test (this
-project's first true ESG radio-button group and popup-menu-as-dropdown),
-plus wiring the Phase 3 backward-movement AI gap above into
-`advance_ai_turns()`. After that: Phase 5 (save-format bump to
-`"ALS2"`), Phase 6 (final docs pass).
+**Phase 4 is now also done in code** (this file's "Round 7.46" entry
+below) -- `src/rules_view.c`/`.h` (new module: variant pop-up menu +
+7 paired-ESG house-rule toggles + OK/Cancel), `src/setup_view.c`'s new
+"Rules..." button and `pending_rules` plumbing, `game_view.c`'s new
+`game_view_configure_rules()`/`game_view_get_rules()`, `main.c`'s
+3-point wiring plus `Menu_Selection` routing (this project's first
+second-ever `wimp_menu`, needing a "which menu is open" flag -- see
+riscos_wimp_reference.md's new "click here to open a drop-down" note).
+`make test` still green (no engine/AI code touched), clean
+cross-compile, deployed to the Arculator hostfs. **NOT YET
+live-tested in Arculator** -- this is this project's first true ESG
+radio-button group and popup-menu-as-dropdown, both explicitly flagged
+by the plan as needing real on-hardware/emulator confirmation before
+considering Phase 4 actually done (does each ESG pair really show only
+one selected at a time when clicked for real, does the popup menu
+position and behave correctly, does picking a variant visibly reset and
+correctly shade the toggle rows). **Ask the user to test this before
+starting Phase 5.**
+
+**Known gap NOT closed by Phase 4, scope discovered while implementing
+it**: `src/game_view.c` still has no board-interaction path for a
+backward move at all, for EITHER a human or an AI player --
+`resolve_roll()` only ever consults `ludo_movable_pawns()` (forward),
+never `ludo_movable_pawns_backward()`, so on a roll where only a
+backward move is legal it currently just settles as if the player were
+stuck (harmless today, since backward movement isn't reachable through
+the WIMP shell yet -- Phase 4 only wired up the Rules *dialogue*, not
+full backward-move animation/click-handling on the board itself). This
+turned out to be a substantially bigger piece of work than "call
+`ludo_ai_choose_pawn_backward()` somewhere" (the AI needs a *direction*
+to actually move in, which means `start_move_animation()`'s cell-by-cell
+path-building needs a mirrored backward variant too, and a human needs
+some way to actually choose "backward" at all, which the board's click
+model has no concept of yet) -- explicitly NOT attempted in this round;
+flagged here as a real, user-visible limitation to resolve before ever
+actually enabling a ruleset with `backward_movement` on through the
+Rules dialogue in a real game. Worth surfacing to the user directly, not
+just burying in this file.
+
+**Next: Phase 5** -- save-format bump to `"ALS2"` (once Phase 4's UI is
+confirmed working live). Phase 6 (final docs pass) after that. The
+backward-movement board-interaction gap just above is a good candidate
+for its own follow-up round whenever it's prioritised, separate from
+this plan's original 6 phases.
 
 ## Layering
 
@@ -2615,6 +2654,69 @@ but must be fixed as part of Phase 4's UI work before a ruleset with
 backward movement on becomes actually selectable, or an AI-controlled
 game could livelock on such a roll.
 
+**Round 7.46**: Phase 4 of the multiple rule-set / house-rule variant
+system -- the "Rule Options" dialogue and its plumbing into New Game.
+
+- **New module `src/rules_view.c`/`include/rules_view.h`**, modelled on
+  `win_view.c`'s plain-Wimp-icons shape: a variant row (a click-to-open
+  pop-up `wimp_menu`, same pattern `main.c`'s own iconbar/window menu
+  already uses -- see riscos_wimp_reference.md's new note), a static
+  one-line "Pachisi-style is a curated preset" caveat, 7 house-rule
+  toggle rows (each a label plus two paired option icons), and OK/Cancel.
+  Each toggle pair uses button type `wimp_BUTTON_RADIO` (11) with a
+  shared non-zero ESG (1-7, one per toggle -- this project's first
+  genuine multi-icon ESG use) so the Wimp itself enforces "only one of
+  the two selected" on a real click; the app only has to sync the
+  SELECTED bit by hand when state changes from code (opening the
+  dialogue, picking a variant) -- via the same read-then-EOR-only-if-
+  different pattern already established for `wimp_ICON_SHADED`. Toggles
+  inapplicable to the current variant (per the plan's own applicability
+  matrix, `VARIANT_HIDDEN_MASK[]`) get shaded, not hidden/recreated,
+  matching this project's established convention. `rule_field()` maps a
+  toggle index to its `ludo_rules` struct field so one generic code path
+  (build/read/write) handles all 7 toggles instead of 7 repeated blocks.
+- **`main.c`'s `Menu_Selection` dispatch** needed a new "which menu is
+  open" check (`rules_view_menu_open()`) before its existing
+  iconbar-menu handling, since RISC OS only ever has one menu open
+  system-wide and a `Menu_Selection` event doesn't itself say which menu
+  produced it -- this project's first time creating a SECOND distinct
+  `wimp_menu` (see riscos_wimp_reference.md's new note on this gotcha).
+- **`game_view.c`** gained `configured_rules` (mirroring
+  `configured_name[]`/`player_is_ai[]`'s own existing pattern) plus
+  `game_view_configure_rules()`/`game_view_get_rules()`;
+  `game_view_new_game()` now calls `ludo_set_rules(&game,
+  &configured_rules)` right after `ludo_init()`; `game_view_initialise()`
+  seeds `configured_rules` to `ludo_default_rules(LUDO_VARIANT_MEJN)` so
+  a game started before the Rules dialogue is ever touched behaves
+  identically to before this system existed.
+- **`setup_view.c`** gained a 4th button, "Rules..." (window widened,
+  `BUTTONS_WIDTH` now accounts for 4 buttons not 3), its own
+  `pending_rules` (mirroring `name_buffer[]`), and
+  `setup_view_configure_rules()` (called by `rules_view.c`'s OK button --
+  the two modules call each other directly, the same bidirectional
+  pattern `game_view.c`/`win_view.c` already established in round 7.35).
+  `setup_view_open()` now also syncs `pending_rules` from
+  `game_view_get_rules()` whenever a game is already in progress, the
+  same "always default to the in-progress game" convention round 7.35
+  set up for player names/AI settings.
+
+A genuine scope discovery while implementing this (see this file's
+"Resume here" section for the full writeup, not repeated here): wiring
+`ludo_ai_choose_pawn_backward()` into the actual board/AI-turn driver
+turned out to need real path-building/click-handling work in
+`game_view.c` that goes well beyond this phase's original "UI" scope --
+deliberately NOT attempted this round, flagged as a real limitation
+instead of quietly skipped.
+
+`make test` unaffected (no engine/AI files touched) -- still 30
+game-logic + 14 AI + 3 board-layout tests, all green. Clean
+cross-compile, deployed to the Arculator hostfs
+(`build/!ArchiLudo/` -> hostfs `!ArchiLudo/`). **Not yet manually
+verified in Arculator** -- per the plan, this is exactly the phase that
+needs a real on-hardware/emulator check (ESG exclusivity, popup menu
+behaviour, per-variant shading, and that Start actually carries the
+chosen rules into a real game) before being considered done.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
@@ -2638,9 +2740,10 @@ ArchiLudo/
     game_view.c         -- the game window: creation, redraw, clicks, animation
     setup_view.c         -- the "New Game" dialogue: names, Human/AI per player
     win_view.c            -- the "a player has won" Continue/New Game dialogue
-    splash_view.c           -- the startup/About window (idi8b logo, version, author)
-    save_view.c               -- Save/Load dialogues + drag-and-drop file transfer
-    main.c                      -- WIMP shell (task lifecycle, iconbar, dispatch)
+    rules_view.c            -- the "Rule Options" dialogue: variant + house rules
+    splash_view.c              -- the startup/About window (idi8b logo, version, author)
+    save_view.c                  -- Save/Load dialogues + drag-and-drop file transfer
+    main.c                          -- WIMP shell (task lifecycle, iconbar, dispatch)
   include/
     game_logic.h      -- rules engine API + full rules writeup
     board_layout.h     -- board geometry API
@@ -2648,9 +2751,10 @@ ArchiLudo/
     game_view.h          -- game window API
     setup_view.h          -- setup dialogue API
     win_view.h             -- win-choice dialogue API
-    splash_view.h            -- splash/About window API
-    save_view.h                -- Save/Load dialogue + drag-and-drop API
-    archiludo.h                  -- WIMP shell shared declarations
+    rules_view.h              -- rule options dialogue API
+    splash_view.h               -- splash/About window API
+    save_view.h                   -- Save/Load dialogue + drag-and-drop API
+    archiludo.h                     -- WIMP shell shared declarations
   tests/
     test_game_logic.c   -- host-side automated test suite (`make test`)
     test_board_layout.c  -- ditto, for board_layout.c
