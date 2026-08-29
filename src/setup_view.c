@@ -22,7 +22,7 @@
 #define NAME_WIDTH  180
 #define TYPE_WIDTH  100
 #define COL_GAP       8
-#define BUTTON_WIDTH 100
+#define BUTTON_WIDTH 110
 #define BUTTON_HEIGHT 40
 #define BUTTON_GAP   16
 
@@ -240,9 +240,9 @@ void setup_view_initialise(void)
 		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
 		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
 		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-		icon->data.indirected_text.text = "Rules...";
+		icon->data.indirected_text.text = "Rules";
 		icon->data.indirected_text.validation = rules_validation;
-		icon->data.indirected_text.size = 9;
+		icon->data.indirected_text.size = 6;
 
 		icon = &def.icons[ICON_LOAD];
 		icon->extent.x0 = LOAD_X0;

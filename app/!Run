@@ -24,5 +24,25 @@ Set ArchiLudo$Dir <Obey$Dir>
 
 IconSprites <ArchiLudo$Dir>.!Sprites
 
-WimpSlot -min 128K -max 256K
+| Round 7.60: background music/SFX via QTM (QTheMusic), bundled here
+| rather than assumed present -- freeware, see CREDITS.md. RMEnsure only
+| loads this copy if a suitable version isn't already resident (e.g. a
+| previous ArchiLudo run, or another app), per the reference ArchieSDK
+| example's own plain "RMLOAD <Demo$Dir>.QTMModule" (examples/bydctc/
+| data/!Run,feb) adapted with the RMEnsure guard a normal desktop app
+| (unlike a self-contained demo) should use. lib/qtm.c still checks
+| QTM_Load's own SWI is actually resolvable at startup regardless --
+| this line failing silently (e.g. a corrupt/missing file) doesn't stop
+| the game running, just its music/SFX.
+RMEnsure QTM 1.49 RMLoad <ArchiLudo$Dir>.QTMModule
+
+| Round 7.61: -max raised 256K -> 384K -- live testing found SfxWin (the
+| largest bundled sample) failing to malloc during lib/qtm.c's startup
+| conversion pass, most likely this ceiling being too tight for its
+| ~130KB simultaneous temporary buffers (16-bit source + 8-bit
+| converted, freed right after) on top of everything else already
+| resident. -min stays at 128K -- only the ceiling needed raising, not
+| the floor, so a genuinely tight stock 1MB machine still launches;
+| WimpSlot's own -max is a growth ceiling, not memory reserved up front.
+WimpSlot -min 128K -max 384K
 Run <ArchiLudo$Dir>.!RunImage

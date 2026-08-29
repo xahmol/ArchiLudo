@@ -1,6 +1,8 @@
 #ifndef GAME_VIEW_H
 #define GAME_VIEW_H
 
+#include <stddef.h>
+
 #include "oslib/wimp.h"
 #include "game_logic.h"
 
@@ -11,12 +13,33 @@
  * PANEL_WIDTH). */
 #define GAME_VIEW_NAME_LEN 12
 
+/* Max characters (including the terminator) in a save slot's own display
+ * name -- see game_view_save_to_path()/game_view_peek_slot_name(). Part
+ * of the save data itself (round 7.59), not just a filename, so a slot's
+ * label survives being loaded back and is what src/save_view.c's Save/
+ * Load dialogues actually display -- see their own doc comments for the
+ * 5-slot design this replaced free-form drag-and-drop pathnames with. */
+#define GAME_VIEW_SLOT_NAME_LEN 32
+
 /* Size in bytes of a saved-game file -- see game_view_save_to_path()'s
- * "Save/load" block comment in game_view.c for the layout. Exposed here
- * (rather than kept private to game_view.c) so src/save_view.c's
- * Message_DataSave drag-and-drop handshake can fill in an accurate
- * est_size field without duplicating this arithmetic. */
-#define GAME_VIEW_SAVE_FILE_SIZE (4 + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 1) + 7 \
+ * "Save/load" block comment in game_view.c for the layout.
+ *
+ * Round 7.57: +9 for the rules block (magic bumped "ALS1" -> "ALS2") --
+ * one byte per ludo_rules field (variant + 8 house-rule booleans, see
+ * game_logic.h) -- closing a real gap where the chosen ruleset (which
+ * variant, which of the 8 toggles) was silently lost on save/load,
+ * always reverting to MEJN defaults on load regardless of what was
+ * actually being played.
+ *
+ * Round 7.59: +GAME_VIEW_SLOT_NAME_LEN for the slot's own display name
+ * (magic bumped "ALS2" -> "ALS3") -- part of replacing free-form
+ * drag-and-drop save/load (never reliably worked live -- see
+ * docs/ARCHITECTURE.md's round 7.58 notes) with 5 fixed, renamable save
+ * slots inside the app directory. Each bump intentionally breaks
+ * compatibility with older-magic saves -- an accepted trade-off for this
+ * hobby project, per docs/ARCHITECTURE.md. */
+#define GAME_VIEW_SAVE_FILE_SIZE (4 + GAME_VIEW_SLOT_NAME_LEN + 9 \
+                                 + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 1) + 7 \
                                  + LUDO_PLAYERS * LUDO_PAWNS * 3)
 
 /*
@@ -211,9 +234,9 @@ void game_view_get_rules(ludo_rules *rules);
 /*
  * Function: game_view_app_dir
  * Summary: This program's own directory (see game_view_initialise()'s
- *          argv0 handling), for src/save_view.c to build a sensible
- *          default Save/Load pathname against, the same way
- *          game_view.c's own debug log already does.
+ *          argv0 handling), for src/save_view.c to build its 5 fixed
+ *          save-slot pathnames against, the same way game_view.c's own
+ *          debug log already does.
  * Syntax:  const char *game_view_app_dir(void);
  * Input:   none.
  * Output:  the directory path (no trailing "."), or "" if
@@ -224,13 +247,38 @@ const char *game_view_app_dir(void);
 /*
  * Function: game_view_save_to_path
  * Summary: Write the current game (player names/AI settings and full
- *          board state) to a file at the given path -- see
- *          src/game_view.c's "Save/load" block comment for the format.
- * Syntax:  int game_view_save_to_path(const char *path);
+ *          board state) to a file at the given path, embedding `name` as
+ *          the slot's own display name -- see src/game_view.c's
+ *          "Save/load" block comment for the format.
+ * Syntax:  int game_view_save_to_path(const char *path, const char *name);
  * Input:   path - a full RISC OS pathname to write to.
+ *          name - the slot's display name, truncated to
+ *                 GAME_VIEW_SLOT_NAME_LEN-1 characters if longer.
  * Output:  1 on success, 0 on failure (see the debug Log for why).
  */
-int game_view_save_to_path(const char *path);
+int game_view_save_to_path(const char *path, const char *name);
+
+/*
+ * Function: game_view_peek_slot_name
+ * Summary: A cheap, read-only check of one save slot's own display name
+ *          and whether it's occupied at all -- src/save_view.c's Save
+ *          and Load dialogues call this for each of the 5 slots every
+ *          time they open, to populate the slot list, without needing to
+ *          fully deserialise (let alone apply) a whole game just to read
+ *          a label. Reads only the first 4+GAME_VIEW_SLOT_NAME_LEN bytes
+ *          of the file, not the whole thing.
+ * Syntax:  int game_view_peek_slot_name(const char *path, char *out,
+ *                                       size_t out_size);
+ * Input:   path - a full RISC OS pathname to check.
+ *          out_size - size of the out buffer.
+ * Output:  out - filled with the slot's display name (NUL-terminated,
+ *                truncated to out_size-1 if needed) if occupied, or an
+ *                empty string if the slot doesn't exist / isn't a valid
+ *                ArchiLudo save.
+ *          Returns 1 if the slot is occupied (out is a real name), 0
+ *          otherwise.
+ */
+int game_view_peek_slot_name(const char *path, char *out, size_t out_size);
 
 /*
  * Function: game_view_load_from_path

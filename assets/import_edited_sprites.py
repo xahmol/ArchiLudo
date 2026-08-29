@@ -12,12 +12,14 @@ user request ("so you can convert the edited version back to our
 application sprites").
 
 For each of the 8 sprites this project has, in order of preference:
-1. assets/edit/<name>_16x.png, if present -- downscaled back to native
-   resolution first (see downscale_majority()'s own doc comment), on
-   the assumption it may have been hand-edited.
-2. assets/edit/<name>.png, if present (no _16x counterpart) -- used at
-   face value, already native resolution.
-3. The sprite's own original native PNG (e.g. assets/pawn_icon0.png)
+1. assets/edit/<name>.png, if present -- used at face value, already
+   native resolution (round 7.49 dropped the earlier 16x-upscaled
+   `_16x.png` "editing copy" and its downscale step entirely -- edits
+   are now made directly to this file; see
+   docs/ARCHITECTURE.md's Round 7.49 for why: the two-file setup let a
+   real native-resolution edit go silently ignored because the stale,
+   unedited `_16x.png` sibling took priority over it).
+2. The sprite's own original native PNG (e.g. assets/pawn_icon0.png)
    if assets/edit/ doesn't exist at all or is missing that file --
    lets this script run safely even before export_sprites_for_editing.py
    has ever been run, reproducing exactly what the generate_*.py
@@ -44,7 +46,6 @@ from PIL import Image
 HERE = Path(__file__).parent
 TOOL = HERE.parent / "tools" / "riscos_sprite.py"
 EDIT_DIR = HERE / "edit"
-UPSCALE = 16
 
 # (edit/ basename, canonical native PNG path, sprite name, bpp, mode)
 # mode 27 = square-pixel (90x90dpi), mode 12 = rectangular-pixel
@@ -69,62 +70,16 @@ RECT_ICON_SPRITES = [
 ]
 
 
-def downscale_majority(img, factor):
-    """
-    Function: downscale_majority
-    Summary: Downscale `img` by exactly 1/factor, choosing the single
-             MOST COMMON exact RGBA value within each factor x factor
-             block as that output pixel's colour -- robust to a few
-             stray/rough pixels near a block boundary (e.g. from a
-             slightly-off pencil stroke), unlike a plain NEAREST
-             downscale (which would just pick one arbitrary corner
-             pixel per block and could land on a stray edit) or a
-             blending downscale like BOX (which would introduce exactly
-             the soft/anti-aliased edges this whole hard-edged pixel-art
-             pipeline is built to avoid -- see assets/generate_app_icon.py's
-             own Round 7.38 doc comment on why NEAREST replaced BOX
-             throughout this project's sprite generation).
-    Syntax:  out = downscale_majority(img, factor)
-    Input:   img    - a Pillow RGBA image whose width/height are each an
-                      exact multiple of `factor`.
-             factor - the integer downscale ratio.
-    Output:  a new Pillow RGBA image, (img.width // factor) x
-             (img.height // factor).
-    """
-    w, h = img.width // factor, img.height // factor
-    out = Image.new("RGBA", (w, h))
-    src = img.load()
-    dst = out.load()
-    for y in range(h):
-        for x in range(w):
-            counts = {}
-            for by in range(factor):
-                for bx in range(factor):
-                    px = src[x * factor + bx, y * factor + by]
-                    counts[px] = counts.get(px, 0) + 1
-            dst[x, y] = max(counts.items(), key=lambda kv: kv[1])[0]
-    return out
-
-
 def resolve_native_image(edit_basename, canonical_native_path):
     """
     Function: resolve_native_image
     Summary: Load the best available source for one sprite, per this
-             file's own module docstring's 3-step preference order.
+             file's own module docstring's 2-step preference order.
     Syntax:  img = resolve_native_image(edit_basename, canonical_native_path)
     Output:  a Pillow RGBA image at native resolution, and a short
              string saying which source was used (for the printed log).
     """
-    big_path = EDIT_DIR / f"{edit_basename}_{UPSCALE}x.png"
     plain_path = EDIT_DIR / f"{edit_basename}.png"
-
-    if big_path.exists():
-        big = Image.open(big_path).convert("RGBA")
-        if big.width % UPSCALE or big.height % UPSCALE:
-            print(f"WARNING: {big_path} is {big.width}x{big.height}, not an exact "
-                  f"multiple of {UPSCALE} -- check the canvas wasn't cropped/resized; "
-                  f"using it anyway (rounding down)", file=sys.stderr)
-        return downscale_majority(big, UPSCALE), f"{big_path} (downscaled {UPSCALE}x)"
 
     if plain_path.exists():
         return Image.open(plain_path).convert("RGBA"), str(plain_path)

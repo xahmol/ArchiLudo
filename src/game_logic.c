@@ -584,10 +584,20 @@ ludo_rules ludo_default_rules(ludo_variant variant)
 		r.mandatory_six_release = 0;
 		r.own_pawn_capture = 0;
 		r.overshoot_bounce = 0;
-		r.blockade = 0;
+		/* Round 7.55: blockade=1, not 0 -- corrected after auditing
+		 * against two independent external Ludo rules references, both
+		 * of which describe blocking as an unconditional consequence of
+		 * two own pawns sharing a square, not an optional variant (see
+		 * docs/GAME_LOGIC.md's "Round 7.55" note). own_pawn_capture=0
+		 * alone only permits the STACK to form; without blockade=1 it
+		 * grants no protection at all, which isn't how real Ludo works. */
+		r.blockade = 1;
 		r.backward_movement = 0;
 		r.free_home_column = 0;
 		r.no_six_needed_last_pawn = 0;
+		/* Standard in mainstream Ludo per the same audit -- see
+		 * three_sixes_forfeit_turn's own doc comment in game_logic.h. */
+		r.three_sixes_forfeit_turn = 1;
 		break;
 
 	case LUDO_VARIANT_PACHISI:
@@ -598,6 +608,12 @@ ludo_rules ludo_default_rules(ludo_variant variant)
 		r.backward_movement = 1;
 		r.free_home_column = 1;
 		r.no_six_needed_last_pawn = 0;
+		/* Left off (unlike the Ludo preset above) -- this preset is
+		 * already a curated, not-authentic combination (see this
+		 * function's own doc comment/docs/GAME_LOGIC.md's authenticity
+		 * caveat), and there's no source-backed reason to couple this
+		 * specifically Ludo-sourced rule to it. */
+		r.three_sixes_forfeit_turn = 0;
 		break;
 
 	case LUDO_VARIANT_MEJN:
@@ -609,6 +625,10 @@ ludo_rules ludo_default_rules(ludo_variant variant)
 		r.backward_movement = 0;
 		r.free_home_column = 0;
 		r.no_six_needed_last_pawn = 0;
+		/* Off -- preserves this project's original, traditional
+		 * unlimited six-chaining exactly as it always worked, per
+		 * explicit user decision (round 7.55). */
+		r.three_sixes_forfeit_turn = 0;
 		break;
 	}
 	return r;
@@ -638,6 +658,25 @@ int ludo_roll(ludo_game *g, int forced_roll)
 
 	g->last_roll = roll;
 	g->just_released = 0;
+
+	/* rules.three_sixes_forfeit_turn (round 7.55): a third six in a row
+	 * voids itself entirely -- no release, no move, straight to
+	 * ludo_end_turn() exactly as if this had been a genuinely stuck
+	 * roll. Checked, and handled, before anything else this function
+	 * would otherwise do with the roll (including the mandatory-release
+	 * block just below), since the whole point is that this six grants
+	 * NO action at all. Off (the default), a six's own count simply
+	 * never reaches this threshold since consecutive_sixes only ever
+	 * matters when the toggle is on. */
+	if (roll == 6) {
+		g->consecutive_sixes++;
+		if (g->rules.three_sixes_forfeit_turn && g->consecutive_sixes >= 3) {
+			ludo_end_turn(g);
+			return roll;
+		}
+	} else {
+		g->consecutive_sixes = 0;
+	}
 
 	/* A forced-pawn obligation created by a six last turn only takes
 	 * effect starting with this fresh roll (see house rule in the header). */
@@ -848,4 +887,5 @@ void ludo_end_turn(ludo_game *g)
 	g->forced_pawn = -1;
 	g->pending_forced_pawn = -1;
 	g->just_released = 0;
+	g->consecutive_sixes = 0; /* the next roller's own streak starts fresh -- see its own doc comment */
 }

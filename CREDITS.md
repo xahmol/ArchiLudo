@@ -18,6 +18,12 @@ to -- this file consolidates all of it in one place.
 - **OSLib** -- the typed C/assembler API used throughout ArchiLudo's WIMP
   code, bundled with ArchieSDK. By Jonathan Coxhead and the OSLib
   maintainers. `https://ro-oslib.sourceforge.io/`
+- **FFmpeg** -- used host-side (not shipped with ArchiLudo) for two
+  audio asset-prep tasks: converting the bundled SFX source recordings
+  to raw 16-bit PCM (`docs/QTM.md`'s "Sample format" section, round
+  7.60), and, via `ffprobe`'s bundled `libopenmpt` demuxer, validating
+  `tools/mod_embed_sfx.py`'s rewritten `.mod` files still parse as
+  correct tracker modules (round 7.76). `https://ffmpeg.org/`
 
 ## Emulation
 
@@ -54,6 +60,82 @@ to -- this file consolidates all of it in one place.
   `docs/QTM.md`). By Steve Harrison ("Phoenix"/"Quantum"), 1993-2023,
   freeware; 32-bit RISC OS support by Jeffrey Lee.
   `http://www.pi-star.co.uk/qtm/`
+- **QTMModule binary (v1.49c, was v1.49b through round 7.76)** --
+  bundled directly in ArchiLudo's own app directory
+  (`assets/audio/QTMModule`, see `app/!Run`'s `RMEnsure` line) rather
+  than assumed present, per this project's established "stay playable
+  if an extra isn't there" principle. Round 7.77: swapped v1.49b (19 Mar
+  2023) for v1.49c (03 Apr 2023, two weeks later) -- confirmed
+  byte-identical (MD5) across all three of `kieranhj/arc-django-2`,
+  `bitshifters/aklang`, and `bitshifters/mikroreise`'s own bundled
+  copies, i.e. the actual module version this project's `QTM_PlaySample`
+  SWI number was confirmed against (round 7.74), not the older one
+  ArchiLudo happened to already have. See `docs/QTM.md`'s "Round 7.77"
+  section for whether this was the fix. Original v1.49b copied from a
+  real, working ArchieSDK example project's own bundled copy,
+  `examples/bydctc/data/QTMModule,ffa` in the local ArchieSDK checkout
+  (`~/riscos-dev/archiesdk`) -- also where `lib/qtm.c`'s own QTM SWI
+  numbers (QTM_Load/QTM_Start/QTM_Clear) were confirmed against real,
+  working code (`examples/bydctc/main.c`), not guessed. Round 7.60.
+- **`lin2LOG` (linear-to-VIDC-log sample converter with a
+  `QTM_PlayRawSample` playback test)** -- by Steve Harrison himself
+  (QTM's own author, posting as "steve3000"), shared as a BASIC source
+  listing on a stardot.org.uk RISC OS porting discussion in response to
+  a question about playing one-shot sound effects through QTM. Not
+  redistributed or used as code directly (this project's own `lib/qtm.c`
+  is an independent C implementation), but its exact register usage --
+  `QTM_SoundControl`'s existence and calling convention (undocumented
+  anywhere else this project found), and the correct repeat-length value
+  for `QTM_PlayRawSample` -- directly corrected two wrong guesses made
+  earlier in this project's own round 7.60-7.66 debugging (see
+  `docs/QTM.md`'s "Round 7.67" section). Round 7.67.
+  `https://stardot.org.uk/forums/viewtopic.php?t=27420`
+- **`kieranhj/arc-django-2`** (GitHub) -- a real, shipped Archimedes
+  game, checked for a working `QTM_SoundControl`/`QTM_PlayRawSample`
+  reference (round 7.74, per direct user request). Its `lib/swis.h.asm`
+  gave a larger confirmed QTM SWI table (including `QTM_Stop`, never
+  confirmed before), and its own working `QTM_SoundControl` calls
+  corrected a real misunderstanding this project had held since round
+  7.67 (R1 is a behaviour-flags bitmask, not a channel-reservation
+  count) -- see `docs/QTM.md`'s "Round 7.74" section. Read-only
+  reference, no code copied. `https://github.com/kieranhj/arc-django-2`
+- **`bitshifters/aklang`** (GitHub, "ArchieKlang Announcetro") -- a real
+  Bitshifters demo generating sample data at runtime, checked the same
+  round for a `QTM_PlayRawSample`/sample-playback reference. Revealed
+  `QTM_PlaySample` and `QTM_RegisterSample`'s SWI numbers (previously
+  unknown to this project) via its own SWI table, but the demo itself
+  doesn't call any of the three sample-playing SWIs -- its samples
+  become embedded MOD instruments instead. Read-only reference, no code
+  copied. `https://github.com/bitshifters/aklang`
+- **`bitshifters/mikroreise`** (GitHub) -- another real Bitshifters
+  production on the same demo toolchain, checked for completeness the
+  same round; confirmed the same pattern (only music-level QTM calls,
+  no sample-playing SWIs used). Read-only reference, no code copied.
+  `https://github.com/bitshifters/mikroreise`
+- **"digital innovation1"** (`Music1`) -- background music track 1, by
+  dgtlnnvt. ProTracker `.mod`, CC0-compatible per The Mod Archive's own
+  distribution terms. `https://modarchive.org/index.php?request=view_by_moduleid&query=38135`
+- **"lk's doskpop"** (`Music2`) -- background music track 2, by lks.
+  ProTracker `.mod`, same terms as above.
+  `https://modarchive.org/index.php?request=view_by_moduleid&query=105208`
+- **"on the run"** (`Music3`) -- background music track 3, by Anders
+  Lundqvist. ProTracker `.mod`, same terms as above. Round 7.65.
+  `https://modarchive.org/index.php?request=view_by_moduleid&query=157927`
+
+## Sound effects
+
+- **Kenney** (kenney.nl) -- the "Interface Sounds" pack (click/
+  confirmation/error tones -- pawn release, per-move tick, and capture
+  SFX) and, via its OpenGameArt mirror, the "54 Casino Sound Effects"
+  pack (dice-throw SFX). CC0 (public domain); Kenney is one of the most
+  widely-used, long-standing CC0 game-asset sources, credited across
+  thousands of indie/game-jam projects. `https://kenney.nl/assets/interface-sounds`,
+  `https://opengameart.org/content/54-casino-sound-effects-cards-dice-chips`
+- **"Glorious Victory Fanfare NES"** -- the game-won SFX (`SfxWin`), a
+  Famicom/NES-style chiptune fanfare made with FamiStudio, trimmed to 4
+  seconds with a short fade-out (see `lib/qtm.c`'s own asset-preparation
+  notes in `docs/QTM.md`). By congusbongus, CC0.
+  `https://opengameart.org/content/glorious-victory-fanfare-nes`
 
 ## Archimedes demo/graphics technique reference
 
@@ -79,6 +161,22 @@ to -- this file consolidates all of it in one place.
   Not used as code (different toolchain and licence -- CHESS GPL, not
   code shared with ArchiLudo), read purely as a reference.
   `https://github.com/marutan/ro-chess`
+
+## Game rules research
+
+- **YM Imports -- "How to Play Ludo"** -- one of two independent external
+  Ludo rules references consulted to audit this engine's own rule set
+  against mainstream Ludo (round 7.55, per explicit user request) --
+  see `docs/GAME_LOGIC.md`'s "Round 7.55" note for what the audit found
+  and changed. Read-only reference, no code/text reproduced.
+  `https://www.ymimports.com/pages/how-to-play-ludo`
+- **Ludo Ghar -- "Rules"** -- the second of the two references for the
+  same round 7.55 audit. Two of its claims (a blockade "moving as one
+  unit, splitting the die roll," and a requirement to capture an
+  opponent before entering the home column) were checked and
+  deliberately NOT adopted, for lack of corroboration from the other
+  source above or general Ludo knowledge -- see `docs/GAME_LOGIC.md`.
+  `https://www.ludoghar.co/pages/rules`
 
 ## Porting source
 

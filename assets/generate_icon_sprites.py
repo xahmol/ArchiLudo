@@ -111,16 +111,27 @@ WORK = 320          # supersampled working resolution (square)
 # actually read. Revisit again if either the crop or the "too small"
 # complaint resurfaces.
 FINAL = 26
-# ~1.4 final-px outline width once downsampled -- i.e.
-# OUTLINE_DILATE_WORK * FINAL/WORK ~= 1.4, so OUTLINE_DILATE_WORK must
-# SCALE UP as FINAL shrinks (not down): 1.4*WORK/FINAL. Round 7.31's
-# own value here (8, at FINAL=18) had this backwards -- it scaled
-# OUTLINE_DILATE_WORK down in proportion to FINAL, which shrinks the
-# rendered outline width QUADRATICALLY (down to ~0.45 final-px, nearly
-# invisible) rather than holding it constant -- almost certainly part
-# of why round 7.31's sprite looked "ugly" in addition to being too
-# small. Fixed direction here: 1.4*320/26 ~= 17.
-OUTLINE_DILATE_WORK = 17
+# Round 7.50: was 17 (~1.4 final-px), which is why the outline never
+# read as a clean line -- combined with the old soft BOX alpha resize
+# (see final_alpha's own comment below), a sub-2px dilate produced a
+# hazy grey halo rather than a crisp line, and risked dipping below
+# this project's own established "features under 4 OS units (2 native
+# mode-27 px) vanish on non-square modes" floor (CLAUDE.md's Testing
+# section) at points along the curved contour where it read even
+# thinner than its own 1.4px average.
+#
+# Retuned by direct comparison against a real hand-edited reference
+# pawn (assets/edit/reference/pawn0.png, kept from round 7.49), which
+# fixed this by hand -- per explicit user request for "a clear two
+# pixel black outline" that "scale[s] so that [it] look[s] the same in
+# all modes". A first guess at 28 (~2.3 final-px) overshot badly (grew
+# the WHOLE silhouette outward, not just the line width, since with
+# NEAREST alpha below there's no soft falloff left to absorb the
+# difference) -- swept several values and compared each one's pixel
+# counts against the reference's own (374 transparent / 140 outline /
+# 135 fill, out of 26x26); 21 lands closest (378 / 144 / 128) without
+# the overshoot.
+OUTLINE_DILATE_WORK = 21
 
 # Round 7.33: fixed a genuine bug in THIS script (nothing to do with
 # RISC OS/Wimp clipping at all) found after the user reported the
@@ -193,8 +204,39 @@ def draw_pawn_silhouette(draw):
                     sized (WORK, WORK).
     Output:  none. Draws in place.
     """
-    # Head (sphere/finial).
-    draw.ellipse(sc(100, 18, 220, 138), fill=255)
+    # Head (sphere/finial). Round 7.51: enlarged from a 120x120 circle
+    # towards a rounder profile, per explicit user report that a
+    # hand-edited reference pawn's head reads "rounder" than this
+    # generator's own output -- measured why: at this generator's small
+    # final resolution, a plain 120-diameter circle's own width profile
+    # plateaus at a constant width for ~11 consecutive FINAL rows
+    # (confirmed by counting opaque pixels per row: 12,12,12,...
+    # unchanged for rows 3-13) before narrowing again, reading as a
+    # flat-sided cylinder rather than a curved dome -- the hand-edited
+    # reference's own profile peaks higher and for far fewer rows before
+    # visibly narrowing again. A bigger head gives its curve more
+    # distinct FINAL pixel rows to express itself across before 26x26
+    # quantisation flattens it.
+    #
+    # Round 7.52 correction: round 7.51's first attempt (138x128,
+    # top edge at y=14) overshot -- enlarging the ellipse ALSO shrank
+    # how many pure-outline "cap" rows exist before fill starts peeking
+    # through (round 7.50's own baseline had 2 clean cap rows before
+    # fill appeared at row 3; the enlarged version had only 1, fill
+    # already visible by row 2), which read as the top being flattened/
+    # "cropped" rather than rounded -- confirmed by a live user report
+    # ("pawn is now cropped at the top") and by directly comparing
+    # per-row cap solidity against the round 7.50 baseline, not just
+    # eyeballing. Retuned smaller (110x100, but same top edge as the
+    # ORIGINAL pre-round-7.51 ellipse, y=18 -- zero incremental
+    # canvas-clipping risk beyond what round 7.50 already had) to
+    # restore the full 2-row clean cap while still measurably rounder
+    # than the original (peak width 13 vs 12, narrowing again after
+    # only 4 rows at that peak vs the original's 11-row plateau) --
+    # verified against the hand-edited reference's own pixel-colour
+    # histogram (transparent/outline/fill counts), which this version
+    # matches even more closely than round 7.51's first attempt did.
+    draw.ellipse(sc(95, 18, 225, 138), fill=255)
     # Neck collar -- a flattened disc, wider than the stem, overlapping
     # the head's base for a smooth join.
     draw.ellipse(sc(104, 126, 216, 172), fill=255)
@@ -230,16 +272,23 @@ def highlight_shapes(d):
     # A soft "shine" patch on the head's upper-left, and a matching
     # band down the stem's left edge -- the same upper-left light
     # source convention the reference pixel-art pawns use.
-    d.ellipse(sc(95, 35, 165, 100), fill=255)
-    d.polygon(sc_pts([(125, 160), (155, 160), (145, 235), (120, 235)]), fill=255)
+    #
+    # Round 7.50: both shapes enlarged ~15% (scaled about their own
+    # centre) and shadow_shapes() below shrunk ~15%, per explicit user
+    # feedback comparing this generator's output against their own
+    # hand-edited reference pawn ("the feeling that the white highlight
+    # should be subtly somewhat bigger and the [shadow] smaller").
+    d.ellipse(sc(89, 29, 171, 106), fill=255)
+    d.polygon(sc_pts([(123, 154), (158, 154), (146, 241), (118, 241)]), fill=255)
 
 
 def shadow_shapes(d):
     # A patch on the lower-right of the head, and down the stem's
-    # and base's right edge.
-    d.ellipse(sc(165, 60, 220, 130), fill=255)
-    d.polygon(sc_pts([(165, 175), (200, 175), (205, 248), (175, 248)]), fill=255)
-    d.rectangle(sc(195, 248, 240, 300), fill=255)
+    # and base's right edge. Shrunk ~15% -- see highlight_shapes()'s
+    # own Round 7.50 comment.
+    d.ellipse(sc(169, 65, 216, 125), fill=255)
+    d.polygon(sc_pts([(168, 181), (198, 181), (202, 243), (177, 243)]), fill=255)
+    d.rectangle(sc(198, 252, 237, 296), fill=255)
 
 
 def dot_shapes(d):
@@ -288,8 +337,30 @@ def build_pawn_image(fill_rgb):
              (for smooth, precisely-shaped boundaries) but converted to
              plain per-final-pixel membership booleans via a NEAREST
              resize to FINALxFINAL, and the actual colour choice --
-             including the `(x + y) % 2` checkerboard parity -- is made
-             directly on that FINALxFINAL grid, pixel by pixel.
+             including the checkerboard parity -- is made directly on
+             that FINALxFINAL grid, pixel by pixel.
+
+             Round 7.49: the dither parity is keyed on `y // 2` (a
+             pixel ROW-PAIR index), not `y` itself -- found from a real
+             hand-edited sprite that visibly lost its dither texture on
+             non-square-pixel modes. These sprites are tagged mode 27
+             (2 OS units/pixel, both axes -- see the module docstring),
+             but this project's other three supported modes (12/15/39)
+             are 2x4 OS units/pixel: TWICE as tall per physical pixel.
+             RISC OS's sprite scaling doesn't blend when a sprite's own
+             tagged mode differs from the current screen mode -- it
+             just drops every other source row to fit the coarser
+             vertical grid, matching the same "sub-4-OS-unit features
+             vanish" behaviour this project already found once for hand-
+             drawn os_plot rectangles (see CLAUDE.md's Testing section).
+             A dither whose colour flips with plain `y` parity therefore
+             disagrees between the two rows RISC OS is about to fuse
+             into one physical pixel on those three modes, and loses
+             whichever row didn't survive -- keying on `y // 2` instead
+             makes both rows of every such pair agree, so it's correct
+             regardless of which one survives (and, as a side effect, is
+             also what a hand-edited sprite must reproduce by hand to
+             stay correct across all four supported modes).
     Syntax:  img = build_pawn_image(fill_rgb)
     Input:   fill_rgb - (r, g, b) tuple, the player's Wimp-palette
                         fill colour.
@@ -310,9 +381,24 @@ def build_pawn_image(fill_rgb):
     highlight_final = highlight_mask.resize((FINAL, FINAL), Image.NEAREST)
     shadow_final = shadow_mask.resize((FINAL, FINAL), Image.NEAREST)
     dot_final = dot_mask.resize((FINAL, FINAL), Image.NEAREST)
-    # The one exception: alpha (the true outer silhouette edge) still
-    # gets a smoothing resize -- see round 7.17's reasoning, unchanged.
-    final_alpha = dilated.resize((FINAL, FINAL), Image.BOX)
+    # Round 7.50: alpha now also uses NEAREST, reversing round 7.17's
+    # original choice of a smoothing BOX resize here. That soft resize
+    # produced a genuinely hazy grey antialiased halo around the whole
+    # silhouette (very visible on real hardware, not just a rendering
+    # artifact of this generator's own preview) rather than a clean
+    # line -- confirmed by direct pixel comparison against a real
+    # hand-edited reference pawn (assets/edit/reference/pawn0.png),
+    # which has ZERO partial-alpha pixels at all, only fully opaque or
+    # fully transparent, and reads as a much crisper, more legible
+    # pixel-art outline as a direct result -- per explicit user
+    # request for "a clear two pixel black outline". A hard alpha edge
+    # also sidesteps any risk of the round-trip's own
+    # `--mask-alpha-threshold 128` thresholding landing inconsistently
+    # between two rows that get fused together on a non-square mode
+    # (see this function's own dither doc comment above) -- NEAREST
+    # alpha is already a fixed binary decision per native pixel, with
+    # nothing left for a threshold to disagree about.
+    final_alpha = dilated.resize((FINAL, FINAL), Image.NEAREST)
 
     final_rgb = Image.new("RGB", (FINAL, FINAL))
     px = final_rgb.load()
@@ -324,18 +410,22 @@ def build_pawn_image(fill_rgb):
                 colour = OUTLINE_COLOUR
             elif highlight_final.getpixel((x, y)):
                 # A sparser 1-in-4 dot grid, diagonally staggered every
-                # row (not a plain (x%4, y%4) grid, which would still
-                # read as straight vertical/horizontal dot columns) --
-                # per explicit user feedback that the previous 50%
-                # checkerboard read as solid diagonal LINES rather than
-                # a subtle dithered tint. The shadow dither below stays
-                # a full checkerboard (not asked to change, and being
-                # darker/subtler already, is less prone to reading as
-                # "lines" in the first place).
-                is_dot = (x + 2 * y) % 4 == 0
+                # row-PAIR (not a plain (x%4, y%4) grid, which would
+                # still read as straight vertical/horizontal dot
+                # columns) -- per explicit user feedback that the
+                # previous 50% checkerboard read as solid diagonal LINES
+                # rather than a subtle dithered tint. The shadow dither
+                # below stays a full checkerboard (not asked to change,
+                # and being darker/subtler already, is less prone to
+                # reading as "lines" in the first place). Keyed on
+                # y // 2, not y -- see this function's own Round 7.49
+                # doc comment.
+                is_dot = (x + 2 * (y // 2)) % 4 == 0
                 colour = HIGHLIGHT_COLOUR if is_dot else fill_rgb
             elif shadow_final.getpixel((x, y)):
-                colour = SHADOW_COLOUR if (x + y) % 2 == 0 else fill_rgb
+                # Keyed on y // 2, not y -- see this function's own
+                # Round 7.49 doc comment.
+                colour = SHADOW_COLOUR if (x + y // 2) % 2 == 0 else fill_rgb
             else:
                 colour = fill_rgb
             px[x, y] = colour

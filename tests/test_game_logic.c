@@ -585,7 +585,7 @@ static void test_blockade_blocks_landing_and_passing_through(void)
 
 	/* Sub-case 1: landing exactly on the blockaded square. */
 	ludo_init(&g);
-	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* own_pawn_capture off, blockade off by default */
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* own_pawn_capture off; blockade explicitly forced on below regardless of the preset's own default */
 	r.blockade = 1;
 	ludo_set_rules(&g, &r);
 
@@ -616,16 +616,23 @@ static void test_blockade_blocks_landing_and_passing_through(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
 }
 
-/* The same stacked-pawns setup with blockade off (the default even for
- * the Ludo variant): landing on or passing through the square is fine --
- * it isn't a barrier unless the rule is specifically turned on. */
+/* The same stacked-pawns setup with blockade explicitly off (round 7.55
+ * changed the Ludo preset's own default to ON, so this test forces it
+ * off rather than relying on any preset -- see the CHECK below):
+ * landing on or passing through the square is fine when the rule
+ * genuinely isn't active. */
 static void test_blockade_off_allows_landing_and_passing(void)
 {
 	ludo_game g;
 	ludo_rules r;
 
 	ludo_init(&g);
-	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* blockade off by default */
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	/* Round 7.55 changed the Ludo preset's own blockade default to 1
+	 * (see ludo_default_rules()'s own doc comment) -- this test's whole
+	 * point is the blockade=0 behaviour specifically, so it must set
+	 * that explicitly now rather than lean on the preset's default. */
+	r.blockade = 0;
 	ludo_set_rules(&g, &r);
 
 	g.players[1].pawns[0].in_play = 1;
@@ -751,6 +758,58 @@ static void test_backward_movement_blocked_by_blockade(void)
 
 	ludo_roll(&g, 1); /* backward path: 9 only -- clear */
 	CHECK((ludo_movable_pawns_backward(&g) & 1u) != 0);
+}
+
+/* three_sixes_forfeit_turn: a player's first two sixes in a row grant the
+ * usual bonus roll (current_player unchanged); the THIRD forfeits the
+ * whole turn immediately, inside ludo_roll() itself, before any release
+ * or move -- current_player moves on right away, with no move needed in
+ * between to observe it (nothing except ludo_end_turn() ever changes
+ * current_player, and this rule is the only thing that can call it from
+ * inside ludo_roll() itself for an otherwise ordinary roll). */
+static void test_three_sixes_forfeit_turn(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* three_sixes_forfeit_turn on by default (round 7.55) */
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 5;
+
+	ludo_roll(&g, 6);
+	CHECK(g.current_player == 0); /* 1st six -- ordinary bonus roll */
+
+	ludo_roll(&g, 6);
+	CHECK(g.current_player == 0); /* 2nd six -- still an ordinary bonus roll */
+
+	ludo_roll(&g, 6);
+	CHECK(g.current_player == 1); /* 3rd six -- forfeited, turn passed */
+}
+
+/* Same three-sixes-in-a-row sequence and setup as
+ * test_three_sixes_forfeit_turn() above, but with the rule explicitly
+ * OFF (this project's original, traditional behaviour) -- sixes keep
+ * chaining indefinitely with no forfeit. */
+static void test_three_sixes_no_forfeit_when_rule_off(void)
+{
+	ludo_game g;
+	ludo_rules r;
+
+	ludo_init(&g);
+	r = ludo_default_rules(LUDO_VARIANT_LUDO);
+	r.three_sixes_forfeit_turn = 0;
+	ludo_set_rules(&g, &r);
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 5;
+
+	ludo_roll(&g, 6);
+	ludo_roll(&g, 6);
+	ludo_roll(&g, 6);
+	CHECK(g.current_player == 0); /* still the same player -- no cap */
 }
 
 /*
@@ -1054,6 +1113,144 @@ static void test_headless_full_games_pachisi_variant_invariants(void)
 	}
 }
 
+/*
+ * Function: test_headless_all_rule_combinations
+ * Summary: Extends test_headless_full_games_pachisi_variant_invariants()'s
+ *          own approach (loose, toggle-agnostic invariants; forward move
+ *          preferred, backward as fallback) from that one hand-picked
+ *          preset to EVERY one of the 2^7 = 128 possible combinations of
+ *          this engine's 7 independent house-rule booleans -- not just
+ *          the 3 curated variant presets (MEJN/Ludo/Pachisi-style)
+ *          ludo_default_rules() offers.
+ *
+ *          Why this is worth having, and why it's tractable: the Rules
+ *          dialogue (src/rules_view.c) lets a player flip any of the 7
+ *          toggles individually on top of whichever variant preset they
+ *          started from, so the real reachable configuration space is
+ *          all 128 combinations, not just the 3 presets -- but hand-
+ *          writing a dedicated test per combination clearly isn't
+ *          practical. 128 is small enough to enumerate EXHAUSTIVELY,
+ *          though (not randomly sampled/fuzzed -- every single one),
+ *          each run cheaply (a handful of games, not the 200-500 the
+ *          single-preset simulations above use) -- covering the full
+ *          reachable space this way costs about as much runtime as one
+ *          more chunk of the existing headless simulations, not 128x it.
+ *
+ *          `variant` itself is never read by any gameplay logic in
+ *          game_logic.c (confirmed by inspection -- it's only ever SET,
+ *          inside ludo_default_rules(), purely for the Rules dialogue/
+ *          save-file's own bookkeeping), so it's fixed at
+ *          LUDO_VARIANT_MEJN here throughout -- only the 7 booleans
+ *          actually vary.
+ *
+ *          Same invariants as the Pachisi-only version above, for the
+ *          same reason (several of the MEJN-only version's tighter
+ *          arithmetic assumptions aren't true once bounce-back/backward
+ *          movement are active, so this only asserts what must hold
+ *          regardless of which toggles are on): every pawn's steps
+ *          stays in its valid range, finished pawns occupy distinct
+ *          correct squares, and every game actually terminates within
+ *          the roll cap -- catching a gross regression (crash, infinite
+ *          game, out-of-range value, illegal shared square) from any
+ *          combination of toggles working together, not pinning down
+ *          each one's exact behaviour (the focused per-toggle tests
+ *          earlier in this file already do that).
+ */
+static void test_headless_all_rule_combinations(void)
+{
+	int combo;
+
+	srand(20260829u); /* fixed seed -- reproducible across runs */
+
+	for (combo = 0; combo < 128; combo++) {
+		ludo_rules rules = {0};
+		int game_num;
+
+		rules.variant = LUDO_VARIANT_MEJN; /* never read by gameplay logic -- see doc comment */
+		rules.mandatory_six_release   = (combo >> 0) & 1;
+		rules.own_pawn_capture        = (combo >> 1) & 1;
+		rules.overshoot_bounce        = (combo >> 2) & 1;
+		rules.blockade                = (combo >> 3) & 1;
+		rules.backward_movement       = (combo >> 4) & 1;
+		rules.free_home_column        = (combo >> 5) & 1;
+		rules.no_six_needed_last_pawn = (combo >> 6) & 1;
+
+		for (game_num = 0; game_num < 5; game_num++) {
+			ludo_game g;
+			int roll_num;
+			const int max_rolls = 5000;
+
+			ludo_init(&g);
+			ludo_set_rules(&g, &rules);
+
+			for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+				int roller = g.current_player;
+				int player, pawn;
+				unsigned forward_mask, backward_mask;
+				struct { int pawn; int backward; } candidates[LUDO_PAWNS];
+				int candidate_count = 0, chosen;
+
+				ludo_roll(&g, 0);
+
+				for (player = 0; player < LUDO_PLAYERS; player++) {
+					int finished_steps[LUDO_PAWNS], nf = 0;
+					int ii, jj;
+
+					for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+						const ludo_pawn *p = &g.players[player].pawns[pawn];
+
+						CHECK(p->steps >= 0 && p->steps <= LUDO_TOTAL_STEPS);
+						if (p->finished)
+							finished_steps[nf++] = p->steps;
+					}
+					for (ii = 0; ii < nf; ii++)
+						for (jj = ii + 1; jj < nf; jj++)
+							if (finished_steps[jj] < finished_steps[ii]) {
+								int tmp = finished_steps[ii];
+
+								finished_steps[ii] = finished_steps[jj];
+								finished_steps[jj] = tmp;
+							}
+					for (ii = 0; ii < nf; ii++)
+						CHECK(finished_steps[ii] == LUDO_TOTAL_STEPS - nf + 1 + ii);
+				}
+
+				if (g.current_player != roller)
+					continue; /* turn passed automatically */
+
+				forward_mask = ludo_movable_pawns(&g);
+				backward_mask = ludo_movable_pawns_backward(&g);
+				if (forward_mask == 0 && backward_mask == 0)
+					continue; /* genuinely stuck this roll */
+
+				if (forward_mask != 0) {
+					for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+						if (forward_mask & (1u << pawn)) {
+							candidates[candidate_count].pawn = pawn;
+							candidates[candidate_count].backward = 0;
+							candidate_count++;
+						}
+				} else {
+					for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+						if (backward_mask & (1u << pawn)) {
+							candidates[candidate_count].pawn = pawn;
+							candidates[candidate_count].backward = 1;
+							candidate_count++;
+						}
+				}
+				chosen = rand() % candidate_count;
+
+				if (candidates[chosen].backward)
+					ludo_move_pawn_backward(&g, candidates[chosen].pawn);
+				else
+					ludo_move_pawn(&g, candidates[chosen].pawn);
+			}
+
+			CHECK(roll_num < max_rolls); /* every game actually finished within the cap */
+		}
+	}
+}
+
 int main(void)
 {
 	RUN(test_new_game_starts_correctly);
@@ -1084,8 +1281,11 @@ int main(void)
 	RUN(test_backward_movement_moves_pawn_back);
 	RUN(test_backward_movement_cannot_pass_start);
 	RUN(test_backward_movement_blocked_by_blockade);
+	RUN(test_three_sixes_forfeit_turn);
+	RUN(test_three_sixes_no_forfeit_when_rule_off);
 	RUN(test_headless_full_games_invariants);
 	RUN(test_headless_full_games_pachisi_variant_invariants);
+	RUN(test_headless_all_rule_combinations);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,

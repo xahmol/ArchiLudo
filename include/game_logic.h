@@ -243,6 +243,23 @@ typedef enum {
  *                              home (their other three are all already in
  *                              play or finished), any roll releases it,
  *                              not just a six.
+ *   three_sixes_forfeit_turn - 0: sixes chain indefinitely -- every six
+ *                              grants another roll with no cap (default,
+ *                              matching this project's original "Mens
+ *                              Erger Je Niet" behaviour). 1: a player's
+ *                              THIRD six in a row (within one turn) is
+ *                              itself void -- no release, no move, the
+ *                              whole turn ends immediately on that third
+ *                              six, exactly as if it had been a genuinely
+ *                              stuck roll. Standard in mainstream Ludo
+ *                              (confirmed against two independent
+ *                              external rules references, not just one --
+ *                              see docs/GAME_LOGIC.md); distinct from the
+ *                              existing "3 tries looking for a six while
+ *                              stuck" rule (`tries_remaining`), which is
+ *                              about a different situation (no legal move
+ *                              otherwise) and always applies regardless
+ *                              of this toggle.
  */
 typedef struct {
 	ludo_variant variant;
@@ -253,6 +270,7 @@ typedef struct {
 	int backward_movement;
 	int free_home_column;
 	int no_six_needed_last_pawn;
+	int three_sixes_forfeit_turn;
 } ludo_rules;
 
 /*
@@ -302,6 +320,12 @@ typedef struct {
  *                         (see ludo_rules) -- set to LUDO_VARIANT_MEJN's
  *                         defaults by ludo_init(), optionally overridden
  *                         afterwards via ludo_set_rules().
+ *   consecutive_sixes   - internal: how many sixes the current player has
+ *                         rolled in a row so far this turn -- only
+ *                         meaningful when rules.three_sixes_forfeit_turn
+ *                         is on; reset to 0 by ludo_end_turn() whenever a
+ *                         turn actually passes. Not for use outside
+ *                         game_logic.c.
  */
 typedef struct {
 	ludo_player players[LUDO_PLAYERS];
@@ -313,6 +337,7 @@ typedef struct {
 	int just_released;
 	int winner;
 	ludo_rules rules;
+	int consecutive_sixes;
 } ludo_game;
 
 /*

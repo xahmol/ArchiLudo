@@ -14,283 +14,85 @@
 #include "game_view.h"
 
 #define MARGIN          8
-#define FIELD_HEIGHT   40
-/* Wide enough to actually fit the "Drag" label -- per explicit user
- * feedback that the draggable icon wasn't discoverable/didn't seem to
- * be there at all ("thought we were going to implement icon dragging
- * and dropping? It now asks just the full filepath"): it was there and
- * functional, but the original 40-unit-wide icon (sized only to be a
- * small square) both clipped its old "File" label and didn't read as
- * "drag me" the way a label saying "Drag" does. */
-#define FILE_ICON_SIZE 64
-#define COL_GAP         8
-#define PATH_WIDTH    300
-#define BUTTON_WIDTH  100
-#define BUTTON_HEIGHT  40
-#define BUTTON_GAP     16
-#define ROW_GAP         8
+#define SLOT_ROW_HEIGHT 40
+#define SLOT_ROW_GAP     8
+#define SLOT_NAME_WIDTH 260
+#define SLOT_BUTTON_WIDTH 90
+#define COL_GAP          8
+#define BUTTON_WIDTH   100 /* Cancel button only -- per-slot action buttons
+                             * use SLOT_BUTTON_WIDTH instead. */
+#define BUTTON_HEIGHT   40
+#define ROW_GAP          8 /* gap between the last slot row and Cancel */
 
-#define PATH_BUF_LEN 256
+/* Round 7.59: 5 fixed, renamable save slots inside the app directory,
+ * replacing the earlier free-form pathname/drag-and-drop design --
+ * see save_view.h's own doc comment for why (drag-and-drop never
+ * reliably completed a live save/load round-trip across extensive
+ * Arculator testing, see docs/ARCHITECTURE.md's round 7.58 notes). */
+#define SLOT_COUNT 5
 
-/* Unregistered with the OS's file-type/application association system
- * (see save_view.h's "Not implemented" note on Message_DataOpen) --
- * &FFD ("Data") is the standard generic/no-special-meaning RISC OS
- * filetype, safe to use without a real registration. */
-#define ARCHILUDO_SAVE_FILETYPE 0xFFDu
+/* Row `row` (0 = topmost), same downward-growing-negative-Y convention
+ * this project's other dialogues already use. */
+#define SLOT_ROW_Y1(row) (-MARGIN - (row) * (SLOT_ROW_HEIGHT + SLOT_ROW_GAP))
+#define SLOT_ROW_Y0(row) (SLOT_ROW_Y1(row) - SLOT_ROW_HEIGHT)
 
-/* --- Save dialogue --- */
+#define SLOT_NAME_X0   MARGIN
+#define SLOT_ACTION_X0 (SLOT_NAME_X0 + SLOT_NAME_WIDTH + COL_GAP)
+#define WINDOW_WIDTH   (SLOT_ACTION_X0 + SLOT_BUTTON_WIDTH + MARGIN)
 
-#define SAVE_FILE_X0 MARGIN
-#define SAVE_PATH_X0 (SAVE_FILE_X0 + FILE_ICON_SIZE + COL_GAP)
-#define SAVE_WINDOW_WIDTH (SAVE_PATH_X0 + PATH_WIDTH + MARGIN)
-#define SAVE_ROW_Y1 (-MARGIN)
-#define SAVE_ROW_Y0 (SAVE_ROW_Y1 - FIELD_HEIGHT)
-#define SAVE_BUTTON_ROW_Y1 (SAVE_ROW_Y0 - ROW_GAP)
-#define SAVE_BUTTON_ROW_Y0 (SAVE_BUTTON_ROW_Y1 - BUTTON_HEIGHT)
-#define SAVE_WINDOW_HEIGHT (MARGIN - SAVE_BUTTON_ROW_Y0)
-#define SAVE_GO_X0 MARGIN
-#define SAVE_CANCEL_X0 (SAVE_GO_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define CANCEL_ROW_Y1 (SLOT_ROW_Y0(SLOT_COUNT - 1) - ROW_GAP)
+#define CANCEL_ROW_Y0 (CANCEL_ROW_Y1 - BUTTON_HEIGHT)
+#define CANCEL_X0     MARGIN
+#define WINDOW_HEIGHT (MARGIN - CANCEL_ROW_Y0)
 
-#define ICON_SAVE_FILE   0
-#define ICON_SAVE_PATH   1
-#define ICON_SAVE_GO     2
-#define ICON_SAVE_CANCEL 3
-#define SAVE_ICON_COUNT  4
+/* Icon layout shared by both the Save and Load windows (structurally
+ * identical -- 5 name+action row pairs plus one Cancel button -- only
+ * the name field's writability and the action button's label differ,
+ * see save_view_initialise()). */
+#define ICON_NAME(n)      (n)
+#define ICON_ACTION(n)    (SLOT_COUNT + (n))
+#define ICON_CANCEL       (SLOT_COUNT * 2)
+#define WINDOW_ICON_COUNT (ICON_CANCEL + 1)
 
 static wimp_w save_window_handle = (wimp_w) -1;
-static char save_path[PATH_BUF_LEN];
-static char save_go_validation[4] = "R1";
-static char save_cancel_validation[4] = "R1";
-
-/* Save-drag-in-progress state -- see save_view_drag_ended() and
- * save_view_message_received(). */
-static int drag_pending = 0;
-static int drag_my_ref = 0;
-
-/* --- Load dialogue --- */
-
-#define LOAD_PATH_X0 MARGIN
-#define LOAD_WINDOW_WIDTH (LOAD_PATH_X0 + PATH_WIDTH + MARGIN)
-#define LOAD_ROW_Y1 (-MARGIN)
-#define LOAD_ROW_Y0 (LOAD_ROW_Y1 - FIELD_HEIGHT)
-#define LOAD_BUTTON_ROW_Y1 (LOAD_ROW_Y0 - ROW_GAP)
-#define LOAD_BUTTON_ROW_Y0 (LOAD_BUTTON_ROW_Y1 - BUTTON_HEIGHT)
-#define LOAD_WINDOW_HEIGHT (MARGIN - LOAD_BUTTON_ROW_Y0)
-#define LOAD_GO_X0 MARGIN
-#define LOAD_CANCEL_X0 (LOAD_GO_X0 + BUTTON_WIDTH + BUTTON_GAP)
-
-#define ICON_LOAD_PATH   0
-#define ICON_LOAD_GO     1
-#define ICON_LOAD_CANCEL 2
-#define LOAD_ICON_COUNT  3
-
 static wimp_w load_window_handle = (wimp_w) -1;
-static char load_path[PATH_BUF_LEN];
-static char load_go_validation[4] = "R1";
-static char load_cancel_validation[4] = "R1";
+
+/* Save dialogue: writable backing buffer for each row's name field --
+ * the Wimp writes directly into these as the user types, so whatever is
+ * in here at the moment Save is clicked is exactly what gets embedded in
+ * the save data (see game_view_save_to_path()). */
+static char slot_names[SLOT_COUNT][GAME_VIEW_SLOT_NAME_LEN];
+
+/* Load dialogue: read-only display buffer for each row's name field,
+ * refreshed from disk every time the dialogue opens (see
+ * load_view_open()) -- never written to by the Wimp itself, since these
+ * icons use BUTTON_NEVER, not BUTTON_WRITABLE. */
+static char load_slot_display[SLOT_COUNT][GAME_VIEW_SLOT_NAME_LEN];
+static int load_slot_occupied[SLOT_COUNT];
+
+/* Shared validation-string buffers for the icons that need one -- a
+ * writable icon needs a (possibly empty) validation string, and a
+ * BUTTON_CLICK icon's border/fill comes from "R1" the same way every
+ * other button in this project's dialogues already does. One buffer per
+ * *kind*, not one per icon, since the Wimp only ever reads these. */
+static char empty_validation[1] = "";
+static char button_validation[4] = "R1";
 
 /*
- * Function: build_default_path
- * Summary: A sensible starting pathname for either dialogue's writable
- *          icon -- this program's own directory (see
- *          game_view_app_dir()) plus a fixed leafname, the same
- *          resource_path()-style convention game_view.c's own debug Log
- *          already uses.
+ * Function: build_slot_path
+ * Summary: The fixed pathname for save slot `slot` (0-based) --
+ *          `<ArchiLudo$Dir>.Slot1` .. `.Slot5`. Every slot always has
+ *          exactly one possible path; there is no user-chosen pathname
+ *          anywhere in this module any more (round 7.59).
  */
-static void build_default_path(char *out, size_t out_size)
+static void build_slot_path(int slot, char *out, size_t out_size)
 {
 	const char *dir = game_view_app_dir();
 
 	if (dir[0] != '\0')
-		snprintf(out, out_size, "%s.SaveGame", dir);
+		snprintf(out, out_size, "%s.Slot%d", dir, slot + 1);
 	else
-		snprintf(out, out_size, "SaveGame");
-}
-
-void save_view_initialise(void)
-{
-	wimp_WINDOW(SAVE_ICON_COUNT) save_def;
-	wimp_WINDOW(LOAD_ICON_COUNT) load_def;
-	wimp_icon *icon;
-
-	build_default_path(save_path, sizeof(save_path));
-	build_default_path(load_path, sizeof(load_path));
-
-	/* --- Save window --- */
-
-	save_def.visible.x0 = 150;
-	save_def.visible.y0 = 150;
-	save_def.visible.x1 = 150 + SAVE_WINDOW_WIDTH;
-	save_def.visible.y1 = 150 + SAVE_WINDOW_HEIGHT;
-	save_def.xscroll = 0;
-	save_def.yscroll = 0;
-	save_def.next = wimp_TOP;
-	save_def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
-	                  wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
-	                  wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON;
-	save_def.title_fg = wimp_COLOUR_BLACK;
-	save_def.title_bg = wimp_COLOUR_LIGHT_GREY;
-	save_def.work_fg = wimp_COLOUR_BLACK;
-	save_def.work_bg = wimp_COLOUR_VERY_LIGHT_GREY;
-	save_def.scroll_outer = wimp_COLOUR_MID_LIGHT_GREY;
-	save_def.scroll_inner = wimp_COLOUR_VERY_LIGHT_GREY;
-	save_def.highlight_bg = wimp_COLOUR_CREAM;
-	save_def.extra_flags = 0;
-	save_def.extent.x0 = 0;
-	save_def.extent.y0 = -SAVE_WINDOW_HEIGHT;
-	save_def.extent.x1 = SAVE_WINDOW_WIDTH;
-	save_def.extent.y1 = 0;
-	save_def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
-	                        wimp_ICON_VCENTRED | wimp_ICON_FILLED;
-	/* No custom drawing (unlike game_view.c's board) -- plain Wimp icons
-	 * throughout, so BUTTON_NEVER is correct here (see setup_view.c's
-	 * matching note). */
-	save_def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
-	save_def.sprite_area = wimpspriteop_AREA;
-	save_def.xmin = SAVE_WINDOW_WIDTH;
-	save_def.ymin = SAVE_WINDOW_HEIGHT;
-	strncpy(save_def.title_data.text, "Save Game", 12);
-	save_def.icon_count = SAVE_ICON_COUNT;
-
-	icon = &save_def.icons[ICON_SAVE_FILE];
-	icon->extent.x0 = SAVE_FILE_X0;
-	icon->extent.x1 = SAVE_FILE_X0 + FILE_ICON_SIZE;
-	icon->extent.y1 = SAVE_ROW_Y1;
-	icon->extent.y0 = SAVE_ROW_Y0;
-	/* CLICK_DRAG (button type 6): a plain click still notifies (buttons
-	 * == wimp_CLICK_SELECT), same as any button, but holding the button
-	 * down long enough to become a drag reports buttons ==
-	 * wimp_DRAG_SELECT instead -- see save_view_click()'s handling and
-	 * the RISC OS 3 PRM's "Icon button types" table for exactly why type
-	 * 6 (not the ordinary BUTTON_CLICK every other icon in this project
-	 * uses) is needed for a draggable file icon. */
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED | wimp_ICON_VCENTRED |
-	              wimp_ICON_FILLED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK_DRAG << wimp_ICON_BUTTON_TYPE_SHIFT);
-	strncpy(icon->data.text, "Drag", 12);
-
-	icon = &save_def.icons[ICON_SAVE_PATH];
-	icon->extent.x0 = SAVE_PATH_X0;
-	icon->extent.x1 = SAVE_PATH_X0 + PATH_WIDTH;
-	icon->extent.y1 = SAVE_ROW_Y1;
-	icon->extent.y0 = SAVE_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_FILLED | wimp_ICON_VCENTRED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_WRITABLE << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = save_path;
-	icon->data.indirected_text.validation = "";
-	icon->data.indirected_text.size = PATH_BUF_LEN;
-
-	icon = &save_def.icons[ICON_SAVE_GO];
-	icon->extent.x0 = SAVE_GO_X0;
-	icon->extent.x1 = SAVE_GO_X0 + BUTTON_WIDTH;
-	icon->extent.y1 = SAVE_BUTTON_ROW_Y1;
-	icon->extent.y0 = SAVE_BUTTON_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = "Save";
-	icon->data.indirected_text.validation = save_go_validation;
-	icon->data.indirected_text.size = 6;
-
-	icon = &save_def.icons[ICON_SAVE_CANCEL];
-	icon->extent.x0 = SAVE_CANCEL_X0;
-	icon->extent.x1 = SAVE_CANCEL_X0 + BUTTON_WIDTH;
-	icon->extent.y1 = SAVE_BUTTON_ROW_Y1;
-	icon->extent.y0 = SAVE_BUTTON_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = "Cancel";
-	icon->data.indirected_text.validation = save_cancel_validation;
-	icon->data.indirected_text.size = 7;
-
-	save_window_handle = wimp_create_window((wimp_window *) &save_def);
-
-	/* --- Load window --- */
-
-	load_def.visible.x0 = 150;
-	load_def.visible.y0 = 150;
-	load_def.visible.x1 = 150 + LOAD_WINDOW_WIDTH;
-	load_def.visible.y1 = 150 + LOAD_WINDOW_HEIGHT;
-	load_def.xscroll = 0;
-	load_def.yscroll = 0;
-	load_def.next = wimp_TOP;
-	load_def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
-	                  wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
-	                  wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON;
-	load_def.title_fg = wimp_COLOUR_BLACK;
-	load_def.title_bg = wimp_COLOUR_LIGHT_GREY;
-	load_def.work_fg = wimp_COLOUR_BLACK;
-	load_def.work_bg = wimp_COLOUR_VERY_LIGHT_GREY;
-	load_def.scroll_outer = wimp_COLOUR_MID_LIGHT_GREY;
-	load_def.scroll_inner = wimp_COLOUR_VERY_LIGHT_GREY;
-	load_def.highlight_bg = wimp_COLOUR_CREAM;
-	load_def.extra_flags = 0;
-	load_def.extent.x0 = 0;
-	load_def.extent.y0 = -LOAD_WINDOW_HEIGHT;
-	load_def.extent.x1 = LOAD_WINDOW_WIDTH;
-	load_def.extent.y1 = 0;
-	load_def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
-	                        wimp_ICON_VCENTRED | wimp_ICON_FILLED;
-	load_def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
-	load_def.sprite_area = wimpspriteop_AREA;
-	load_def.xmin = LOAD_WINDOW_WIDTH;
-	load_def.ymin = LOAD_WINDOW_HEIGHT;
-	strncpy(load_def.title_data.text, "Load Game", 12);
-	load_def.icon_count = LOAD_ICON_COUNT;
-
-	icon = &load_def.icons[ICON_LOAD_PATH];
-	icon->extent.x0 = LOAD_PATH_X0;
-	icon->extent.x1 = LOAD_PATH_X0 + PATH_WIDTH;
-	icon->extent.y1 = LOAD_ROW_Y1;
-	icon->extent.y0 = LOAD_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_FILLED | wimp_ICON_VCENTRED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_WRITABLE << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = load_path;
-	icon->data.indirected_text.validation = "";
-	icon->data.indirected_text.size = PATH_BUF_LEN;
-
-	icon = &load_def.icons[ICON_LOAD_GO];
-	icon->extent.x0 = LOAD_GO_X0;
-	icon->extent.x1 = LOAD_GO_X0 + BUTTON_WIDTH;
-	icon->extent.y1 = LOAD_BUTTON_ROW_Y1;
-	icon->extent.y0 = LOAD_BUTTON_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = "Load";
-	icon->data.indirected_text.validation = load_go_validation;
-	icon->data.indirected_text.size = 6;
-
-	icon = &load_def.icons[ICON_LOAD_CANCEL];
-	icon->extent.x0 = LOAD_CANCEL_X0;
-	icon->extent.x1 = LOAD_CANCEL_X0 + BUTTON_WIDTH;
-	icon->extent.y1 = LOAD_BUTTON_ROW_Y1;
-	icon->extent.y0 = LOAD_BUTTON_ROW_Y0;
-	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
-	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
-	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
-	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
-	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
-	icon->data.indirected_text.text = "Cancel";
-	icon->data.indirected_text.validation = load_cancel_validation;
-	icon->data.indirected_text.size = 7;
-
-	load_window_handle = wimp_create_window((wimp_window *) &load_def);
+		snprintf(out, out_size, "Slot%d", slot + 1);
 }
 
 static void open_window(wimp_w w)
@@ -306,18 +108,255 @@ static void open_window(wimp_w w)
 	wimp_open_window((wimp_open *) &state);
 }
 
-void save_view_open(void)
+/*
+ * Function: set_icon_shaded (internal)
+ * Summary: Set one icon's SHADED flag to exactly `shaded`, only issuing
+ *          a Wimp_SetIconState call if that's an actual change -- same
+ *          "read current state, EOR only if it differs" pattern
+ *          src/rules_view.c already established for this project (see
+ *          riscos_wimp_reference.md's Icons section). Used to grey out
+ *          (and disable clicking on) an empty slot's Load button.
+ */
+static void set_icon_shaded(wimp_w w, int icon, int shaded)
 {
-	open_window(save_window_handle);
-	wimp_set_caret_position(save_window_handle, ICON_SAVE_PATH, 0, 0, -1,
-	                         (int) strlen(save_path));
+	wimp_icon_state state;
+
+	state.w = w;
+	state.i = icon;
+	wimp_get_icon_state(&state);
+
+	if (((state.icon.flags & wimp_ICON_SHADED) != 0) != (shaded != 0))
+		wimp_set_icon_state(w, icon, wimp_ICON_SHADED, 0);
 }
 
+void save_view_initialise(void)
+{
+	wimp_WINDOW(WINDOW_ICON_COUNT) save_def;
+	wimp_WINDOW(WINDOW_ICON_COUNT) load_def;
+	wimp_icon *icon;
+	int i;
+
+	/* --- Save window: 5 writable name fields + "Save" buttons --- */
+
+	save_def.visible.x0 = 150;
+	save_def.visible.y0 = 150;
+	save_def.visible.x1 = 150 + WINDOW_WIDTH;
+	save_def.visible.y1 = 150 + WINDOW_HEIGHT;
+	save_def.xscroll = 0;
+	save_def.yscroll = 0;
+	save_def.next = wimp_TOP;
+	save_def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
+	                  wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
+	                  wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON;
+	save_def.title_fg = wimp_COLOUR_BLACK;
+	save_def.title_bg = wimp_COLOUR_LIGHT_GREY;
+	save_def.work_fg = wimp_COLOUR_BLACK;
+	save_def.work_bg = wimp_COLOUR_VERY_LIGHT_GREY;
+	save_def.scroll_outer = wimp_COLOUR_MID_LIGHT_GREY;
+	save_def.scroll_inner = wimp_COLOUR_VERY_LIGHT_GREY;
+	save_def.highlight_bg = wimp_COLOUR_CREAM;
+	save_def.extra_flags = 0;
+	save_def.extent.x0 = 0;
+	save_def.extent.y0 = -WINDOW_HEIGHT;
+	save_def.extent.x1 = WINDOW_WIDTH;
+	save_def.extent.y1 = 0;
+	save_def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
+	                        wimp_ICON_VCENTRED | wimp_ICON_FILLED;
+	/* No custom drawing -- plain Wimp icons throughout, so BUTTON_NEVER
+	 * is correct here (see setup_view.c's matching note). */
+	save_def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
+	save_def.sprite_area = wimpspriteop_AREA;
+	save_def.xmin = WINDOW_WIDTH;
+	save_def.ymin = WINDOW_HEIGHT;
+	strncpy(save_def.title_data.text, "Save Game", 12);
+	save_def.icon_count = WINDOW_ICON_COUNT;
+
+	for (i = 0; i < SLOT_COUNT; i++) {
+		icon = &save_def.icons[ICON_NAME(i)];
+		icon->extent.x0 = SLOT_NAME_X0;
+		icon->extent.x1 = SLOT_NAME_X0 + SLOT_NAME_WIDTH;
+		icon->extent.y1 = SLOT_ROW_Y1(i);
+		icon->extent.y0 = SLOT_ROW_Y0(i);
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_FILLED | wimp_ICON_VCENTRED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_WRITABLE << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = slot_names[i];
+		icon->data.indirected_text.validation = empty_validation;
+		icon->data.indirected_text.size = GAME_VIEW_SLOT_NAME_LEN;
+
+		icon = &save_def.icons[ICON_ACTION(i)];
+		icon->extent.x0 = SLOT_ACTION_X0;
+		icon->extent.x1 = SLOT_ACTION_X0 + SLOT_BUTTON_WIDTH;
+		icon->extent.y1 = SLOT_ROW_Y1(i);
+		icon->extent.y0 = SLOT_ROW_Y0(i);
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = "Save";
+		icon->data.indirected_text.validation = button_validation;
+		icon->data.indirected_text.size = 5;
+	}
+
+	icon = &save_def.icons[ICON_CANCEL];
+	icon->extent.x0 = CANCEL_X0;
+	icon->extent.x1 = CANCEL_X0 + BUTTON_WIDTH;
+	icon->extent.y1 = CANCEL_ROW_Y1;
+	icon->extent.y0 = CANCEL_ROW_Y0;
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+	icon->data.indirected_text.text = "Cancel";
+	icon->data.indirected_text.validation = button_validation;
+	icon->data.indirected_text.size = 7;
+
+	save_window_handle = wimp_create_window((wimp_window *) &save_def);
+
+	/* --- Load window: 5 read-only name fields + "Load" buttons --- */
+
+	load_def.visible.x0 = 150;
+	load_def.visible.y0 = 150;
+	load_def.visible.x1 = 150 + WINDOW_WIDTH;
+	load_def.visible.y1 = 150 + WINDOW_HEIGHT;
+	load_def.xscroll = 0;
+	load_def.yscroll = 0;
+	load_def.next = wimp_TOP;
+	load_def.flags = wimp_WINDOW_NEW_FORMAT | wimp_WINDOW_MOVEABLE |
+	                  wimp_WINDOW_BOUNDED_ONCE | wimp_WINDOW_BACK_ICON |
+	                  wimp_WINDOW_CLOSE_ICON | wimp_WINDOW_TITLE_ICON;
+	load_def.title_fg = wimp_COLOUR_BLACK;
+	load_def.title_bg = wimp_COLOUR_LIGHT_GREY;
+	load_def.work_fg = wimp_COLOUR_BLACK;
+	load_def.work_bg = wimp_COLOUR_VERY_LIGHT_GREY;
+	load_def.scroll_outer = wimp_COLOUR_MID_LIGHT_GREY;
+	load_def.scroll_inner = wimp_COLOUR_VERY_LIGHT_GREY;
+	load_def.highlight_bg = wimp_COLOUR_CREAM;
+	load_def.extra_flags = 0;
+	load_def.extent.x0 = 0;
+	load_def.extent.y0 = -WINDOW_HEIGHT;
+	load_def.extent.x1 = WINDOW_WIDTH;
+	load_def.extent.y1 = 0;
+	load_def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
+	                        wimp_ICON_VCENTRED | wimp_ICON_FILLED;
+	load_def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
+	load_def.sprite_area = wimpspriteop_AREA;
+	load_def.xmin = WINDOW_WIDTH;
+	load_def.ymin = WINDOW_HEIGHT;
+	strncpy(load_def.title_data.text, "Load Game", 12);
+	load_def.icon_count = WINDOW_ICON_COUNT;
+
+	for (i = 0; i < SLOT_COUNT; i++) {
+		icon = &load_def.icons[ICON_NAME(i)];
+		icon->extent.x0 = SLOT_NAME_X0;
+		icon->extent.x1 = SLOT_NAME_X0 + SLOT_NAME_WIDTH;
+		icon->extent.y1 = SLOT_ROW_Y1(i);
+		icon->extent.y0 = SLOT_ROW_Y0(i);
+		/* Read-only: BUTTON_NEVER, not WRITABLE -- this is a display
+		 * label, refreshed from disk on every load_view_open(), not
+		 * something the player types into. */
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_FILLED | wimp_ICON_VCENTRED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = load_slot_display[i];
+		icon->data.indirected_text.validation = empty_validation;
+		icon->data.indirected_text.size = GAME_VIEW_SLOT_NAME_LEN;
+
+		icon = &load_def.icons[ICON_ACTION(i)];
+		icon->extent.x0 = SLOT_ACTION_X0;
+		icon->extent.x1 = SLOT_ACTION_X0 + SLOT_BUTTON_WIDTH;
+		icon->extent.y1 = SLOT_ROW_Y1(i);
+		icon->extent.y0 = SLOT_ROW_Y0(i);
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = "Load";
+		icon->data.indirected_text.validation = button_validation;
+		icon->data.indirected_text.size = 5;
+	}
+
+	icon = &load_def.icons[ICON_CANCEL];
+	icon->extent.x0 = CANCEL_X0;
+	icon->extent.x1 = CANCEL_X0 + BUTTON_WIDTH;
+	icon->extent.y1 = CANCEL_ROW_Y1;
+	icon->extent.y0 = CANCEL_ROW_Y0;
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+	icon->data.indirected_text.text = "Cancel";
+	icon->data.indirected_text.validation = button_validation;
+	icon->data.indirected_text.size = 7;
+
+	load_window_handle = wimp_create_window((wimp_window *) &load_def);
+}
+
+/*
+ * Function: save_view_open
+ * Summary: Refresh all 5 slot rows from whatever is actually on disc
+ *          right now (occupied slots show their real saved name,
+ *          otherwise "Slot N"), then open the window. Round 7.59: always
+ *          re-reads on every open -- see the module's own note on the
+ *          one accepted edge case this causes (an in-progress, unsaved
+ *          rename gets discarded if the dialogue is somehow reopened
+ *          without being closed first; not reachable through this
+ *          project's own menu, which only ever opens this dialogue via a
+ *          single iconbar/window-menu entry).
+ */
+void save_view_open(void)
+{
+	int i;
+	char path[300];
+	char peeked[GAME_VIEW_SLOT_NAME_LEN];
+
+	for (i = 0; i < SLOT_COUNT; i++) {
+		build_slot_path(i, path, sizeof(path));
+		if (game_view_peek_slot_name(path, peeked, sizeof(peeked)) && peeked[0] != '\0')
+			snprintf(slot_names[i], sizeof(slot_names[i]), "%s", peeked);
+		else
+			snprintf(slot_names[i], sizeof(slot_names[i]), "Slot %d", i + 1);
+
+		if (save_window_handle != (wimp_w) -1)
+			wimp_set_icon_state(save_window_handle, ICON_NAME(i), 0, 0);
+	}
+
+	open_window(save_window_handle);
+}
+
+/*
+ * Function: load_view_open
+ * Summary: Refresh all 5 slot rows from disc (real name if occupied,
+ *          "(empty)" and a shaded Load button otherwise), then open the
+ *          window.
+ */
 void load_view_open(void)
 {
+	int i;
+	char path[300];
+
+	for (i = 0; i < SLOT_COUNT; i++) {
+		build_slot_path(i, path, sizeof(path));
+		load_slot_occupied[i] = game_view_peek_slot_name(path, load_slot_display[i],
+		                                                  sizeof(load_slot_display[i]));
+		if (!load_slot_occupied[i] || load_slot_display[i][0] == '\0')
+			snprintf(load_slot_display[i], sizeof(load_slot_display[i]), "(empty)");
+
+		if (load_window_handle != (wimp_w) -1) {
+			wimp_set_icon_state(load_window_handle, ICON_NAME(i), 0, 0);
+			set_icon_shaded(load_window_handle, ICON_ACTION(i), !load_slot_occupied[i]);
+		}
+	}
+
 	open_window(load_window_handle);
-	wimp_set_caret_position(load_window_handle, ICON_LOAD_PATH, 0, 0, -1,
-	                         (int) strlen(load_path));
 }
 
 wimp_w save_view_window_handle(void)
@@ -351,58 +390,29 @@ void load_view_redraw(wimp_draw *redraw)
 
 void save_view_click(wimp_pointer *pointer)
 {
-	if (pointer->i == ICON_SAVE_FILE) {
-		/* Only a genuine drag (button held past the ~0.2s threshold,
-		 * see include/save_view.h's doc comment) starts the Wimp_DragBox
-		 * outline -- a plain click on this icon (buttons ==
-		 * wimp_CLICK_SELECT) is simply ignored, it has no other purpose. */
-		if (pointer->buttons == wimp_DRAG_SELECT) {
-			wimp_window_state state;
-			wimp_drag drag;
-			int origin_x, origin_y;
+	int slot;
 
-			state.w = save_window_handle;
-			wimp_get_window_state(&state);
-			origin_x = state.visible.x0 - state.xscroll;
-			origin_y = state.visible.y1 - state.yscroll;
+	for (slot = 0; slot < SLOT_COUNT; slot++) {
+		if (pointer->i == ICON_ACTION(slot)) {
+			char path[300];
 
-			/* Zeroed first: the handle/draw/undraw/redraw fields are
-			 * only meaningful for the ASM_FIXED/ASM_RUBBER drag types
-			 * (8-11), not USER_FIXED (5) used here, but leaving them as
-			 * uninitialised stack garbage instead of explicitly zero is
-			 * an unnecessary risk to take with a struct that gets
-			 * passed straight into a SWI. */
-			memset(&drag, 0, sizeof(drag));
-			drag.w = save_window_handle;
-			drag.type = wimp_DRAG_USER_FIXED;
-			drag.initial.x0 = origin_x + SAVE_FILE_X0;
-			drag.initial.x1 = origin_x + SAVE_FILE_X0 + FILE_ICON_SIZE;
-			drag.initial.y0 = origin_y + SAVE_ROW_Y0;
-			drag.initial.y1 = origin_y + SAVE_ROW_Y1;
-			/* Generous fixed screen bounds -- real screen coordinates
-			 * never come close to this, and Wimp_DragBox needs *some*
-			 * bbox even though we don't want the drag meaningfully
-			 * constrained. */
-			drag.bbox.x0 = -16384;
-			drag.bbox.y0 = -16384;
-			drag.bbox.x1 = 16384;
-			drag.bbox.y1 = 16384;
+			/* An entirely blanked-out name field (user selected all,
+			 * deleted) still needs a real label -- default back to
+			 * "Slot N" rather than saving with an empty name. */
+			if (slot_names[slot][0] == '\0')
+				snprintf(slot_names[slot], sizeof(slot_names[slot]), "Slot %d", slot + 1);
 
-			wimp_drag_box(&drag);
+			build_slot_path(slot, path, sizeof(path));
+			if (game_view_save_to_path(path, slot_names[slot]))
+				wimp_close_window(save_window_handle);
+			/* On failure, leave the dialogue open so the user can see
+			 * what's there and retry -- see the debug Log for why it
+			 * failed (game_view_save_to_path() logs there). */
+			return;
 		}
-		return;
 	}
 
-	if (pointer->i == ICON_SAVE_GO) {
-		if (game_view_save_to_path(save_path))
-			wimp_close_window(save_window_handle);
-		/* On failure, leave the dialogue open so the path can be
-		 * corrected and retried -- see the debug Log for why it
-		 * failed (game_view_save_to_path() logs there). */
-		return;
-	}
-
-	if (pointer->i == ICON_SAVE_CANCEL) {
+	if (pointer->i == ICON_CANCEL) {
 		wimp_close_window(save_window_handle);
 		return;
 	}
@@ -410,24 +420,35 @@ void save_view_click(wimp_pointer *pointer)
 
 void load_view_click(wimp_pointer *pointer)
 {
-	if (pointer->i == ICON_LOAD_GO) {
-		/* game_view_open() -- round 7.24, per explicit user report: unlike
-		 * setup_view.c's ICON_START handler (which explicitly opens the
-		 * game window before game_view_new_game()), this path only ever
-		 * set game_started/loaded the board, never actually opened the
-		 * window -- it only became visible on a *later*, separate
-		 * iconbar click (game_view_has_started() then being true routes
-		 * that click to game_view_open() -- see main.c). Matches
-		 * game_view_new_game()'s own pattern: open first, so a load
-		 * that's about to succeed is immediately visible. */
-		if (game_view_load_from_path(load_path)) {
-			game_view_open();
-			wimp_close_window(load_window_handle);
+	int slot;
+
+	for (slot = 0; slot < SLOT_COUNT; slot++) {
+		if (pointer->i == ICON_ACTION(slot)) {
+			char path[300];
+
+			if (!load_slot_occupied[slot])
+				return; /* shaded/empty slot -- no-op */
+
+			build_slot_path(slot, path, sizeof(path));
+			/* game_view_open() -- round 7.24, per explicit user report:
+			 * unlike setup_view.c's ICON_START handler (which explicitly
+			 * opens the game window before game_view_new_game()), this
+			 * path only ever set game_started/loaded the board, never
+			 * actually opened the window -- it only became visible on a
+			 * *later*, separate iconbar click (game_view_has_started()
+			 * then being true routes that click to game_view_open() --
+			 * see main.c). Matches game_view_new_game()'s own pattern:
+			 * open first, so a load that's about to succeed is
+			 * immediately visible. */
+			if (game_view_load_from_path(path)) {
+				game_view_open();
+				wimp_close_window(load_window_handle);
+			}
+			return;
 		}
-		return;
 	}
 
-	if (pointer->i == ICON_LOAD_CANCEL) {
+	if (pointer->i == ICON_CANCEL) {
 		wimp_close_window(load_window_handle);
 		return;
 	}
@@ -435,121 +456,10 @@ void load_view_click(wimp_pointer *pointer)
 
 void save_view_key_pressed(wimp_key *key)
 {
-	if (key->c == wimp_KEY_RETURN && key->i == ICON_SAVE_PATH) {
-		if (game_view_save_to_path(save_path))
-			wimp_close_window(save_window_handle);
-		return;
-	}
 	wimp_process_key(key->c);
 }
 
 void load_view_key_pressed(wimp_key *key)
 {
-	if (key->c == wimp_KEY_RETURN && key->i == ICON_LOAD_PATH) {
-		/* See load_view_click()'s ICON_LOAD_GO for why game_view_open()
-		 * is needed here too -- this is the same load action, just
-		 * triggered by Return in the pathname field instead of a click. */
-		if (game_view_load_from_path(load_path)) {
-			game_view_open();
-			wimp_close_window(load_window_handle);
-		}
-		return;
-	}
 	wimp_process_key(key->c);
-}
-
-void save_view_drag_ended(wimp_dragged *dragged)
-{
-	wimp_pointer pointer;
-	wimp_message msg;
-
-	(void) dragged; /* the final outline box itself isn't needed -- only
-	                  * where the pointer ended up matters, via
-	                  * Wimp_GetPointerInfo below. */
-
-	wimp_get_pointer_info(&pointer);
-	if (pointer.w == save_window_handle)
-		return; /* dropped back on the Save dialogue itself -- no-op */
-
-	msg.size = sizeof(wimp_message);
-	msg.your_ref = 0;
-	msg.action = message_DATA_SAVE;
-	msg.data.data_xfer.w = pointer.w;
-	msg.data.data_xfer.i = pointer.i;
-	msg.data.data_xfer.pos = pointer.pos;
-	msg.data.data_xfer.est_size = GAME_VIEW_SAVE_FILE_SIZE;
-	msg.data.data_xfer.file_type = ARCHILUDO_SAVE_FILETYPE;
-	strncpy(msg.data.data_xfer.file_name, "ArchiLudoGame",
-	        sizeof(msg.data.data_xfer.file_name) - 1);
-	msg.data.data_xfer.file_name[sizeof(msg.data.data_xfer.file_name) - 1] = '\0';
-
-	/* Recorded (18, not 17) -- the reply (Message_DataSaveAck) is what
-	 * actually tells us where to write the file, so it's required, not
-	 * optional; see riscos_wimp_reference.md's Messages section. */
-	wimp_send_message_to_window(wimp_USER_MESSAGE_RECORDED, &msg, pointer.w, pointer.i);
-
-	drag_pending = 1;
-	drag_my_ref = msg.my_ref;
-}
-
-void save_view_message_received(wimp_message *message)
-{
-	if (message->action == message_DATA_SAVE_ACK) {
-		if (!drag_pending || message->your_ref != drag_my_ref)
-			return; /* not a reply to a drag this module started */
-		drag_pending = 0;
-
-		if (game_view_save_to_path(message->data.data_xfer.file_name)) {
-			/* Step 3 of the save protocol: acknowledge with
-			 * Message_DataLoad so the receiver (Filer, typically) knows
-			 * the file now genuinely exists at that path -- see
-			 * riscos_wimp_reference.md's "Save protocol" section. */
-			wimp_message reply = *message;
-
-			reply.your_ref = message->my_ref;
-			reply.action = message_DATA_LOAD;
-			wimp_send_message_to_window(wimp_USER_MESSAGE, &reply,
-			                             message->data.data_xfer.w,
-			                             message->data.data_xfer.i);
-
-			/* A successful drag-save used to leave the dialogue open
-			 * with no visible change at all -- no field update, no
-			 * closed window -- per explicit user report ("save is
-			 * still not a draggable icon where path changes to where
-			 * you drag it to"), that read as the drag simply not
-			 * working, even though the file itself was being written
-			 * correctly. Reflect the resolved path into the pathname
-			 * field (the real RISC OS Save-box convention: dragging
-			 * fills in where it actually landed) and close the
-			 * dialogue, exactly like the direct path-typed Save button
-			 * already does, so a drag gives the same clear "done"
-			 * feedback. */
-			strncpy(save_path, message->data.data_xfer.file_name, sizeof(save_path) - 1);
-			save_path[sizeof(save_path) - 1] = '\0';
-			if (save_window_handle != (wimp_w) -1)
-				wimp_set_icon_state(save_window_handle, ICON_SAVE_PATH, 0, 0);
-			wimp_close_window(save_window_handle);
-		}
-		return;
-	}
-
-	if (message->action == message_DATA_LOAD && message->your_ref == 0) {
-		/* Unsolicited -- a file dragged in from Filer, per
-		 * riscos_wimp_reference.md's "Load protocol" section. Only
-		 * accepted if it landed on the game window itself; other
-		 * windows of ours have no reason to receive a dropped file. */
-		if (message->data.data_xfer.w != game_view_window_handle())
-			return;
-
-		if (game_view_load_from_path(message->data.data_xfer.file_name)) {
-			wimp_message reply = *message;
-
-			reply.your_ref = message->my_ref;
-			reply.action = message_DATA_LOAD_ACK;
-			wimp_send_message_to_window(wimp_USER_MESSAGE, &reply,
-			                             message->data.data_xfer.w,
-			                             message->data.data_xfer.i);
-		}
-		return;
-	}
 }

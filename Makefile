@@ -61,11 +61,13 @@ CFLAGS += -Iinclude \
           -MMD -MP \
           -DVERSION="\"$(VERSION)\""
 
-# Sources: every .c under src/, one .o per source under build/
+# Sources: every .c under src/, plus every .c under lib/ (dedicated SWI-
+# wrapper libraries, e.g. lib/qtm.c -- see CLAUDE.md's "lib/<name>.c"
+# convention), one .o per source under build/.
 LIBS = -lOSLib32
 
-SRCFILES = $(wildcard src/*.c)
-OBJFILES = $(patsubst src/%.c,build/%.o,$(SRCFILES))
+SRCFILES = $(wildcard src/*.c) $(wildcard lib/*.c)
+OBJFILES = $(patsubst src/%.c,build/%.o,$(patsubst lib/%.c,build/%.o,$(SRCFILES)))
 DEPFILES = $(OBJFILES:.o=.d)
 
 ELF      = build/$(APPNAME).elf
@@ -83,8 +85,17 @@ ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
 # the name rather than shell-style delimiters.
 APPDIR    = build/!$(APPNAME)
 RUNIMAGE  = $(APPDIR)/!RunImage,ff8
+# Round 7.60: QTMModule (,ffa -- Module filetype) plus the bundled music
+# (Music1/Music2/Music3 -- round 7.65 added the third track, ProTracker
+# .mod data) and sample-effect (Sfx* -- raw 16-bit PCM, converted to
+# QTM's own format at runtime, see lib/qtm.c) files, all ,ffd (Data) like
+# this project's own save files -- see docs/QTM.md.
 APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
-            $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprites,ff9
+            $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprites,ff9 \
+            $(APPDIR)/QTMModule,ffa $(APPDIR)/Music1,ffd $(APPDIR)/Music2,ffd \
+            $(APPDIR)/Music3,ffd \
+            $(APPDIR)/SfxDice,ffd $(APPDIR)/SfxRelease,ffd $(APPDIR)/SfxMove,ffd \
+            $(APPDIR)/SfxCapture,ffd $(APPDIR)/SfxHome,ffd $(APPDIR)/SfxWin,ffd
 
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
@@ -100,6 +111,9 @@ $(ELF): $(OBJFILES)
 	$(ARCHIECC) $(CFLAGS) -o $@ $(OBJFILES) $(LIBS)
 
 build/%.o: src/%.c | build
+	$(ARCHIECC) $(CFLAGS) -c $< -o $@
+
+build/%.o: lib/%.c | build
 	$(ARCHIECC) $(CFLAGS) -c $< -o $@
 
 # Static application-directory files -- checked into the repo (app/!Run)
@@ -118,6 +132,36 @@ $(APPDIR)/!Sprites22,ff9: assets/!Sprites22 | $(APPDIR)
 	cp "$<" "$@"
 
 $(APPDIR)/PawnSprites,ff9: assets/PawnSprites | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/QTMModule,ffa: assets/audio/QTMModule | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/Music1,ffd: assets/audio/Music1 | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/Music2,ffd: assets/audio/Music2 | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/Music3,ffd: assets/audio/Music3 | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxDice,ffd: assets/audio/SfxDice | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxRelease,ffd: assets/audio/SfxRelease | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxMove,ffd: assets/audio/SfxMove | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxCapture,ffd: assets/audio/SfxCapture | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxHome,ffd: assets/audio/SfxHome | $(APPDIR)
+	cp "$<" "$@"
+
+$(APPDIR)/SfxWin,ffd: assets/audio/SfxWin | $(APPDIR)
 	cp "$<" "$@"
 
 build:

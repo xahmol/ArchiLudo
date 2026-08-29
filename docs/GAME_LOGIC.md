@@ -74,6 +74,7 @@ hand-picked combination is wanted.
 | `backward_movement` | No effect | A pawn already on the shared ring may move backward by the current roll instead of forward, via the separate `ludo_movable_pawns_backward()`/`ludo_move_pawn_backward()` API -- as long as it doesn't go back past its own start square, and doesn't cross a blockaded square. See "Backward movement and free home-column: what the source actually says" below for why this specific mechanic was chosen. |
 | `free_home_column` | Own pawns block each other in the home column, same as the shared ring (rule 7 above) | Home column is exempt -- pawns may pass/land on their own other pawns freely (finished pawns still never share a literal square, though -- see the note below) |
 | `no_six_needed_last_pawn` | Entering play always needs a six | A player's own *last* pawn still at home (their other three already in play/finished) may be released on any roll |
+| `three_sixes_forfeit_turn` | Sixes chain indefinitely -- no cap (default, this project's original behaviour) | A player's THIRD six in a row is itself void: no release, no move, the turn ends immediately on that third six, exactly as if it had been a genuinely stuck roll. Standard in mainstream Ludo -- see "Round 7.55" below |
 
 **Backward movement and free home-column: what the source actually
 says.** The multi-rule-set plan flagged these two toggles as needing
@@ -116,10 +117,11 @@ underspecified rule, not a literal transcription:
 | `mandatory_six_release` | 1 | 0 | 0 |
 | `own_pawn_capture` | 1 | 0 | 0 |
 | `overshoot_bounce` | 0 | 0 | 1 |
-| `blockade` | 0 | 0 | 1 |
+| `blockade` | 0 | **1** | 1 |
 | `backward_movement` | 0 | 0 | 1 |
 | `free_home_column` | 0 | 0 | 1 |
 | `no_six_needed_last_pawn` | 0 | 0 | 0 |
+| `three_sixes_forfeit_turn` | 0 | 1 | 0 |
 
 **"Pachisi-style" authenticity caveat**: this preset is a curated
 combination of toggles this engine actually has (evoking Pachisi's
@@ -129,6 +131,29 @@ reimplementation of traditional Pachisi. Real Pachisi uses a different
 board shape with safe squares and a cowrie-shell throw mechanic instead
 of a single six-sided die, neither of which this project's 40-square
 MEJN-shaped board or single-die `ludo_roll()` attempts to reproduce.
+
+**Round 7.55**: audited this engine's own rules against two independent
+external Ludo references (per explicit user request), after a live bug
+report ("red... lands on the block, capturing both pieces") turned out
+to be a real, but different, gap: the `Ludo` preset had
+`own_pawn_capture=0` (permitting a stack to form) but `blockade=0`
+(granting it no protection at all) -- both external sources describe
+blocking as an *unconditional* consequence of two own pawns sharing a
+square in standard Ludo, not an optional variant, so `blockade=1` is
+now the `Ludo` preset's own default too (the toggle itself stays, for
+`Mens Erger Je Niet`'s own traditional flexibility). The same audit
+found the three-sixes-forfeit rule missing entirely (confirmed by both
+sources, not just one) -- added as its own toggle rather than baked
+into `Mens Erger Je Niet`'s traditional unlimited chaining, per
+explicit user decision, defaulting on for `Ludo` (source-backed) and
+off for `Pachisi-style` (no source evidence either way, kept
+conservative). Two further claims from one of the two sources were
+checked and deliberately **not** adopted, for lack of corroboration and
+because they contradict general Ludo knowledge: a blockade "moving as
+one unit, splitting the die roll between both tokens," and a
+requirement to "capture at least one opponent before entering the home
+column." Neither appears in the other source or in any mainstream Ludo
+reference found.
 
 ## Position model
 

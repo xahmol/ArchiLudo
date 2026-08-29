@@ -25,6 +25,7 @@
 #include "board_layout.h"
 #include "ai.h"
 #include "win_view.h"
+#include "qtm.h"
 
 /* Round 6: redesigned to match GeoLudo's own screen layout (board on the
  * left, a status/controls panel on the right -- see
@@ -881,6 +882,64 @@ static void cell_centre_work(int col, int row, int *wx, int *wy)
  *          playable" caution) for whenever load_pawn_sprites() didn't
  *          find/load assets/PawnSprites.
  */
+/*
+ * Function: stack_offset
+ * Summary: Small positional nudge for a pawn that currently shares its
+ *          board cell with one or more of the SAME player's other
+ *          pawns -- a ring blockade (rules.own_pawn_capture off, see
+ *          docs/GAME_LOGIC.md's "Rule-set variants"), or free
+ *          manoeuvring in the home column (rules.free_home_column).
+ *          Without this, plot_pawn() draws every pawn dead-centre on
+ *          its own cell, so a stack of 2+ same-coloured pawns rendered
+ *          as a single sprite with nothing else visible -- per explicit
+ *          user report/request ("no way to see it actually stacked two
+ *          pawns"). Deterministic and keyed on `pawn_index` itself (not
+ *          draw order or which OTHER pawns happen to also be sharing
+ *          the square), so a given pawn always lands in the same corner
+ *          slot relative to its siblings, frame to frame.
+ * Syntax:  stack_offset(player, pawn_index, cell, &dx, &dy)
+ * Input:   player     - the pawn's owner.
+ *          pawn_index - which of that player's pawns.
+ *          cell       - pawn_index's own current board cell (already
+ *                       computed by the caller via board_pawn_cell()).
+ * Output:  *dx and *dy set to a small work-area offset (in OS units) to add
+ *          to this pawn's own on-screen centre; (0, 0) if it isn't
+ *          currently sharing its cell with another of the same
+ *          player's own (in-play, unfinished) pawns.
+ */
+static void stack_offset(int player, int pawn_index, board_cell cell, int *dx, int *dy)
+{
+	/* Four corner slots, one per pawn index -- at most 4 pawns can ever
+	 * share one cell. */
+	static const int nudge_x[LUDO_PAWNS] = { -1, 1, -1, 1 };
+	static const int nudge_y[LUDO_PAWNS] = { -1, -1, 1, 1 };
+	int i, slot = 0, sharing = 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		board_cell other;
+
+		if (i == pawn_index || !game.players[player].pawns[i].in_play
+		 || game.players[player].pawns[i].finished)
+			continue;
+
+		other = board_pawn_cell(&game, player, i);
+		if (other.col == cell.col && other.row == cell.row) {
+			sharing = 1;
+			if (i < pawn_index)
+				slot++; /* a lower-indexed sharing sibling claims an earlier slot */
+		}
+	}
+
+	if (!sharing) {
+		*dx = 0;
+		*dy = 0;
+		return;
+	}
+
+	*dx = nudge_x[slot] * (PAWN_SIZE / 6);
+	*dy = nudge_y[slot] * (PAWN_SIZE / 6);
+}
+
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
 	int wx, wy;  /* work-area coordinates -- see cell_centre_work(); the
@@ -922,8 +981,12 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		wy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
 	} else {
 		board_cell cell = board_pawn_cell(&game, player, pawn_index);
+		int sdx, sdy;
 
 		cell_centre_work(cell.col, cell.row, &wx, &wy);
+		stack_offset(player, pawn_index, cell, &sdx, &sdy);
+		wx += sdx;
+		wy += sdy;
 	}
 	/* Round 7.34: nudge the pawn's own centre up by a few OS units --
 	 * per explicit live user report/diagnosis after round 7.33 fixed
@@ -2020,13 +2083,59 @@ static void start_move_animation(int player, int pawn_index)
 	                             * another roll) before this can log it */
 	int to_steps, i;
 
+	/* Round 7.54: clear any movable-pawn highlight rings BEFORE anything
+	 * else changes, while step/current_player/last_roll are all still
+	 * exactly what they were when those rings were drawn (see
+	 * draw_highlights()'s own movable-pawn-ring condition) -- this is
+	 * what actually finds the right cells to erase. Needed specifically
+	 * for the human multi-choice path (try_move_pawn() calling straight
+	 * into this function once a candidate pawn is clicked): once step
+	 * moves on to STEP_MOVING below, update_move_animation_area()'s own
+	 * per-tick redraw only ever touches the CHOSEN pawn's own path
+	 * cells -- the OTHER candidate pawns that also had a ring (and are
+	 * not moving at all) are never touched by anything again, leaving
+	 * their rings on screen as a permanent ghost until some unrelated
+	 * full redraw happens to paint over them. Found from a live report
+	 * ("a left over highlight artifact") on a pawn nowhere near the one
+	 * actually just moved. Forcing highlight_flash_on off first (rather
+	 * than leaving it as whatever phase the flash cycle happened to be
+	 * in) guarantees this call actually erases rather than just
+	 * re-confirming whatever was already showing; update_highlight_area()
+	 * is a no-op if nothing was highlighted to begin with (e.g. the
+	 * AI/single-choice callers of this same function), so this is safe
+	 * unconditionally regardless of which path called this function. */
+	highlight_flash_on = 0;
+	update_highlight_area();
+
 	/* Snapshot every pawn's position before the move so
 	 * update_settle_diff_area() can later tell whether this move also
 	 * captured/displaced some *other* pawn (see round 7.15). */
 	snapshot_pawn_positions();
 
-	ludo_move_pawn(&game, pawn_index);
-	to_steps = game.players[player].pawns[pawn_index].steps;
+	{
+		/* Round 7.60: SFX -- captured/became-finished/won state, all
+		 * checked around the single ludo_move_pawn() call every pawn
+		 * move (release included, see the zero-distance branch below)
+		 * passes through, so this covers every path uniformly (human
+		 * click, human auto-move, every AI move) the same way the debug
+		 * log below already does. Checked here, not after the
+		 * zero-distance early return below, since a release can itself
+		 * capture (landing on an unprotected opponent at the ring entry
+		 * square). */
+		int was_finished = game.players[player].pawns[pawn_index].finished;
+		int had_winner = (game.winner != -1);
+		int captured;
+
+		captured = ludo_move_pawn(&game, pawn_index);
+		to_steps = game.players[player].pawns[pawn_index].steps;
+
+		if (game.winner != -1 && !had_winner)
+			qtm_play_sfx(QTM_SFX_WIN);
+		else if (game.players[player].pawns[pawn_index].finished && !was_finished)
+			qtm_play_sfx(QTM_SFX_HOME);
+		else if (captured)
+			qtm_play_sfx(QTM_SFX_CAPTURE);
+	}
 
 	/* The single funnel every pawn move passes through (human click,
 	 * human auto-move, and every AI move) -- unlike the old MOVED/MOVING
@@ -2038,6 +2147,44 @@ static void start_move_animation(int player, int pawn_index)
 	debug_log("start_move_animation: player=%d %s pawn=%d roll=%d steps %d -> %d\n",
 	          player, player_is_ai[player] ? "AI" : "human", pawn_index,
 	          roll, from_steps, to_steps);
+
+	/* A zero-distance "move" (to_steps == from_steps) happens for an
+	 * *optional* six-release (rules.mandatory_six_release off, see
+	 * ludo_move_pawn()'s release branch): the pawn goes straight from
+	 * "not in play" to steps==0 (its ring entry cell) with no forward
+	 * travel at all. There is no meaningful animation to run here --
+	 * home base and the ring aren't the same track, so there's nothing
+	 * for a pawn to visually "slide along" between them -- so this
+	 * settles it exactly like the mandatory six-release already does
+	 * (resolve_roll()'s own `just_released` branch): a plain diff
+	 * redraw comparing the snapshot taken above against the new state.
+	 * Critically, that diff uses board_pawn_cell() (round 7.15), which
+	 * is in_play-aware and so correctly finds the pawn's TRUE previous
+	 * on-screen position -- its home base slot (board_home_base_cell(),
+	 * keyed by pawn_index, nothing to do with steps) -- and erases it.
+	 *
+	 * Round 7.48's fix (duplicating move_anim_path[0] into [1] so the
+	 * animation had two matching points instead of reading
+	 * uninitialised array data) treated this as a *stationary*
+	 * animation sitting at the ring entry cell -- which stopped the
+	 * "drawn at a random garbage position" symptom, but never touched
+	 * the home base cell at all, since cell_for_steps() has no way to
+	 * express "home base slot N" (it only understands ring/home-column
+	 * indices). The true previous position was simply never included
+	 * in any redraw region, so it was never erased -- left as a
+	 * permanent duplicate/ghost pawn sitting in the home base corner
+	 * forever after, on top of the real pawn now correctly shown on the
+	 * ring. Round 7.52, found from a live report ("more than four
+	 * pawns" visible after a release) -- this replaces round 7.48's
+	 * approach for this case entirely rather than patching it further. */
+	if (to_steps == from_steps) {
+		qtm_play_sfx(QTM_SFX_RELEASE);
+		update_settle_diff_area(-1, -1);
+		after_settle();
+		return;
+	}
+
+	qtm_play_sfx(QTM_SFX_MOVE);
 
 	move_anim_path_len = to_steps - from_steps + 1;
 	if (move_anim_path_len > MOVE_ANIM_MAX_PATH)
@@ -2122,7 +2269,14 @@ static void resolve_roll(void)
 		 * ring entry square, entirely inside ludo_roll() -- no move
 		 * animation covers this, so it's the diff redraw's job alone
 		 * (round 7.15). No pawn to skip: nothing here already painted
-		 * its own final position the way an animated move does. */
+		 * its own final position the way an animated move does.
+		 * Round 7.60: SFX -- same release sound as start_move_animation()'s
+		 * own zero-distance (optional-release) branch. Doesn't separately
+		 * check for a capture-on-release here (ludo_roll() doesn't expose
+		 * one) -- a mandatory release landing exactly on an unprotected
+		 * opponent stays silent-on-capture, an accepted minor gap rather
+		 * than a full position-diff just for this rare case. */
+		qtm_play_sfx(QTM_SFX_RELEASE);
 		update_settle_diff_area(-1, -1);
 		after_settle();
 		return;
@@ -2180,6 +2334,7 @@ static void resolve_roll(void)
  */
 static void start_roll_animation(void)
 {
+	qtm_play_sfx(QTM_SFX_DICE);
 	roll_anim_player = game.current_player;
 	/* Snapshot every pawn's position before the roll so
 	 * update_settle_diff_area() can later tell whether a six's mandatory
@@ -2383,28 +2538,59 @@ const char *game_view_app_dir(void)
  * of any documented contract, so an explicit byte-by-byte layout (via
  * serialize_game()/deserialize_game()) is used instead, the same way
  * network/file formats normally are. See src/save_view.c for the
- * Save/Load dialogue windows and the drag-and-drop protocol built on top
- * of these functions -- per explicit user request for GEOS-parity
- * save/load, and docs/ARCHITECTURE.md's Round 7.1 notes on why drag-and-
- * drop rather than GEOS's own file picker.
+ * Save/Load dialogue windows -- 5 fixed, renamable save slots inside the
+ * app directory (round 7.59), replacing an earlier free-form path/drag-
+ * and-drop design that never reliably worked live (see
+ * docs/ARCHITECTURE.md's round 7.58 notes) -- built on top of these
+ * functions, per explicit user request for GEOS-parity save/load.
  */
 #define SAVE_FILE_SIZE GAME_VIEW_SAVE_FILE_SIZE
 
 /*
  * Function: serialize_game
- * Summary: Pack the current game (players' names/AI flags, and every
- *          field of `game`) into a fixed-size byte buffer -- see the
- *          "Save/load" block comment above for the layout and why it's
- *          explicit rather than a raw struct dump.
- * Syntax:  static void serialize_game(unsigned char *buf);
+ * Summary: Pack the current game (slot name, players' names/AI flags,
+ *          and every field of `game`) into a fixed-size byte buffer --
+ *          see the "Save/load" block comment above for the layout and
+ *          why it's explicit rather than a raw struct dump.
+ * Syntax:  static void serialize_game(unsigned char *buf, const char *slot_name);
  * Input:   buf - at least SAVE_FILE_SIZE bytes.
+ *          slot_name - the slot's display name, truncated to
+ *                      GAME_VIEW_SLOT_NAME_LEN-1 characters if longer.
  * Output:  none. buf is filled with exactly SAVE_FILE_SIZE bytes.
  */
-static void serialize_game(unsigned char *buf)
+static void serialize_game(unsigned char *buf, const char *slot_name)
 {
 	int i = 0, player, pawn;
+	size_t name_len;
 
-	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '1';
+	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '3';
+
+	/* Round 7.59: the slot's own display name travels WITH the save data
+	 * itself (not just the fixed "SlotN" filename) so src/save_view.c's
+	 * Save/Load dialogues can show a real label without needing to fully
+	 * deserialise the game -- see game_view_peek_slot_name(). Zero-padded
+	 * (not just NUL-terminated) so a shorter new name fully overwrites a
+	 * longer old one still present in the buffer on re-save. */
+	memset(&buf[i], 0, GAME_VIEW_SLOT_NAME_LEN);
+	name_len = strlen(slot_name);
+	if (name_len >= GAME_VIEW_SLOT_NAME_LEN)
+		name_len = GAME_VIEW_SLOT_NAME_LEN - 1;
+	memcpy(&buf[i], slot_name, name_len);
+	i += GAME_VIEW_SLOT_NAME_LEN;
+
+	/* Round 7.57: the chosen ruleset (game.rules -- variant plus all 8
+	 * house-rule toggles, see game_logic.h) was previously not saved at
+	 * all, so loading any non-MEJN game silently reverted to MEJN
+	 * defaults. One byte per field, in struct declaration order. */
+	buf[i++] = (unsigned char) game.rules.variant;
+	buf[i++] = (unsigned char) game.rules.mandatory_six_release;
+	buf[i++] = (unsigned char) game.rules.own_pawn_capture;
+	buf[i++] = (unsigned char) game.rules.overshoot_bounce;
+	buf[i++] = (unsigned char) game.rules.blockade;
+	buf[i++] = (unsigned char) game.rules.backward_movement;
+	buf[i++] = (unsigned char) game.rules.free_home_column;
+	buf[i++] = (unsigned char) game.rules.no_six_needed_last_pawn;
+	buf[i++] = (unsigned char) game.rules.three_sixes_forfeit_turn;
 
 	for (player = 0; player < LUDO_PLAYERS; player++) {
 		memcpy(&buf[i], configured_name[player], GAME_VIEW_NAME_LEN);
@@ -2442,6 +2628,31 @@ static void serialize_game(unsigned char *buf)
 static void deserialize_game(const unsigned char *buf)
 {
 	int i = 4, player, pawn;
+	ludo_rules rules;
+
+	/* The slot name itself isn't needed here -- save_view.c already knows
+	 * it from its own game_view_peek_slot_name() call before choosing
+	 * which slot to load, so this just skips past it. */
+	i += GAME_VIEW_SLOT_NAME_LEN;
+
+	/* Round 7.57: read back the rules block written by serialize_game()
+	 * and apply it to BOTH game.rules (via ludo_set_rules(), the normal
+	 * API rather than poking the struct directly) and the static
+	 * `configured_rules` -- setup_view_open() reads configured_rules
+	 * (not game.rules) whenever a game is already in progress, so
+	 * without this second assignment the Rules dialogue would show
+	 * stale (pre-load) settings after loading a save. */
+	rules.variant = (ludo_variant) buf[i++];
+	rules.mandatory_six_release = buf[i++];
+	rules.own_pawn_capture = buf[i++];
+	rules.overshoot_bounce = buf[i++];
+	rules.blockade = buf[i++];
+	rules.backward_movement = buf[i++];
+	rules.free_home_column = buf[i++];
+	rules.no_six_needed_last_pawn = buf[i++];
+	rules.three_sixes_forfeit_turn = buf[i++];
+	ludo_set_rules(&game, &rules);
+	configured_rules = rules;
 
 	for (player = 0; player < LUDO_PLAYERS; player++) {
 		memcpy(configured_name[player], &buf[i], GAME_VIEW_NAME_LEN);
@@ -2467,13 +2678,13 @@ static void deserialize_game(const unsigned char *buf)
 	}
 }
 
-int game_view_save_to_path(const char *path)
+int game_view_save_to_path(const char *path, const char *name)
 {
 	unsigned char buf[SAVE_FILE_SIZE];
 	FILE *f;
 	size_t written;
 
-	serialize_game(buf);
+	serialize_game(buf, name);
 
 	f = fopen(path, "wb");
 	if (f == NULL) {
@@ -2505,7 +2716,11 @@ int game_view_load_from_path(const char *path)
 	got = fread(buf, 1, SAVE_FILE_SIZE, f);
 	fclose(f);
 
-	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '1') {
+	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '3') {
+		/* Round 7.59: magic bumped "ALS2" -> "ALS3" for the new slot-name
+		 * block -- an older-format save is deliberately rejected here
+		 * rather than partially loaded, since it has a different byte
+		 * layout the rest of this function assumes it can rely on. */
 		debug_log("game_view_load_from_path: \"%s\" is not a valid ArchiLudo save "
 		          "(%lu bytes read, expected %d)\n", path, (unsigned long) got, SAVE_FILE_SIZE);
 		return 0;
@@ -2534,6 +2749,42 @@ int game_view_load_from_path(const char *path)
 	 * redraw_now() is still needed, same as game_view_new_game(). */
 	after_settle();
 	redraw_now();
+	return 1;
+}
+
+int game_view_peek_slot_name(const char *path, char *out, size_t out_size)
+{
+	unsigned char header[4 + GAME_VIEW_SLOT_NAME_LEN];
+	FILE *f;
+	size_t got;
+	size_t name_len;
+
+	if (out_size > 0)
+		out[0] = '\0';
+
+	f = fopen(path, "rb");
+	if (f == NULL)
+		return 0;
+	got = fread(header, 1, sizeof(header), f);
+	fclose(f);
+
+	if (got != sizeof(header) || header[0] != 'A' || header[1] != 'L' ||
+	    header[2] != 'S' || header[3] != '3')
+		return 0;
+
+	if (out_size > 0) {
+		/* header[4..] is zero-padded, not necessarily NUL-terminated
+		 * within GAME_VIEW_SLOT_NAME_LEN bytes if the name filled the
+		 * whole field -- strnlen-style scan rather than assuming a
+		 * terminator is present. */
+		name_len = 0;
+		while (name_len < GAME_VIEW_SLOT_NAME_LEN && header[4 + name_len] != 0)
+			name_len++;
+		if (name_len >= out_size)
+			name_len = out_size - 1;
+		memcpy(out, &header[4], name_len);
+		out[name_len] = '\0';
+	}
 	return 1;
 }
 

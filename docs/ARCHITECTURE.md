@@ -2,122 +2,114 @@
 
 ## Resume here
 
-*(Delete/replace this section once the in-progress work below is
-confirmed and settled -- it exists purely so a session that starts
-cold, with no conversation history, knows exactly where things stood
-and what to do next. Last updated 2026-08-27, commit pending -- see
-`git log` for the actual latest.)*
+*(Delete/replace this section as it goes stale -- it exists purely so a
+session that starts cold, with no conversation history, knows exactly
+where things stand and what to do next. Last rewritten round 7.56,
+after this section had drifted quite far out of date -- see this file's
+own "Current state"/"Roadmap" tables above for the compact status
+summary this section used to try to duplicate; this section now only
+covers what those tables can't: genuinely open, non-obvious gaps.)*
 
-Note on dates: this section and the round entries below record when
-each round's *work* happened, which may be a different calendar day
-than whatever the system clock reports "today" as by the time a later
-session reads this -- don't reconcile the two.
+**The multi-rule-set / house-rule variant system (3 variants, 8
+toggles, Rule Options dialogue) is fully implemented AND live-confirmed
+working** -- the user has since actually played a real game under the
+`Ludo` preset through the real WIMP shell (round 7.55's blockade/
+three-sixes audit conversation), confirming the Rules dialogue, variant
+switching, and radio-icon toggles all genuinely work in practice, not
+just in code. Extensive follow-up rounds (7.47 through 7.55) fixed real
+bugs found this way -- layout clipping, dither/outline rendering, a
+duplicate-pawn animation bug, a stale highlight-ring bug, and a real
+rules-default gap found via external audit -- see this file's own round
+log below for each. Not yet exhaustively stress-tested (no test regime
+can claim that for a live WIMP UI), but no longer "unverified."
 
-**Pawn rendering, shading, and the crop bug are all confirmed done** --
-sprite rendering (round 7.18), the dithered 16-colour pawn shading
-(round 7.19), the round 7.20 home-column stacking rules bug, and the
-final pawn-crop fix (`PAWN_Y_NUDGE`, round 7.34) were all live-confirmed
-by the user ("No cropping so far"). The gradient-shaded ("256 colour
-depth") pawn-look alternative was explored
-(`assets/experiments/gradient_preview.py`) but never picked up after the
-user settled on the dithered look -- still sitting there unused if ever
-revisited, not on any current plan.
-
-**The `!ArchiLudo` application directory, its icon, and the hand
-pixel-editing round-trip are all done and confirmed** (rounds 7.36-7.42)
--- see `docs/BUILDCHAIN.md`'s "Application directory" section and
-`docs/GRAPHICS_TOOLING.md`'s "Round 7.42" section. `!Sprites11` was
-deliberately not built (new-style sprite encoding genuine RISC OS 3.10
-doesn't understand). Save-file filetype registration was not done --
-out of scope, revisit if wanted.
-
-**In progress now: the multiple rule-set / house-rule variant system.**
-Full plan (context, per-toggle rule inventory, engine/AI/UI/save-format
-design, phased rollout) is at
-`/home/xahmol/.claude/plans/i-want-to-scaffolf-dreamy-lantern.md` --
-approved by the user, including an added "AI changes" section after the
-user caught it missing from the first draft ("Assume we also need to
-adapt AI rules, do not see that mentioned?"). Rollout is 6 phases;
-**Phase 1 is done** (this file's "Round 7.43" entry below) -- the
-`ludo_rules`/`ludo_variant` types, `ludo_default_rules()`/
-`ludo_set_rules()`, and the three straightforward toggles (six-release,
-own-pawn capture, overshoot bounce), all tested, `make test` green.
-**Phase 2 is now also done** (this file's "Round 7.44" entry below) --
-the three remaining unimplemented toggles: blockade, backward movement,
-and free home-column. Re-verified the two flagged rules against
-<https://nl.wikipedia.org/wiki/Mens_erger_je_niet!> first, as the plan
-required -- the source turned out to give no real mechanical detail for
-either, so both are this project's own documented judgement call (see
-`docs/GAME_LOGIC.md`'s "Backward movement and free home-column" note).
-`make test` green (30 tests, including a new 200-game headless
-simulation under the full Pachisi-style preset with every toggle active
-at once), clean cross-compile.
-
-**Phase 3 is now also done** (this file's "Round 7.45" entry below,
-`docs/AI.md`'s own "Round 7.45" section has the full detail) -- `ai.c`'s
-`score_move()` no longer assumes MEJN's fixed ruleset: own-pawn-collision
-scoring is gated on `rules.own_pawn_capture` (with a small new
-blockade-formation bonus), pawn destinations go through the engine's own
-`ludo_resolve_move_destination()` instead of naive math (fixes a real
-mis-scoring bug under `overshoot_bounce`), and a new `score_release()`
-handles releasing a pawn from home as a genuine scored choice. A new,
-deliberately simple `ludo_ai_choose_pawn_backward()` handles backward
-movement as a naive fallback (real backward strategy is a stretch goal,
-not v1). **One known gap, flagged for Phase 4**:
-`src/game_view.c`'s `advance_ai_turns()` doesn't call the new backward
-function yet -- harmless today (only `LUDO_VARIANT_MEJN` is reachable
-from the WIMP shell, which never has `backward_movement` on), but Phase
-4 must wire it in before any UI can actually select a ruleset with
-backward movement active, or an AI game could livelock on a roll where
-only a backward move is legal. `make test`: 14 AI tests (up from 9,
-including a second Pachisi-preset four-AI-game headless simulation) plus
-the existing 30 game-logic and 3 board-layout tests, all passing; clean
-cross-compile.
-
-**Phase 4 is now also done in code** (this file's "Round 7.46" entry
-below) -- `src/rules_view.c`/`.h` (new module: variant pop-up menu +
-7 paired-ESG house-rule toggles + OK/Cancel), `src/setup_view.c`'s new
-"Rules..." button and `pending_rules` plumbing, `game_view.c`'s new
-`game_view_configure_rules()`/`game_view_get_rules()`, `main.c`'s
-3-point wiring plus `Menu_Selection` routing (this project's first
-second-ever `wimp_menu`, needing a "which menu is open" flag -- see
-riscos_wimp_reference.md's new "click here to open a drop-down" note).
-`make test` still green (no engine/AI code touched), clean
-cross-compile, deployed to the Arculator hostfs. **NOT YET
-live-tested in Arculator** -- this is this project's first true ESG
-radio-button group and popup-menu-as-dropdown, both explicitly flagged
-by the plan as needing real on-hardware/emulator confirmation before
-considering Phase 4 actually done (does each ESG pair really show only
-one selected at a time when clicked for real, does the popup menu
-position and behave correctly, does picking a variant visibly reset and
-correctly shade the toggle rows). **Ask the user to test this before
-starting Phase 5.**
-
-**Known gap NOT closed by Phase 4, scope discovered while implementing
-it**: `src/game_view.c` still has no board-interaction path for a
-backward move at all, for EITHER a human or an AI player --
+**One real, still-open gap, easy to forget since nothing currently
+surfaces it**: `src/game_view.c` has no board-interaction path for a
+*backward* move at all, for either a human or an AI player --
 `resolve_roll()` only ever consults `ludo_movable_pawns()` (forward),
-never `ludo_movable_pawns_backward()`, so on a roll where only a
-backward move is legal it currently just settles as if the player were
-stuck (harmless today, since backward movement isn't reachable through
-the WIMP shell yet -- Phase 4 only wired up the Rules *dialogue*, not
-full backward-move animation/click-handling on the board itself). This
-turned out to be a substantially bigger piece of work than "call
-`ludo_ai_choose_pawn_backward()` somewhere" (the AI needs a *direction*
-to actually move in, which means `start_move_animation()`'s cell-by-cell
-path-building needs a mirrored backward variant too, and a human needs
-some way to actually choose "backward" at all, which the board's click
-model has no concept of yet) -- explicitly NOT attempted in this round;
-flagged here as a real, user-visible limitation to resolve before ever
-actually enabling a ruleset with `backward_movement` on through the
-Rules dialogue in a real game. Worth surfacing to the user directly, not
-just burying in this file.
+never `ludo_movable_pawns_backward()`. This was flagged back in round
+7.46 (Phase 4 of the original multi-rule-set plan) and never
+subsequently closed. It's harmless as long as nobody selects a ruleset
+with `backward_movement` on (`Pachisi-style` is the only preset that
+does) -- but the `Rules` dialogue absolutely lets a player do exactly
+that today, and on a roll where only a backward move is legal, the game
+would currently just settle as if the player were stuck rather than
+offering the backward option at all. Real, user-visible risk of an
+apparent soft-lock if anyone actually plays `Pachisi-style` for a while.
+Worth its own dedicated round before `Pachisi-style` gets recommended to
+a real player -- needs `start_move_animation()`'s own cell-by-cell path
+building mirrored for the backward direction, and (for a human) some way
+to actually choose "backward" on the board's click model, which doesn't
+have that concept at all currently.
 
-**Next: Phase 5** -- save-format bump to `"ALS2"` (once Phase 4's UI is
-confirmed working live). Phase 6 (final docs pass) after that. The
-backward-movement board-interaction gap just above is a good candidate
-for its own follow-up round whenever it's prioritised, separate from
-this plan's original 6 phases.
+**Save-file rules persistence: fixed in round 7.57**, still true under
+round 7.59's format bump -- `"ALS2"`/`"ALS3"` both carry the 9-byte
+rules block right after the magic (see `game_view.c`'s
+`serialize_game()`/`deserialize_game()`). Not yet manually verified in
+Arculator -- next live-test pass should save a non-MEJN game (e.g.
+`Ludo` preset with blockade on) into a slot, load it back, and confirm
+the Rules dialogue still shows the right settings afterwards (exercises
+the `configured_rules` sync, not just `game.rules`).
+
+**Save/load: pivoted from drag-and-drop to 5 fixed save slots in round
+7.59, not yet manually verified in Arculator.** Round 7.57's
+`DragASprite` sprite-drag work (and the plain `wimp_drag_box()` outline
+before it) never worked live despite being structurally correct against
+the PRM -- round 7.58's extensive Arculator debugging session (outline
+drag, sprite drag, dropping on an open Filer window, dropping straight
+on the icon bar -- 7+ attempts, all logged) traced the message send
+itself as succeeding every time (`Wimp_SendMessage` returned no error,
+resolved to a real, consistent task handle, drop point genuinely inside
+the target's own rectangle) with `Message_DataSaveAck` simply never
+arriving in reply, even from a direct icon-bar drop -- most likely
+because Arculator's HostFS bridge doesn't implement the Filer side of
+that protocol at all, not a bug in ArchiLudo's own code. Rather than
+keep chasing an environment limitation, per explicit user request the
+whole free-form pathname/drag-and-drop design was replaced with 5 fixed
+slots (`<ArchiLudo$Dir>.Slot1` .. `.Slot5`), each carrying its own
+renamable display name as part of the save data itself (`"ALS2"` bumped
+to `"ALS3"`, see `GAME_VIEW_SLOT_NAME_LEN`/`game_view_peek_slot_name()`
+in `game_view.h`/`game_view.c`) -- `save_view.c` was rewritten
+end-to-end (window layout, click handling, the whole `DragASprite`/
+`Message_DataSave` machinery removed), and `main.c`'s `wimp_USER_MESSAGE`
+handling trimmed back to just `Message_Quit`. Next live-test pass should
+check: the Save dialogue's 5 rows (rename + Save per row), the Load
+dialogue's 5 rows (read-only name, "(empty)" + shaded Load button for
+unoccupied slots), and a full save-into-slot-2 / reload-slot-2
+round-trip including the slot's own name surviving the round-trip.
+
+**Enhanced full-screen graphics mode: decided against** in round 7.56
+("Want to drop the enhanced graphics mode, like the present windowed
+mode") -- see this file's own "Decided against" note under "Roadmap"
+above. Don't resurrect this without checking that note first.
+
+**Audio (QTM music): confirmed live and working, round 7.60/7.65.**
+Background music (3 selectable tracks) and the Music menu (On/Off
+toggle, nested Track submenu with real MOD titles) are both confirmed
+working in Arculator. **One-shot SFX via `QTM_PlayRawSample`: disabled,
+round 7.74**, after 14 rounds (7.60-7.73) of live debugging -- including
+catching the fault live in Arculator's own debugger and disassembling
+the actual faulting code -- never found a parameter combination that
+avoids an internal resampler buffer overrun. Cross-checking three more
+real, shipped Archimedes codebases found none of them use
+`QTM_PlayRawSample` (or `PlaySample`/`RegisterSample`) for one-shot
+effects at all -- see [QTM.md](QTM.md)'s "Round 7.74" and "Recommended
+next approach" sections. **Round 7.76 implemented that recommended
+path** -- SFX embedded as MOD instrument samples in `Music1`/`Music2`/
+`Music3` (see `tools/mod_embed_sfx.py`), triggered via `QTM_PlaySample`.
+**Round 7.77 confirmed it live: no crash (unlike `QTM_PlayRawSample`'s
+whole history), but also no audible sound**, across six individually
+cautious register/setup variations -- no documentation or working
+example of this SWI's convention exists anywhere found. Raised as a
+question on stardot.org.uk rather than continuing to guess:
+`https://stardot.org.uk/forums/viewtopic.php?t=33515`; code stays as
+round 7.76 left it (safe, silent, Dice-only) pending a reply -- see
+[QTM.md](QTM.md)'s "Round 7.77" section. Round 7.75 also fixed music
+not stopping when the application quits.
+
+For everything else -- AI difficulty levels beyond `NORMAL` (declared,
+unimplemented), release packaging (works, never actually cut) -- see the
+"Roadmap" table above; this section deliberately doesn't duplicate it.
 
 ## Layering
 
@@ -154,61 +146,59 @@ that limitation.
 
 | Component | Status |
 |---|---|
-| `game_logic.c` | Complete rules engine (see [GAME_LOGIC.md](GAME_LOGIC.md)), fully unit tested |
+| `game_logic.c` | Complete rules engine, INCLUDING the full multi-rule-set/house-rule system (3 variants, 8 toggles -- see [GAME_LOGIC.md](GAME_LOGIC.md)), fully unit tested (33 tests, exhaustive coverage of all 128 toggle combinations -- round 7.53) |
 | `board_layout.c` | The real Mens Erger Je Niet board (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), ported from the GEOS edition's coordinate tables, not invented -- fully unit tested |
-| Sprite/graphics tooling | `tools/riscos_sprite.py`, see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md); placeholder pawn art generated via `assets/generate_placeholder_art.py` |
-| `main.c` / `game_view.c` | Playable Phase 1 WIMP game, laid out to match GeoLudo's own screen arrangement (board left, status/controls panel right -- see "Phase 1 implementation notes" below, "Round 6"): iconbar icon opens a game window with a player-name line, action-status line, and Throw button; board cells (circles, matching GEOS) + pawns (reused/recoloured GeoLudo art) drawn each redraw from `board_layout.c` + `game_logic.c` state; clicking a pawn's cell moves it; iconbar menu has Quit. Compiles and links cleanly under ArchieSDK. **Six rounds of Arculator feedback applied** (see "Phase 1 implementation notes" below) -- **needs another round of manual verification, in particular the pawn-click/movement path** |
-| Music/SFX (QTM) | Not started -- see "Roadmap" below |
-| Dialogue boxes (name entry, AI count, save/load), AI opponents | Not started |
+| Sprite/graphics tooling | `tools/riscos_sprite.py`; real pawn/app-icon/dice art generated by `assets/generate_icon_sprites.py`/`generate_app_icon.py`, with a hand pixel-editing round-trip (`assets/edit/`) -- see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) |
+| `main.c` / `game_view.c` | Playable, extensively refined WIMP game: iconbar icon, game window with animated pawn movement, dice roll animation, movable-pawn highlight rings, capture/win detection, Continue-gated AI turns. Many rounds of live Arculator feedback applied and fixed |
+| `rules_view.c`/`setup_view.c`/`save_view.c`/`win_view.c`/`splash_view.c` | Rule Options dialogue (variant picker + all 8 house-rule toggles), New Game/player setup, drag-and-drop save/load, win-choice dialogue, About/splash screen (doubles as the "credits" screen) -- all done |
+| AI opponents | Working (`ai.c`, adapted to the full multi-rule-set system) -- but only one difficulty level (`LUDO_AI_NORMAL`) has real strategy behind it; `LUDO_AI_EASY`/`LUDO_AI_HARD` are declared but unimplemented, and there's no UI to pick a difficulty per player at all |
+| Save-file rules persistence | **Gap**: `save_view.c` doesn't serialize `ludo_rules` at all -- saving a non-MEJN game and reloading it silently reverts to MEJN defaults |
+| Music/SFX (QTM) | Not started at all -- no `lib/qtm.c`, no `docs/QTM.md` |
+| Release packaging | `make zip` works, but no actual tagged/versioned release has been cut yet; README has no screenshots section |
+| Full-screen enhanced graphics mode | **Decided against** (see below) -- staying with the current windowed WIMP mode |
 
 ## Roadmap
 
-Phased plan, confirmed with the user (including the graphics architecture
-decision below via an explicit choice):
+**Round 7.56 update**: this table had drifted a long way from reality
+(last substantively updated early in the project) -- most of "Phase 2"
+(real art) and "Phase 5" (AI, dialogues, app packaging) turned out to
+already be done, and an entire unscheduled future phase (multi-rule-set
+variants) got fully implemented ahead of several "earlier" phases.
+Reconciled against the actual codebase state, not just this table's own
+prior claims, per explicit user request ("What do we have left on to do
+list?"). The full history of *how* everything below got built is in this
+file's own round-by-round log further down -- this table is now just a
+compact status summary, not the authoritative planning document it once
+was.
 
-| Phase | Goal | Status |
-|---|---|---|
-| 0 | Build environment: ArchieSDK, Arculator profiles, `game_logic.c` + tests, docs set, PRM/wimp-prog mirrors | done |
-| 1 | Playable, plain WIMP game: wire `game_logic.c` into a real game window (board/pawns as simple sprites, dice via icon click) | core loop, click handling, and rules bugs (own-pawn ring collision, finished-pawn placement) all fixed across six-plus rounds of real-hardware-emulator feedback -- see "Phase 1 implementation notes" below. **Drag-and-drop save/load done** -- see "Round 7.2" below |
-| 1.5 | Sprite/graphics tooling (`tools/riscos_sprite.py`) + placeholder pawn art | done, though round 6.3/6.4 dropped sprite *plotting* in the running game in favour of `os_plot` primitives after repeated unexplained rendering failures -- the tooling itself stays for Phase 2, see `docs/GRAPHICS_TOOLING.md`'s "Round 6.4" |
-| 2 | Real board/pawn/dice art via the tooling above, replacing the current flat-colour/`os_plot`-primitive placeholder cells with actual board artwork (visual reference: [Mens erger je niet!](https://nl.wikipedia.org/wiki/Mens_erger_je_niet!)) -- the board *shape* itself is already the real one as of Phase 1 (ported from the GEOS edition, see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), so this phase is about art, not layout. Also where round 6.4's sprite-plotting mystery should get a proper second look | not started |
-| 3 | Audio: `lib/qtm.c`/`docs/QTM.md` wrapper (see [[archiludo-riscos-project]] memory / `CREDITS.md` for why QTM over archieklang), bundle `QTMModule`, background MOD + dice-roll/capture/win sound effects | not started |
-| 4 | Enhanced graphics: full-screen double-buffered gameplay view (see "Graphics architecture: hybrid" below), smooth pawn/dice animation | not started |
-| 5 | AI difficulty, credits/options dialogues, `!Sprites`/`!Boot`/`!Run` app-directory packaging | **player setup (names, Human/AI per player) and a first AI opponent done early** -- see [AI.md](AI.md) and "Phase 1 implementation notes" below, "Round 6.8". Difficulty levels beyond the one implemented, and credits/options dialogues, still not started |
-| 6 | Release: versioned zip, README/screenshots, both Arculator profiles verified | not started |
-| 7 (future, unscheduled) | Expand beyond this one "Mens Erger Je Niet" variant to support multiple Pachisi/Ludo/Mens Erger Je Niet house-rule variants, selectable by the player | not started -- see note below |
+| Item | Status |
+|---|---|
+| Build environment (ArchieSDK, Arculator profiles, docs set, PRM/wimp-prog mirrors) | done |
+| Playable WIMP game (board/pawns/dice, click + AI turns, animation) | done |
+| Real board/pawn/dice/app-icon art | done -- see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) |
+| Multi-rule-set / house-rule variant system (3 variants, 8 toggles, Rules dialogue) | done -- this was the old table's "Phase 7 (future, unscheduled)" item; see [GAME_LOGIC.md](GAME_LOGIC.md) |
+| AI opponents | done at one difficulty level; `EASY`/`HARD` unimplemented, no per-player difficulty picker |
+| Save/load (5 fixed, renamable slots) | done (round 7.59 -- replaced an earlier drag-and-drop design, see round 7.58/7.59 notes below); not yet live-verified |
+| App directory packaging (`!Run`/`!Sprites`/icon) | done |
+| Credits/about screen | done (`splash_view.c`) |
+| Audio (QTM music) | done and live-confirmed (round 7.60/7.65/7.75 -- 3 selectable background tracks, Music menu On/Off + Track submenu, stops cleanly on quit, see [QTM.md](QTM.md)); one-shot SFX via `QTM_PlayRawSample` abandoned after 14 rounds (round 7.74); re-attempted round 7.76 as MOD-embedded samples via `QTM_PlaySample` -- live-confirmed round 7.77 as accepted-but-silent (no crash, no sound) across six variations, question posted to stardot.org.uk (`viewtopic.php?t=33515`), on hold pending a reply |
+| Full-screen enhanced graphics mode | **decided against** (round 7.56) -- staying with the present windowed mode, see below |
+| Release (versioned zip, README screenshots, both Arculator profiles re-verified) | **not started** |
+| Keezen variant (cards instead of dice) | unstarted idea, assessment only, not a commitment -- see the multi-rule-set plan's own "Phase 7" note |
 
-Phase 1 deliberately comes before any graphics/audio investment -- it
-validates the whole rules-engine-to-WIMP wiring while everything's still
-easy to change.
+### Decided against: full-screen enhanced graphics mode
 
-### Future: multiple Pachisi/Ludo/Mens Erger Je Niet variants
-
-Not scheduled, but recorded so it shapes later design choices rather than
-being retrofitted: the user wants ArchiLudo to eventually offer several
-house-rule variants (Pachisi, standard Ludo, this Dutch "Mens Erger Je
-Niet" ruleset), selectable by the player, rather than only the one variant
-`game_logic.c` implements today. When that work starts, the rules that
-currently live as `#define`s and hardcoded behaviour in `game_logic.c`
-(ring/home-column length, whether a six mandatorily releases a home pawn,
-the three-tries-for-a-six rule, capture-on-landing, home-column blocking)
-will need to become a parameterised ruleset the engine is configured with,
-rather than the single fixed variant. Don't preemptively generalise
-`game_logic.c` for this now -- it's explicitly future/unscheduled work,
-and premature abstraction before a second variant is actually being built
-would just be guessing at what needs to vary.
-
-### Graphics architecture: hybrid
-
-WIMP shell (iconbar, menus, dialogues, save/load) for everything outside
-actual gameplay; the board view switches to a **full-screen
-double-buffered mode, VSync-synced**, during play for smooth dice/pawn
-animation, then returns to the desktop -- a well-established RISC OS game
-pattern, and the user's explicit choice over keeping the board inside a
-plain `Wimp_RedrawWindow`-driven window throughout. Modelled on Kieran
-Connell's `archie-face` framework (itself built on ArchieSDK -- see
-`CREDITS.md`), which already provides double buffering, `EventV`-driven
-VSync timing, mouse polling, and plot/trig helpers.
+Originally planned (a `archie-face`-based full-screen double-buffered,
+VSync-synced board view during gameplay, returning to the desktop
+otherwise -- see `CREDITS.md`'s Kieran Connell entry) but explicitly
+dropped by the user in round 7.56 ("Want to drop the enhanced graphics
+mode, like the present windowed mode") in favour of staying with the
+current plain `Wimp_RedrawWindow`/`Wimp_UpdateWindow`-driven windowed
+board view throughout, which has since had extensive animation/flicker
+work of its own (rounds 7.10 onward) and is considered good enough on
+its own merits. Left as a historical note, not deleted outright, in
+case it's ever reconsidered -- `archie-face` itself remains a valid
+reference if so.
 
 ### Music/SFX: QTM
 
@@ -2716,6 +2706,1060 @@ verified in Arculator** -- per the plan, this is exactly the phase that
 needs a real on-hardware/emulator check (ESG exclusivity, popup menu
 behaviour, per-variant shading, and that Start actually carries the
 chosen rules into a real game) before being considered done.
+
+**Round 7.47**: the round 7.46 live Arculator test above surfaced two
+real layout bugs, from a real screenshot (not a secondhand description) --
+the New Game dialogue's "Rules..." button and most of the Rule Setup
+dialogue's own text were genuinely overflowing their icons, not just
+looking cramped: RISC OS clips an icon's redraw to its own extent, so an
+HCENTRED string wider than its icon loses characters off both ends
+("Rules..." at a 100-unit button rendered as "ules.."; "Six-release" at
+150/110-unit label/option boxes rendered as "Six-relea"/"andator"). Both
+dialogues' column widths were sized on an optimistic guess rather than
+this desktop font's actual metrics -- recalibrated from the screenshot
+itself: roughly 14 OS units per character, plus ~16 units of
+border/fill padding, which matches "Cancel" (6 chars) just fitting a
+100-unit button elsewhere in `setup_view.c` while "Rules..." (8 chars)
+didn't.
+
+- **`setup_view.c`**: `BUTTON_WIDTH` 100 -> 110, and the "Rules..."
+  button's own label shortened to "Rules" (5 chars, comfortably fits
+  even the old width) -- both per explicit user request ("Cant we just
+  make text Rules?").
+- **`rules_view.c`**: a full layout redesign, not just wider boxes.
+  `LABEL_WIDTH`/`OPTION_WIDTH` 150/110 -> 190 each (calibrated against
+  the longest label/option string, "Six-release"/"Mandatory", at ~14
+  units/char). The single-line Pachisi-authenticity caveat (64
+  characters) was never going to fit one row at any of these widths --
+  it's now two shorter hand-wrapped lines (`caveat_line_1`/`_2`,
+  `ICON_CAVEAT_1`/`_2`) instead of one long clipped one.
+- **Real radio icons, replacing the round 7.46 look-alike button
+  pairs** -- the user's original request was genuine RISC OS radio
+  buttons, and the first cut's two bordered/filled/HCENTRED text icons
+  per toggle looked like a pair of push-buttons instead. Reworked per
+  Steve Fryatt's "Wimp Programming In C", Chapter 18 ("Sprite Icons and
+  Choosing Options") and Chapter 20 ("Radio Icons Revisited") -- each
+  option is now one indirected text-and-sprite icon using the `S`
+  validation command's two-sprite form (`Soptoff,opton`, the standard
+  always-present Wimp Sprite Pool sprites for this exact purpose): no
+  border, no fill, left-aligned sprite-then-label, and the Wimp itself
+  swaps the sprite as `wimp_ICON_SELECTED` changes -- this project's
+  code already only ever toggled that flag (`set_icon_selected()`), so
+  no click-handling logic changed, only the icon definitions
+  (`init_radio_icon()`, new). `wimp_BUTTON_RADIO` + the existing
+  per-toggle ESG scheme (round 7.46) is unchanged and still what
+  enforces mutual exclusivity.
+- Since option text now lives in an indirected buffer rather than a
+  plain icon's inline 12 bytes (a text-and-sprite icon's validation
+  string -- needed for the `S` command -- has nowhere to live on a
+  non-indirected icon), added `opt_text[TOGGLE_COUNT][2][12]`, filled
+  once from `TOGGLES[]` at `rules_view_initialise()` time.
+
+`make test` unaffected (no engine/AI/board-layout files touched) --
+still 30 game-logic + 14 AI + 3 board-layout tests, all green. Clean
+cross-compile under ArchieSDK (no new warnings), deployed to the
+Arculator hostfs. **Not yet manually re-verified in Arculator** -- same
+outstanding check as round 7.46's, now against the redesigned layout:
+confirm the radio icons render/toggle correctly (sprite swap on click,
+ESG exclusivity), text is no longer clipped anywhere in either dialogue,
+and the now-taller/wider Rule Setup window still fits comfortably in
+mode 15 (and ideally one other mode, per this project's multi-mode
+requirement).
+
+**Round 7.47.2**: a second live Arculator screenshot, three more fixes
+per direct user feedback on round 7.47 above.
+
+- **Round radio buttons, for real this time.** The round 7.47 toggles
+  rendered as square tick-boxes with a cross pattern, not round radio
+  buttons -- `RADIO_VALIDATION` had used `"Soptoff,opton"`, which is
+  actually the sprite pair for an independent on/off *option* (a
+  checkbox), not a mutually-exclusive *radio* choice. Fryatt's own
+  guide (the same Chapter 18 round 7.47 was already following) says so
+  explicitly, in the section covering exactly this multi-icon case:
+  radio icons want `"Sradiooff,radioon"` instead. One-line fix --
+  `set_icon_selected()`/the ESG scheme/everything else about the icons
+  was already correct, only the sprite names were wrong.
+- **`MEJN` written out in full**, per "is there room to write MEJN in
+  full, so Mens Erger Je Niet?" -- there was (`VALUE_WIDTH` easily
+  fits the 18-character full name). `VARIANT_NAMES[0]` changed
+  accordingly (also spelling the third variant out as "Pachisi-style"
+  rather than "Pachisi", matching the caveat text's own wording).
+  Doing this uncovered a real constraint the first cut hadn't hit:
+  `"Mens Erger Je Niet"` no longer fits a `wimp_menu_entry`'s plain
+  12-byte inline text buffer, the same limit `src/main.c`'s
+  `set_menu_entry()` stays under for its own (shorter) menu -- fixed by
+  making the variant pop-up menu's entries indirected
+  (`wimp_ICON_INDIRECTED` + `variant_menu_text[3][24]`), confirmed
+  against ArchieSDK's own `oslib/wimp.h` that `wimp_menu_entry` shares
+  the same `wimp_icon_data` union as an ordinary icon and so supports
+  this the same way. `variant_text` (the value icon's own buffer) was
+  also widened 16 -> 24 bytes for the same reason.
+- **The caveat still didn't fit** even after round 7.47's two-line
+  split -- that split's line 1 (41 characters) was still a few
+  characters too long for a real render, meaning this file's
+  14-units/char estimate undershot slightly. Rather than re-deriving
+  the exact metric again, both lines were trimmed further with real
+  margin (`caveat_line_1`/`_2`, now 32/30 characters) instead of tuned
+  right up against the edge.
+
+`make test` unaffected (still 30+14+3, all green). Clean cross-compile,
+redeployed. **Still not yet manually re-verified in Arculator** -- same
+outstanding checks as round 7.47's own note above, now against this
+round's fixes specifically (do the toggles actually render as round dots
+and swap correctly on click, does the full variant name display/menu
+correctly, does the caveat now fit on both lines without clipping).
+
+**Round 7.47.3**: from that same round of feedback, a follow-up the
+user caught after the round 7.47.2 fixes landed: "the variant pulldown
+now shows as a standard textfield, nothing to indicate it is a
+pulldown. Cant we make it a visible recognisable pulldown?" -- a fair
+catch. `ICON_VARIANT_VALUE` had been a single bordered/filled/
+BUTTON_CLICK text icon this whole time, which reads exactly like an
+ordinary writable box, with nothing marking it as a drop-down.
+
+Fixed by implementing RISC OS's actual "pop-up menu field" convention,
+not a homegrown look-alike -- split into two icons: `ICON_VARIANT_VALUE`
+stays a plain bordered read-only display field (now `BUTTON_NEVER`,
+`FIELD_WIDTH` wide), sat immediately against a new
+`ICON_VARIANT_POPUP`, a small square sprite-only button using the
+standard "gright"/"pgright" ("grey right-pointing arrow", raised/
+pressed) Wimp Sprite Pool sprites via the `"R5;Sgright,pgright"`
+validation string. The click that opens the variant menu moved from the
+field to this new button. Based on Steve Fryatt's "Wimp Programming In
+C", Chapter 24 ("Pop-up Menus and Other Features") -- confirmed both
+the icon recipe (Listing 24.2's validation string) and the actual
+screen layout (arrow button immediately after the field, not before or
+overlapping it) against that chapter's own reference screenshot before
+implementing, rather than guessing the arrangement -- see
+[[archiludo_ground_truth_verification]]-style discipline applied to an
+external doc source this time, not just this project's own code/GEOS
+source.
+
+`make test` unaffected. Clean cross-compile, redeployed. **Not yet
+manually verified in Arculator** -- in particular, whether the arrow
+button's raised/pressed sprite swap on click actually happens
+automatically (Fryatt's text implies the Wimp handles this on its own
+for an `R5` pop-up button, unlike the project's own `flash_throw_button()`
+press-feedback in `game_view.c`, which manually swaps `R1` validation --
+this hasn't been cross-checked against genuine RISC OS 3.10 behaviour,
+only taken on the tutorial's word).
+
+**Round 7.48**: a real regression report from the same test session --
+"pawn placement on 6 roll ... First the pawn is drawn on a completely
+weird position, then moves to a correct position after roll but leaving
+the wrong one as artifact." A genuine bug, and a latent one: not
+something this round's own UI edits touched, but the first time it was
+ever actually reachable through the real WIMP shell, because the Rules
+dialogue (round 7.46) is the first thing that ever let a real game
+select a variant other than `LUDO_VARIANT_MEJN` -- and this bug only
+fires under **optional** six-release (`rules.mandatory_six_release`
+off, true for Ludo and Pachisi-style but not MEJN), a code path that
+existed since round 7.43 but had never once run through `game_view.c`
+before.
+
+Diagnosed from the actual evidence, not guesswork: `!ArchiLudo/Log` in
+the Arculator hostfs (this project's own file-based debug log, per
+CLAUDE.md's Testing section) still had the exact session from the
+screenshot, and showed the smoking gun directly --
+
+```
+resolve_roll: player=1 roll=6 movable_mask=0x1
+start_move_animation: player=1 AI pawn=0 roll=6 steps 0 -> 0
+```
+
+`movable_mask` (not the `just_released` early-return) means this went
+through the *optional*-release path in `ludo_move_pawn()`, not
+`ludo_roll()`'s automatic mandatory one -- and `steps 0 -> 0` means the
+resulting "move" travels zero cells (the pawn goes straight from "not
+in play" to its own ring entry square). `start_move_animation()` builds
+`move_anim_path[]` with exactly one valid entry for this
+(`move_anim_path_len = to_steps - from_steps + 1 = 1`), but
+`update_move_animation_area()`'s per-tick segment maths *always* reads
+`move_anim_path[seg + 1]` as the segment's "to" cell -- for a 1-long
+path that's `move_anim_path[1]`, which this call never wrote. Since
+`move_anim_path[]` is a `static` array reused across every animation,
+that slot still held whatever cell some *earlier* pawn's longer
+animation had last left there -- a stale, unrelated board cell. That
+leftover cell became this animation's bogus interpolation endpoint,
+which is exactly "drawn on a completely weird position." Worse,
+`resolve_move()` deliberately skips re-examining the just-animated pawn
+in its own settle-diff redraw afterwards (`update_settle_diff_area()`'s
+`skip_player`/`skip_pawn`, round 7.15 -- correct for a *real* move,
+where the per-tick animation genuinely did paint the correct final
+cell), so the bogus draw from the stale endpoint was never cleaned up
+-- a permanent ghost, matching "leaving the wrong one as artifact"
+exactly.
+
+**Fix**: `start_move_animation()` now detects a 1-long path and
+duplicates `move_anim_path[0]` into `move_anim_path[1]` (extending
+`move_anim_path_len` to 2), giving the segment maths a real, correct
+(if stationary -- from and to are the same cell) second point instead
+of reading uninitialised/stale array data. The pawn now just sits still
+through one short animation beat before settling, rather than
+flickering to a garbage location -- a minor, harmless cosmetic
+difference from an instant placement, not worth chasing further given
+the actual bug (the stale-memory read) is what mattered.
+
+`make test` unaffected (game_logic.c/board_layout.c/ai.c untouched --
+this was purely a `game_view.c` animation-plumbing bug, not a rules
+bug). Clean cross-compile, redeployed. **Not yet manually re-verified
+in Arculator** -- ask the user to specifically retest an optional
+six-release (Ludo or Pachisi-style variant, a 6 with a home pawn
+available) and confirm no ghost pawn appears any more.
+
+**Round 7.49**: a hand pixel-editing session on `pawn0.png` (the green
+pawn) surfaced two real, independent bugs in the round 7.42 edit
+pipeline, plus a genuine cross-mode rendering bug in the pawn art
+itself. Full technical detail in `docs/GRAPHICS_TOOLING.md`'s own
+"Round 7.49" section; summarised here:
+
+1. **The two-file (`<name>.png` + `<name>_16x.png`) editing workflow
+   was itself a footgun.** The user's first edit went to the native
+   `pawn0.png` directly; `import_edited_sprites.py` silently ignored it
+   because it always preferred the (stale, unedited) `_16x.png`
+   sibling when one existed. Fixed by removing the 16x-upscaled
+   "editing copy" entirely, per explicit user request ("update all
+   workflows... to generate and edit the 26px variants directly") --
+   `export_sprites_for_editing.py` now exports one native-resolution
+   PNG per sprite, no `_16x.png`; `import_edited_sprites.py`'s
+   `resolve_native_image()` dropped its 16x-preferred branch and
+   `downscale_majority()` entirely, now just reading the native
+   `assets/edit/<name>.png` at face value. `assets/edit/README.md`
+   (regenerated by the export script) now recommends a real pixel-art
+   editor (Piskel, or GIMP's Pencil tool with an alpha channel added)
+   over MS Paint by name.
+2. **MS Paint silently flattens alpha.** That same first edit came
+   back fully opaque, background filled solid white instead of
+   transparent -- MS Paint has no real alpha-channel support and
+   flattens transparency on open/save; this is now called out
+   explicitly in the regenerated README. Recovered (that one time) via
+   a border flood-fill through contiguous near-white pixels, since the
+   genuine highlight dot sits inside the silhouette and is unreachable
+   from the canvas edge without crossing non-white pixels.
+3. **A genuine cross-mode rendering bug, unrelated to either edit
+   mistake above**: the round 7.19 highlight/shadow dither
+   (`build_pawn_image()`'s `(x+y)%2` shadow checker and `(x+2y)%4`
+   highlight stagger) keys its colour on the pixel's own row, `y`.
+   These sprites are tagged mode 27 (2 OS units/pixel, both axes), but
+   this project's other three supported modes (12/15/39) are 2x4 OS
+   units/pixel -- twice as tall per physical pixel. RISC OS's sprite
+   scaling doesn't blend when a sprite's tagged mode differs from the
+   current screen mode; it drops every other source row to fit the
+   coarser vertical grid (the same "sub-4-OS-unit features vanish"
+   behaviour this project already found once for hand-drawn `os_plot`
+   rectangles -- see CLAUDE.md's Testing section, [[archiludo_mode15_pixel_thickness]]).
+   A `y`-parity dither disagrees between the two rows about to be
+   fused on those three modes, silently losing whichever row didn't
+   survive -- self-cancelling roughly half the intended texture rather
+   than just softening it. Found and diagnosed from the user's own
+   report ("the pixel exact dither does not survive[, because] the OS
+   pixel is not screen pixel") on their second, alpha-clean hand edit.
+   Fixed at the source (`build_pawn_image()`, both dither expressions
+   now keyed on `y // 2`, a row-PAIR index, instead of `y`) and applied
+   by an equivalent direct pixel fix to the user's actual edited
+   `pawn0.png` (collapsing every currently-mismatched fill/shadow or
+   fill/highlight row-pair to a fresh, consistent per-pair colour,
+   scoped to only those three colours so outline/background/contour
+   pixels are never touched) -- preserving the user's real shape edit
+   rather than discarding it for a from-scratch regeneration. Verified
+   by simulating the mode-12/15/39 row-drop directly (kept only even
+   source rows, rescaled) and confirming it now matches the mode-27
+   rendering's own texture exactly, where before the fix it would have
+   diverged. A small residual (6 mismatched row-pairs in a fresh
+   from-generator sprite, down from 23 before the source fix) remains
+   at region-mask *boundaries* themselves (where the highlight/shadow
+   membership boolean, not the dither colour choice, changes on an odd
+   row) -- accepted as the same category of minor, unavoidable
+   precision loss the outline/silhouette contour already has on a
+   coarser mode, not chased further.
+4. Deduced pawn1/pawn2/pawn3 (red/blue/yellow) from the corrected green
+   pawn0 both times (the alpha-recovery and the dither fix) via an
+   exact-match pixel recolour -- `generate_icon_sprites.py`'s own
+   design uses a shared black outline/white highlight/grey shadow
+   across all four pawns, only the fill hue differs per player
+   (`PLAYER_WIMP_COLOUR` into `tools/riscos_sprite.py`'s
+   `WIMP_COLOURS`), so swapping every pixel exactly equal to the green
+   fill RGB to each player's own fill RGB carries the user's actual
+   shape edit over to all four colours untouched otherwise -- confirmed
+   via pixel-colour histograms that all four came out structurally
+   identical (transparent/outline/shadow/highlight counts) except for
+   the fill hue.
+
+`make test` unaffected (asset-only + Python tooling changes, no C/
+build-chain files touched). Clean cross-compile, redeployed. **Not yet
+manually verified in Arculator** -- ask the user to confirm all four
+pawn colours look right, in particular that the shadow/highlight
+texture now reads consistently rather than patchy/missing, in at least
+mode 15 (non-square) and mode 27 (square) per this project's own
+multi-mode requirement.
+
+**Round 7.50**: a direct follow-up, per explicit user rules for the
+pawn art ("clear two pixel black outline", details must "scale so that
+they look the same in all modes", white highlight "subtly somewhat
+bigger" and the shadow smaller) and for the app icon's dice pips
+("matching in all modes", "whitespace should remain between pips and
+borders and pips amongst each other"). Full technical detail in
+`docs/GRAPHICS_TOOLING.md`'s own "Round 7.50" section; summarised here:
+
+- Backed up the round 7.49 hand-edited pawns to
+  `assets/edit/reference/` before touching anything further, per
+  explicit user request -- historical record only now, since the user
+  then chose to adopt this round's refined script output as the new
+  shipped baseline rather than keep the hand edit authoritative.
+- **Pawn outline**: `build_pawn_image()`'s alpha now uses `Image.NEAREST`
+  instead of a smoothing `Image.BOX` resize (reversing round 7.17's
+  original choice), and `OUTLINE_DILATE_WORK` retuned from 17 to 21 --
+  both changes verified by direct pixel-histogram comparison against
+  the hand-edited reference until the generator's own output landed
+  within a few pixels of it (a first guess of 28 overshot badly). Fixes
+  a real soft grey-halo artifact the old settings produced (confirmed
+  via pixel counts: ~70 partial-alpha pixels in the old output, zero in
+  the hand edit), and closes a latent risk that the old sub-2px average
+  outline could vanish outright at some points on non-square modes,
+  per this project's own established "features under 4 OS units
+  vanish" rule.
+- **Highlight/shadow region size**: `highlight_shapes()` enlarged ~15%,
+  `shadow_shapes()` shrunk ~15% (each scaled about its own centre) --
+  a direct, modest read of the user's stated "feel" preference from
+  comparing generator output against the hand-edited reference, not an
+  exact measured target.
+- **Dice pips, a real whitespace bug**: `stamp_pips()` used to position
+  pips by fixed fraction of the die box with no explicit minimum-gap
+  guarantee at all -- confirmed by rendering and zooming the actual
+  shipped icon that pips visibly merge into a solid blob at this
+  project's smallest ("half") size. Replaced with a hard integer grid
+  (`_pip_axis_layout()`: border+pip+gap+pip+gap+pip+border along each
+  axis, every segment >=1px), reusing `stamp_die()`'s own border
+  formula. While testing this, found and fixed a real rounding-mismatch
+  bug: `stamp_die()` drew from the raw float die box while the new
+  `stamp_pips()` rounded its own copy independently, breaking pip
+  alignment badly at the smallest rectangular size -- fixed via a
+  shared `_round_box()` helper both functions now use identically.
+  **One hard, un-tunable limit remains** (accepted as-is, per explicit
+  user decision): `half_rect`'s die interior is only 2px tall after its
+  own border, and 3 pip-rows with real gaps need at least 5px -- two
+  rows visually merge at that one size/mode-aspect combination only
+  (the least-scrutinised view, a Filer small-icon on a non-square
+  mode); the other three output sizes all show clean gaps throughout.
+
+`make test` unaffected. Clean cross-compile, redeployed. **Not yet
+manually verified in Arculator** -- ask the user to confirm the outline
+crispness/highlight-shadow feel on all four pawn colours, and that the
+dice pips now show clear whitespace in the iconbar/Filer icon, in at
+least mode 15 and mode 27.
+
+**Round 7.51**: two direct fine-tuning follow-ups from live user
+feedback on round 7.50's actual rendered result. Full technical detail
+in `docs/GRAPHICS_TOOLING.md`'s own "Round 7.51" section:
+
+- **Pawn head made rounder**, per "my hand edited pawn was a bit
+  'rounder' on the top" -- measured, not just eyeballed: counted opaque
+  pixels per row and found the script's head silhouette plateaus at a
+  constant width for 11 consecutive rows (reading as a flat-sided
+  cylinder) versus the hand-edited reference's 5, peaking higher too
+  (14px vs 12px). Root cause: at this generator's small final
+  resolution, a circle's own width barely changes near its equator, so
+  several rows round to the same integer width -- more pronounced the
+  smaller the circle. Fixed by enlarging the head ellipse (120x120 ->
+  138x128), top edge deliberately kept at its original canvas position
+  rather than grown symmetrically, since growing upward too measurably
+  approached this project's own established canvas-clipping risk zone
+  (round 7.33's history) once combined with round 7.50's own thicker
+  outline dilate.
+- **Dice pips still touched the die's own border** -- a real gap in
+  round 7.50's own fix, confirmed by direct user report ("the app icon
+  pips now have no white space to upper and left border") and by
+  rendering the die in isolation. `_pip_axis_layout()` had only ever
+  reserved gaps BETWEEN pips, never a margin between the outermost pips
+  and the border -- fixed by reserving 2 more segments for that. Since
+  the true minimum interior for real margins everywhere is 7px, and
+  this project's own primary dev/test mode (mode 15, via `full_rect`'s
+  own height axis) only had 5, also enlarged `DIE_BOX_WORK` (156x156 ->
+  170x180, per the user's own suggested direction) -- grown
+  asymmetrically toward this canvas's own unused space, verified by
+  direct rendering to avoid both the pawn silhouette and canvas-edge
+  clipping. `half_rect`'s own height axis remains the same accepted
+  hard floor from round 7.50 (2px interior even after this growth,
+  needs 7) -- everything else now shows real margin on every side.
+
+`make test` unaffected. Clean cross-compile, redeployed. **Not yet
+manually verified in Arculator** -- ask the user to confirm the head
+now reads rounder and the pips show real whitespace to the border on
+every side, not just upper/left.
+
+**Round 7.52**: two more real bugs found from the round 7.51 live
+result, one game logic/display, one purely cosmetic. Full technical
+detail in `docs/GRAPHICS_TOOLING.md`'s own "Round 7.52" section for the
+head-shape correction; summarised here for both:
+
+- **A real duplicate/ghost-pawn bug**, per direct user report ("pawn
+  is not removed in base area... now more than four pawns" for both
+  green and blue) and a crucial follow-up clue ("only happens after a
+  pawn is thrown from the board before"). Root cause, found by
+  re-reading `start_move_animation()`: for an *optional* six-release
+  (`rules.mandatory_six_release` off) with zero forward travel
+  (`to_steps == from_steps == 0`), round 7.48's own fix built a
+  *stationary* animation sitting at the ring entry cell -- which
+  stopped the earlier "drawn at a random position" symptom, but never
+  touched the pawn's TRUE previous on-screen position, its home base
+  slot (`board_home_base_cell()`, keyed by `pawn_index`, nothing to do
+  with `cell_for_steps()`'s ring/home-column-only mapping) -- so that
+  slot's old rendering was simply never erased, left as a permanent
+  duplicate forever after. (The "only after being captured" detail
+  turned out to be about when the bug became visually obvious, not a
+  separate cause -- confirmed `capture_at()` already resets a sent-home
+  pawn's `steps` to 0, so a first-time release and a post-capture
+  re-release are identical at the code level.) Fixed by recognising
+  there is no meaningful animation to run here at all -- home base and
+  the ring aren't the same track, nothing to visually "slide along" --
+  so this now settles exactly like the mandatory six-release already
+  correctly does: a plain diff redraw via `update_settle_diff_area()`,
+  which uses the in_play-aware `board_pawn_cell()` and so naturally
+  finds and erases the true old position. Supersedes round 7.48's
+  approach for this specific case rather than patching it further.
+- **Pawn head "cropped at the top"**, a real regression from round
+  7.51's own head enlargement, not a rendering/cache bug (ruled that
+  out first: the sprite PNG, the packed sprite file round-tripped back
+  out, and the deployed hostfs copy all matched byte-for-byte and
+  showed no clipped data -- confirmed instead by directly comparing
+  round 7.51's output against round 7.50's own baseline row-by-row: the
+  baseline had 2 clean solid-outline "cap" rows before fill started
+  peeking through; round 7.51's bigger ellipse shrank that to 1,
+  reading as a flattened/truncated top rather than a rounded one).
+  Retuned smaller (was heading toward matching the reference's own peak
+  width exactly; settled for a smaller enlargement that restores the
+  full 2-row cap while still measurably rounder than the pre-round-7.51
+  original) -- verified against the hand-edited reference's own pixel
+  histogram, which this version matches even more closely than round
+  7.51's first attempt did.
+
+`make test` unaffected (the ghost-pawn fix touches only
+`game_view.c`'s animation plumbing, same as round 7.48; the head fix is
+asset-only). Clean cross-compile, redeployed. **Not yet manually
+verified in Arculator** -- ask the user to specifically retest: an
+optional six-release after a capture (to confirm no duplicate pawn
+remains in the home base corner), and the pawn head shape on all four
+colours (confirming the top no longer looks cropped/flat).
+
+**Round 7.53**: a testing-coverage gap, prompted by the user asking
+whether the test suite covers every possible rule-toggle combination --
+it didn't. Before this round, `tests/test_game_logic.c`'s headless
+full-game simulations only exercised the 3 curated presets
+`ludo_default_rules()` offers (MEJN, Ludo, Pachisi-style); the Rules
+dialogue (`src/rules_view.c`) actually lets a player flip any of the 7
+house-rule booleans individually on top of any preset, so the real
+reachable configuration space is all 2^7 = 128 combinations, not just
+3. Rather than hand-writing tests for a meaningful subset or reaching
+for randomised fuzzing, 128 turned out small enough to enumerate
+**exhaustively** -- every single combination, not a sample -- each run
+cheaply (5 games rather than the 200-500 a single-preset simulation
+uses). New `test_headless_all_rule_combinations()`, modelled on the
+existing Pachisi-preset simulation's own loose, toggle-agnostic
+invariants (steps stay in range, finished pawns occupy distinct correct
+squares, every game terminates -- not pinning down each toggle's exact
+behaviour, which the focused per-toggle tests already do). Confirmed by
+inspection that `ludo_rules.variant` itself is never read by any
+gameplay logic (only ever *set*, inside `ludo_default_rules()`, for the
+Rules dialogue/save-file's own bookkeeping) -- fixed at
+`LUDO_VARIANT_MEJN` throughout since only the 7 booleans actually
+matter. `make test` now runs 31 game-logic tests (up from 30) -- the three
+headless simulation functions combined now play 1340 full games (500 +
+200 + 128*5) -- still completing in under 2 seconds -- exhaustive
+coverage of the whole reachable rule space cost about as much runtime
+as one more chunk of the existing simulations, not 128x it.
+
+**Round 7.54**: a real leftover-highlight-ring bug, per direct live
+user report ("a left over highlight artifact") on a pawn nowhere near
+the one actually just moved. Root cause, found by re-reading
+`try_move_pawn()`/`start_move_animation()`: when a human player has
+MORE THAN ONE legal move, `draw_highlights()` shows a ring around every
+candidate pawn (not just the eventual choice). Clicking one calls
+`start_move_animation()` for just that pawn, whose own per-tick redraw
+(`update_move_animation_area()`) only ever touches the CHOSEN pawn's
+own path cells -- the other candidates' cells, each still showing a
+ring, are never touched by anything again once `step` moves on to
+`STEP_MOVING`, leaving them as permanent ghosts until an unrelated full
+window redraw happens to paint over them. Fixed by clearing the
+highlight area at the very top of `start_move_animation()`, before
+anything else changes -- `step`/`current_player`/`last_roll` are all
+still exactly what they were when the rings were drawn at that point,
+which is what lets `update_highlight_area()` correctly find the same
+cells to erase; forcing `highlight_flash_on` off first guarantees an
+actual erase rather than just re-confirming whatever was already
+showing. Safe to call unconditionally from every caller of this shared
+function (the AI and single-choice-auto-move paths never had a ring
+showing in the first place, and `update_highlight_area()` is already a
+no-op when nothing is highlighted).
+
+`make test` unaffected (`game_view.c` display-only fix). Clean
+cross-compile, redeployed. **Not yet manually verified in Arculator**
+-- ask the user to specifically retest a human turn with more than one
+legal move: click one of several highlighted pawns and confirm no ring
+lingers on any of the others afterward.
+
+**Round 7.55**: prompted by a live bug report ("red... lands on the
+block, capturing both pieces") that turned out not to be a bug at all
+-- the user was playing the `Ludo` preset, which has `blockade` off by
+design (only `own_pawn_capture` off, permitting the stack but granting
+it no protection) -- confirmed by an exhaustive headless scan against
+the real engine (every possible attacker position vs. a fixed blockade
+square) finding zero cases where a blockaded path was ever incorrectly
+reported movable. That result prompted the user to ask for a proper
+audit against two independent external Ludo rules references, which
+did turn up real gaps. Full technical detail in `docs/GAME_LOGIC.md`'s
+own "Round 7.55" note; summarised here:
+
+- **`Ludo` preset's `blockade` default fixed** (0 -> 1) -- both external
+  sources describe blocking as unconditional in standard Ludo, not
+  optional, so `own_pawn_capture=0` alone (permitting a stack) without
+  `blockade=1` (protecting it) doesn't match real Ludo. This was, in
+  effect, the actual design gap the "bug" report surfaced, just not the
+  one the report itself suspected.
+- **New `three_sixes_forfeit_turn` toggle**: both sources independently
+  describe a player's third six in a row as voiding the whole turn
+  (release/move/nothing), which this engine had never implemented for
+  any preset. Added as its own toggle rather than folded into `Mens
+  Erger Je Niet`'s traditional unlimited six-chaining, per explicit
+  user decision -- on by default for `Ludo` (source-backed), off for
+  `Pachisi-style` (no source evidence either way) and `Mens Erger Je
+  Niet` (preserves original behaviour exactly). Implementation: a new
+  internal `ludo_game.consecutive_sixes` counter, incremented in
+  `ludo_roll()` on every six and reset in `ludo_end_turn()` (so it
+  starts fresh for whoever plays next regardless of *why* the previous
+  turn ended); the third six calls `ludo_end_turn()` immediately,
+  before the mandatory-release check even runs, reusing the exact
+  same "turn passed during this roll" detection every caller (WIMP
+  shell and the test harness alike) already has for the unrelated
+  "three tries looking for a six while stuck" case -- no caller-side
+  changes needed at all. Two regression tests
+  (`test_three_sixes_forfeit_turn`/`test_three_sixes_no_forfeit_when_
+  rule_off`), `make test` now 33 game-logic tests.
+- **Two claims from one of the two sources deliberately NOT adopted**
+  (a blockade "moving as one unit, splitting the die roll," and a
+  "must capture before entering the home column" requirement) -- not
+  corroborated by the other source or by general Ludo knowledge, noted
+  in the docs as rejected rather than silently ignored.
+- **`src/rules_view.c` extended to 8 toggles** -- the new toggle needed
+  UI exposure too, matching the existing pattern exactly
+  (`TOGGLE_COUNT`, `TOGGLES[]`, `VARIANT_HIDDEN_MASK` all designed to
+  scale via that one constant; the window's own height already derives
+  from `TOGGLE_COUNT` so no manual resizing was needed). Hidden for
+  `Mens Erger Je Niet` specifically, same reasoning as blockade/
+  backward/free-home already were -- not part of that preset's own
+  traditional identity.
+- **Graphical blockade stacking offset**, separately requested by the
+  user in the same conversation: `plot_pawn()` used to draw every pawn
+  dead-centre on its own cell, so 2+ same-coloured pawns sharing a
+  square (a ring blockade, or free home-column manoeuvring) rendered as
+  a single sprite with the others completely invisible. New
+  `stack_offset()` nudges a pawn into one of 4 corner slots (keyed on
+  its own `pawn_index`, not draw order, so a given pawn always lands in
+  the same slot relative to its siblings) whenever another of the same
+  player's own in-play, unfinished pawns shares its exact cell -- both
+  the sprite and `os_plot` fallback paths pick this up automatically,
+  since it's applied to the shared `wx`/`wy` before either path reads
+  them. Only applied when NOT mid-animation (an animating pawn is a
+  single pawn in transit, not meaningfully "stacked" at any instant).
+
+`make test`: 33 game-logic (up from 31) + 3 board-layout + 14 AI tests,
+all green. Clean cross-compile, redeployed. **Live-verified in
+Arculator** -- user confirmed "seems to work as intended now" after
+playing a real game.
+
+**Round 7.56**: a documentation-debt reconciliation, per explicit user
+request ("What do we have left on to do list?") after confirming round
+7.55's fixes worked -- this file's own "Current state"/"Roadmap" tables
+had drifted a long way from reality (last substantively updated early
+in the project) and no longer reflected months of subsequent work:
+"Phase 2" (real art) and "Phase 5" (AI/dialogues/app packaging) were
+both marked "not started" despite being done, and an entire unscheduled
+future phase (multi-rule-set variants) had been fully implemented ahead
+of several "earlier" phases. Reconciled against the actual codebase
+state directly (checked for `lib/qtm.c`/`docs/QTM.md` -- absent, checked
+`save_view.c` for rules serialisation -- absent, checked `ai.h` for
+difficulty-level implementation -- only `NORMAL` has real strategy,
+checked `README.md` -- no screenshots section), not just trusted the
+stale table. Also recorded an explicit user decision in the same
+conversation: **the planned full-screen enhanced-graphics mode
+(`archie-face`-based, double-buffered/VSync-synced, see `CREDITS.md`)
+is dropped** -- staying with the current windowed
+`Wimp_RedrawWindow`/`Wimp_UpdateWindow` board view, which has had
+enough of its own animation/flicker work by now (rounds 7.10 onward) to
+stand on its own. Both tables rewritten to a compact, accurate status
+summary; this file's own "Resume here" section (which had similarly
+drifted, still narrating rounds 7.43-7.46 as "in progress") rewritten
+to cover only genuinely open, non-obvious gaps instead of re-summarising
+history the tables and round log already cover -- see its own new text
+for the two real gaps carried forward (the backward-movement
+board-interaction gap from round 7.46, still unresolved; save-file
+rules persistence, never implemented). No code changes this round --
+documentation only.
+
+**Round 7.57**: closes one of round 7.56's two carried-forward gaps
+(save-file rules persistence) and a second issue reported live in the
+same conversation (drag-and-drop save/load "still does not seem to
+work, and also does not have a draggable app icon"), per explicit user
+request. Two independent fixes:
+
+- **Save-file rules persistence** -- `game_view.c`'s `serialize_game()`/
+  `deserialize_game()` now read/write a 9-byte `ludo_rules` block (1
+  byte per field: `variant` plus the 8 house-rule booleans, see
+  `game_logic.h`) right after the file magic, which is bumped
+  `"ALS1"` -> `"ALS2"` accordingly (`game_view_load_from_path()`
+  cleanly rejects old `"ALS1"` saves rather than partially loading
+  them -- an accepted "breaks old saves" trade-off for this hobby
+  project). `GAME_VIEW_SAVE_FILE_SIZE` (`game_view.h`) grew by 9 bytes
+  to match. On load, the rules are applied via `ludo_set_rules()` to
+  `game.rules` **and** separately copied into the static
+  `configured_rules` -- the latter is what `setup_view_open()` actually
+  reads when the Rules dialogue is opened on an in-progress game, so
+  without this second assignment a loaded game would still show stale
+  (pre-load, usually MEJN-default) settings if the player opened Rules
+  afterwards, even though gameplay itself was correctly using the
+  loaded ruleset.
+- **Drag-and-drop save/load icon** -- researched genuine RISC OS
+  convention for a Save-window "draggable file icon" (no Fryatt
+  tutorial covers this specifically; confirmed via the PRM's
+  `DragASprite`/`osbyte` chapters, already available as full typed
+  OSLib bindings in ArchieSDK's SDK with no custom SWI wrapper needed).
+  `save_view.c`'s file icon changed from a bordered/filled text button
+  (`"Drag"` label) to a plain `wimp_ICON_SPRITE` icon showing
+  `sm!archiludo` -- matching how a real file icon looks, not a button.
+  The drag itself now prefers `xdragasprite_start()` (a genuine dragged
+  sprite under the pointer, `dragasprite_HPOS_CENTRE |
+  dragasprite_VPOS_CENTRE | dragasprite_NO_BOUND |
+  dragasprite_DROP_SHADOW`) over the previous plain `wimp_drag_box()`
+  outline, gated on the user's own preference read from CMOS RAM (byte
+  28, "FileSwitch options", bit `0x02`) via `osbyte2(osbyte_READ_CMOS,
+  ...)` -- the PRM is explicit that this preference must be respected,
+  not assumed. Falls back to the outline drag if the CMOS bit says
+  outline-preferred, or if `xdragasprite_start()` itself returns an
+  error. `save_view_drag_ended()` correspondingly calls
+  `dragasprite_stop()` unconditionally first when a sprite drag was
+  started, per the PRM's instruction that Stop must be called on every
+  `User_Drag_Box` regardless of how the drag ended. The underlying
+  `Message_DataSave`/`Message_DataSaveAck` file-transfer handshake was
+  already structurally correct (confirmed by code review this round)
+  and is unchanged -- only the drag's visual/trigger mechanism changed.
+
+Both fixes build clean under ArchieSDK (no warnings) and are deployed,
+but **neither has been manually verified live in Arculator yet** -- see
+this file's "Resume here" section above for the specific things to
+check on the next live-test pass (a non-MEJN save/reload round-trip,
+and the sprite-drag file icon's look/behaviour with both CMOS
+preference settings).
+
+**Round 7.58**: live Arculator testing of round 7.57's drag-and-drop
+work found it genuinely didn't work ("Drag does not show any icon
+still, and path does not change on moving to another dir. Dragging in
+save game does not do anything") -- an extensive, purely diagnostic
+session (no feature code changes) tracing the actual live control flow
+via temporary `debug_log()` instrumentation added throughout
+`save_view.c`'s click/drag/message-handling functions, since code review
+alone had already confirmed everything looked structurally correct
+against the PRM. Findings, in order:
+
+- The plain `wimp_drag_box()` outline WAS starting correctly (confirmed
+  via logged `wimp_DRAG_SELECT` button-state detection and the drag
+  call's own parameters) -- the CMOS `FileSwitch` "drag sprites"
+  preference was off on this machine, so the outline (not a sprite) was
+  the *correct*, expected behaviour, not a bug. Walked the user through
+  setting the CMOS bit directly via `OS_Byte` 161/162 from BASIC
+  (`SYS "OS_Byte",161,28,0 TO ,,V%` / `SYS "OS_Byte",162,28,V% OR 2`) --
+  no friendlier `*Configure` keyword exists for this specific bit.
+- With the CMOS bit set, `xdragasprite_start()` also succeeded (no
+  error) every time -- still no drag icon visible.
+- `Message_DataSave` was being sent successfully in every attempt (7+
+  total across both drag mechanisms) -- `Wimp_SendMessage` never
+  returned an error, and resolved to a real, *consistent* task handle
+  across repeat drops on the same window. The drop point was confirmed
+  (via `Wimp_GetWindowState`, which works on any window handle, not just
+  ones this task owns) to genuinely fall inside the target window's own
+  rectangle, not its title bar/border.
+- `Message_DataSaveAck` never arrived in reply -- not once, across every
+  attempt, including a drop directly onto the icon bar's `HostFS` icon
+  (`pointer.w == wimp_ICON_BAR`, the simplest and most unambiguous RISC
+  OS drop target there is, which also got no reply). Since every attempt
+  this session happened to target HostFS specifically (Arculator's own
+  bridge to the real host filesystem, not a full ADFS/FileSwitch stack),
+  the most likely explanation is that HostFS's module simply doesn't
+  implement the Filer side of the `Message_DataSave` protocol at all --
+  an environment limitation, not an ArchiLudo bug. Superseded by round
+  7.59 before this could be confirmed against a different filing system.
+
+**Round 7.59**: rather than keep chasing round 7.58's unresolved
+environment question, per explicit user request ("Maybe we should pivot
+and use a dialogue with 5 renamable save slots that save within the
+application dir with fixed names, with the save slot name part of the
+save data. That removes the whole path and file naming problem") --
+drag-and-drop and free-form pathnames are removed entirely, replaced
+with 5 fixed save slots:
+
+- `game_view.h`/`game_view.c`: new `GAME_VIEW_SLOT_NAME_LEN` (32), save
+  magic bumped `"ALS2"` -> `"ALS3"` with a slot-name block added right
+  after it (zero-padded, not just NUL-terminated, so a shorter re-save
+  fully overwrites a longer old name). `game_view_save_to_path()` gained
+  a `name` parameter; new `game_view_peek_slot_name()` reads just the
+  4+32-byte header of a slot file (magic + name) without deserialising
+  the whole game, for the dialogues' own slot-list population.
+- `save_view.c` rewritten end-to-end: `save_view.h`'s whole `DragASprite`/
+  CMOS-preference/`Message_DataSave` machinery removed (including the
+  round 7.58 diagnostic instrumentation, no longer needed). Both
+  dialogues now show 5 rows for fixed paths `<ArchiLudo$Dir>.Slot1` ..
+  `.Slot5` (`build_slot_path()`) -- the Save dialogue's rows are writable
+  name fields (pre-filled with the slot's current name, or "Slot N" if
+  empty) each with its own Save button; the Load dialogue's rows are
+  read-only name display ("(empty)" with a shaded, inert Load button for
+  an unoccupied slot) each with its own Load button. Both dialogues
+  re-read all 5 slots via `game_view_peek_slot_name()` every time they
+  open, so the list is never stale. Per explicit user preference, kept
+  as two separate dialogue windows (reached via the existing "Save
+  Game"/"Load Game" iconbar menu entries) rather than one combined
+  window.
+- `main.c`'s `wimp_USER_MESSAGE`/`wimp_USER_MESSAGE_RECORDED` handling
+  trimmed to just the `Message_Quit` check -- nothing else needs
+  routing now that `save_view_message_received()` is gone. The
+  `wimp_USER_DRAG_BOX` case was removed entirely.
+
+Builds clean under ArchieSDK (no warnings) and is deployed, but **not
+yet manually verified live in Arculator** -- see this file's "Resume
+here" section above for what the next live-test pass should check.
+
+**Round 7.60**: the audio layer, per explicit user request ("Implement
+audio layer with suggested mods and fx") following an earlier research
+pass (2 ModArchive tracks picked by the user, 6 sound-effect candidates
+researched and proposed) and a follow-up request that music be
+"selectable and optional... switch track and switch music on off" from a
+menu. See [QTM.md](QTM.md) for the full technical writeup; summarised
+here:
+
+- **New `lib/qtm.c`/`include/qtm.h`** -- this project's first dedicated
+  SWI-wrapper library under the `lib/` directory (per CLAUDE.md's own
+  "lib/<name>.c" convention, not yet exercised before this round; the
+  Makefile's `SRCFILES`/pattern rules extended to build it alongside
+  `src/*.c`). Wraps QTM's own SWIs (`QTM_Load`/`QTM_Start`/`QTM_Clear`/
+  `QTM_PlayRawSample`, confirmed via a real working ArchieSDK example and
+  the RISC OS Open forum, not guessed -- see QTM.md's SWI reference
+  table) via `_kernel_swi()` rather than OSLib's simpler `__swi()`
+  attribute, since `QTM_PlayRawSample` needs 9 registers with R0 both an
+  input and an output. Presence-checked at startup via
+  `xos_swi_number_from_string("QTM_Load", ...)` (an X-form lookup, not a
+  hardcoded assumption) -- every other function in the library is a
+  silent no-op if QTM isn't available, matching the pawn-sprite-loading
+  precedent's "stay playable if an extra falls through" principle.
+- **Sample-format research** -- QTM_PlayRawSample needs "8-bit
+  logarithmic" (VIDC-format) sample data, confirmed via the RISC OS Open
+  forum thread to be close to but distinct from standard mu-law (a real
+  trap: the thread's own author tried several plausible-looking wrong
+  formats first, all producing barely-recognisable distorted playback).
+  Rather than hand-roll an undocumented encoder, `lib/qtm.c` converts
+  bundled raw 16-bit PCM samples to VIDC log format **at runtime**, on
+  the real target machine, via the RISC OS Sound system's own
+  `Sound_SoundLog` SWI (confirmed against its RISC OS 3 PRM entry) --
+  guaranteed correct without needing the table's internals, at the cost
+  of one open question (the `<<16` scaling used to feed a 16-bit sample
+  into the SWI's 32-bit input) that's reasoned, not confirmed against a
+  working example, and flagged as the first thing to check if playback
+  sounds wrong.
+- **Assets**: 2 background music tracks (ProTracker `.mod`, downloaded
+  directly from The Mod Archive's API endpoint -- the ordinary web UI
+  blocks automated fetches with a 503, the API download endpoint
+  doesn't; confirmed genuine 4-channel ProTracker via file magic before
+  bundling) and 6 one-shot SFX (dice throw, pawn release, per-move tick,
+  capture, reaching home, game won) sourced from Kenney's CC0 packs plus
+  one CC0 NES-style victory fanfare (trimmed to 4s -- the original
+  ~11s original would have used a disproportionate ~330KB as an 8-bit
+  runtime buffer on the ARM2/1MB profile), converted to raw 16-bit mono
+  PCM via `ffmpeg`, all bundled flat in the app directory (`QTMModule`,
+  `Music1`/`Music2`, `Sfx*`) via new Makefile rules -- see CREDITS.md for
+  full attribution and QTM.md for the exact conversion commands.
+  `app/!Run` gained an `RMEnsure QTM 1.49 RMLoad <ArchiLudo$Dir>.QTMModule`
+  line (only loads ArchiLudo's own bundled copy if a suitable version
+  isn't already resident).
+- **Wired into 6 game events** in `src/game_view.c`: dice throw
+  (`start_roll_animation()`), pawn release (`start_move_animation()`'s
+  zero-distance branch AND `resolve_roll()`'s `just_released` branch --
+  the optional and mandatory release paths respectively, which apply
+  completely differently in the existing code), a normal move
+  (`start_move_animation()`'s main path), and capture/reaching-home/
+  winning -- all three detected around the single `ludo_move_pawn()`
+  call in `start_move_animation()` (its own already-existing capture
+  return value; a before/after comparison of the moved pawn's `finished`
+  flag and `game.winner` for home/win, mutually exclusive via priority
+  win > home > capture).
+- **"Music" iconbar/window menu, per the follow-up request**: a new
+  submenu (`src/main.c`) with a ticked "On" toggle and one ticked
+  "Track N" entry per `QTM_MUSIC_TRACK_COUNT`, ticks refreshed just
+  before the menu opens. Picking a track also turns music on if it was
+  off (a track pick that silently did nothing because music happened to
+  be off would read as broken). Stays visible even when QTM isn't
+  available (every action just becomes a no-op) rather than being
+  hidden, so the feature's presence isn't itself a signal something's
+  missing.
+
+Builds clean under ArchieSDK (no warnings) and is deployed, but **not
+yet manually verified live in Arculator at all** -- see QTM.md's own
+"Known gaps" section and this file's "Resume here" section above.
+
+**Round 7.61**: round 7.60's first live-test pass, per direct user
+report ("First sound FX occurrence (dice throw) gives error message" --
+a genuine ARM data abort, not just a RISC OS error box). Two real bugs
+found and fixed -- full detail in [QTM.md](QTM.md)'s own "Round 7.61"
+section, summarised here: (1) `qtm_play_sfx()`'s SWI register block was
+only partially zeroed (R9 left as stack garbage, unlike every other QTM
+call in the same file), fixed and confirmed live -- the dice SFX now
+plays cleanly with debug logging capturing the exact registers used as
+evidence; (2) `SfxWin` (the largest bundled sample) was silently failing
+to load, most likely a `malloc()` squeeze against `app/!Run`'s original
+256K `WimpSlot` ceiling -- fixed by raising the ceiling to 384K and
+trimming the sample itself shorter (4s -> 2.5s). Music confirmed working
+live in the same session. Still not live-confirmed: the other 5 SFX
+events, the Music menu, and whether the dice SFX actually *sounds*
+right (only confirmed to play without crashing so far).
+
+**Round 7.62**: the exact same crash recurred on the very next live
+test, at the same address, despite round 7.61's fix -- the debug log
+showed `qtm_play_sfx()`'s SWI call itself returning cleanly both times,
+with the abort happening moments later with nothing further logged. That
+pattern pointed at `QTM_PlayRawSample` starting playback
+**asynchronously** (background DMA fill, like any ProTracker-derived
+player) rather than consuming the sample during the SWI call -- meaning
+the real bug was in what happens *after* the call returns, not the call
+itself. Found: R4 (repeat length) was 0, but classic Amiga/ProTracker
+sample headers use **1**, not 0, as the "don't loop" sentinel -- a
+well-known trap in that format family (QTM being fundamentally a
+ProTracker-family player, its raw-sample fill logic almost certainly
+inherited the same convention). Fixed: R4 = 1. Full writeup in
+[QTM.md](QTM.md)'s "Round 7.62" section. **Not yet re-confirmed live.**
+
+**Round 7.63**: round 7.62's fix didn't work either -- the identical
+crash recurred again, unchanged. Rather than guess a fourth register
+value, this round used Arculator's own debugger (its `t enable
+dataabort` command traps data aborts directly, at the user's
+suggestion) to get real evidence instead of another hypothesis. With
+the abort trapped (and so suppressed from becoming the usual error
+box), the same reproduction steps **didn't crash at all** -- instead the
+background music audibly hung on a note the instant the SFX played.
+That's channel contention, not a bad register value: `R0 = -1`
+("automatic channel selection") searching for a channel the currently-
+playing 4-channel module isn't using can end up wrong, handing a raw
+sample the SAME channel the module player is actively driving and
+corrupting its bookkeeping -- explaining both the earlier hard crashes
+and this round's stuck note as one root cause, just different symptoms
+depending on exact timing. Fixed: R0 = a **fixed** channel (5, always
+outside a 4-channel module's own 1-4 range) instead of automatic
+selection. Full writeup in [QTM.md](QTM.md)'s "Round 7.63" section.
+**Not yet re-confirmed live.**
+
+**Round 7.64**: round 7.63's fix confirmed live -- crash gone, music
+keeps playing fine through repeated SFX triggers -- but revealed a new
+symptom: the SFX itself is inaudible, despite `QTM_PlayRawSample`
+returning cleanly every time. One more diagnostic (`Sound_Configure`,
+read-only) showed why: the RISC OS Sound system itself was only
+configured for 4 channels, matching the music -- channel 5 is a valid
+*number* as far as QTM's own SWI is concerned, but the underlying
+hardware/DMA mixing never actually processes it, since `Sound_Configure`
+(not QTM) is what determines how many channels physically exist. Fixed:
+`qtm_initialise()` now bumps the channel count to 5 once, early --
+before music starts playing at all, to avoid finding out empirically
+whether reconfiguring the Sound system live (while something's already
+relying on it) is safe. Full writeup in [QTM.md](QTM.md)'s "Round 7.64"
+section. **Not yet re-confirmed live.**
+
+**Round 7.65**: two independent additions, per explicit user requests --
+a third background music track (`Music3`, "on the run" by Anders
+Lundqvist, same ModArchive download/verification process as the first
+two) and a genuine Track submenu replacing the old "Track N" entries,
+showing each track's real title. The latter needed indirected menu text
+(RISC OS menu entries have only a 12-byte inline text field, too short
+for "digital innovation1") -- the first use of `wimp_ICON_INDIRECTED` on
+a `wimp_menu_entry` rather than a window icon in this project. Full
+writeup in [QTM.md](QTM.md)'s "Round 7.65" section. Confirmed live --
+"Music submenu works".
+
+**Round 7.66**: round 7.64's channel-count fix confirmed NOT working --
+SFX still inaudible (no crash, no hang, no error, just silent). New
+hypothesis: Acorn/VIDC-era sound hardware channel counts are commonly
+constrained to powers of two, so requesting exactly 5 may have been
+silently rounded down to 4. Changed the request to 8, with the actual
+echoed-back count now logged to confirm rather than guess again. Full
+writeup in [QTM.md](QTM.md)'s "Round 7.66" section. **Not yet
+re-confirmed live.**
+
+**Round 7.67**: round 7.66 confirmed not fixed either (channel count
+read back inconsistently, at one point not even reflecting the explicit
+request at all) -- per direct user request ("Can you find any online
+resources on how to do sound FX with QTM?"), found real source code from
+**QTM's own author** (Steve Harrison, posting as "steve3000" on a
+stardot.org.uk RISC OS porting thread) rather than guessing a sixth
+time: a shared BASIC test program (`lin2LOG`, detokenised to read),
+proving `QTM_SoundControl` -- undocumented anywhere else found -- must
+be called to reserve sample channels before `QTM_PlayRawSample` works at
+all, which is why rounds 7.64/7.66's OS-level `Sound_Configure` attempts
+were never going to work (wrong layer entirely). Also corrected round
+7.62's repeat-length guess (0, not 1) against the author's own real
+usage. `QTM_SFX_CHANNEL` changed from 5 to 1, now understood as a
+channel within QTM's own reserved sample pool, not a raw hardware
+channel. Full writeup in [QTM.md](QTM.md)'s "Round 7.67" section --
+highest-confidence fix in this investigation so far, since it's grounded
+in the actual author's working code, but **not yet re-confirmed live.**
+
+**Round 7.68**: round 7.67 confirmed still crashing (same asynchronous
+data-abort pattern, at a slightly different address). Line-by-line
+comparison against the author's own `lin2LOG` register values found a
+genuine remaining discrepancy: R8 was 0 in every attempt so far, but the
+author's own code passes R8=255 unconditionally, even on its fixed
+channel-1 calls -- contradicting round 7.63's assumption (from the SWI's
+written docs) that R7/R8 only matter when R0=-1. Fixed: R7=0, R8=255 set
+explicitly regardless of channel. Full writeup in [QTM.md](QTM.md)'s
+"Round 7.68" section. **Not yet re-confirmed live.**
+
+**Round 7.69**: round 7.68 confirmed still crashing, same fault pattern.
+With R7/R8 now matching the author's own reference exactly, the last
+register still differing in *kind* (not just value) was R5: this
+project used an Amiga period (322), but the author's own `lin2LOG`
+calls only ever use small 1-36 "note" values. Changed R5 from
+`QTM_SFX_PERIOD` to `QTM_SFX_NOTE` (18, an arbitrary mid-range pick) as
+an isolating test -- not a final tuned value, just to determine whether
+QTM's period-range support itself is what's unreliable. Full writeup in
+[QTM.md](QTM.md)'s "Round 7.69" section. **Not yet re-confirmed live.**
+
+**Round 7.70**: round 7.69 confirmed still crashing -- R5 wasn't it,
+every register now matched the author's reference exactly. Per direct
+user question, analysed the crash ADDRESS itself rather than the
+registers: round 7.63's original crash was at `&0182A768`, but every
+crash since round 7.67 has been at a different address, `&0182A6BC` --
+two different faults, not one persisting. Round 7.63's fixed-channel-5
+fix (before `QTM_SoundControl` existed in this code) was genuinely
+stable, just silent; the second crash only appeared once round 7.67
+added `QTM_SoundControl` (reserving 4 channels) alongside switching to
+channel 1. Diagnosis: reserving exactly 4 channels (matching the
+4-channel music) succeeds cleanly before the module loads, but the
+module player has no way to know and claims channels 1-4 for itself
+anyway once started -- recreating the same class of channel collision
+round 7.63 already fixed once, via a different mechanism. Fixed:
+reserve 8 channels instead of 4, play SFX on channel 5 again (within
+the reservation, outside the module's own 1-4 range). Also, per the
+user's own suggestion, deployed QTM's author's own reference test
+program directly to Arculator's hostfs as an independent check. Full
+writeup in [QTM.md](QTM.md)'s "Round 7.70" section. **Not yet
+re-confirmed live.**
+
+**Round 7.71 -- the real root cause, found live**: round 7.70 confirmed
+still crashing, but this round produced the actual breakthrough. At the
+user's own initiative, with Arculator's data-abort trap still armed
+from an earlier round, the debugger caught a live ArchiLudo crash and
+was used to disassemble at the exact address RISC OS's own error dialog
+reported (`d 182a768`) -- revealing a classic pitch-shifted resampling
+read loop (`R1 ASR #12` converting a fixed-point playback position to a
+byte offset, reading past the sample buffer's end). This is normal,
+required behaviour for an interpolating sample player, not a bug in
+`QTM_PlayRawSample` -- the real bug was that this project's own sample
+buffers were allocated to exactly the sample's length, with no
+lookahead margin, so the legitimate overshoot read walked into unmapped
+memory. This retroactively explains why every register-value change
+across rounds 7.61-7.69 (R9 zeroing, repeat length, channel selection,
+R7/R8, note vs period) never fixed anything -- none of them were the
+actual cause. Fixed: sample buffers now allocate 64 bytes of trailing
+safety padding (genuine VIDC-log silence, queried via
+`sound_sound_log(0)` rather than assumed), leaving the real reported
+sample length unchanged. Full writeup in [QTM.md](QTM.md)'s "Round
+7.71" section -- highest-confidence fix yet, being the first derived
+from watching actual CPU state at the moment of the fault rather than
+register comparison or documentation inference. **Not yet re-confirmed
+live.**
+
+**Round 7.72 -- the actual mechanism**: round 7.71 confirmed still
+crashing at the same address -- 64 bytes of padding wasn't remotely
+enough, prompting a deeper live debugging session (continuing to
+disassemble forward through the whole resampling routine, at the user's
+own initiative). Found the real mechanism: the fill loop is bounded by
+output progress only (`CMP R12,R10`), with no check on remaining source
+data at all, so any padding amount is fundamentally the wrong kind of
+fix; a separate wraparound calculation
+(`ADDS R1,R1,R2 / SUBGE R1,R1,R5 LSL #12`) is what's meant to wrap the
+read position back once it passes the sample's length, but with repeat
+length 0 that subtraction never fires and the position grows unbounded
+instead. QTM's own author's `lin2LOG` uses repeat length 0 successfully,
+but his samples are long relative to a single fill chunk, so this path
+likely never triggered for him -- ArchiLudo's own short SFX (some under
+1100 bytes) are exactly the case where it does. Fixed: repeat length set
+to the sample's own real length rather than 0, at a real cost -- the
+sample will now genuinely loop rather than stop after one play, needing
+a follow-up (explicitly silencing the channel once its natural duration
+elapses) not yet implemented; this round is specifically an isolating
+test to confirm the crash itself is gone first. Full writeup in
+[QTM.md](QTM.md)'s "Round 7.72" section. **Not yet re-confirmed live.**
+
+**Round 7.73**: round 7.72 confirmed still crashing, same address --
+wraparound fix alone wasn't sufficient. Reinstated a real Amiga period
+(322, matching the SFX's actual 11025Hz rate) in place of round 7.69's
+arbitrary note value, kept alongside (not instead of) round 7.72's
+wraparound fix -- untested in combination until now. Full writeup in
+[QTM.md](QTM.md)'s "Round 7.73" section. **Not yet re-confirmed live.**
+
+**Round 7.74 -- SFX disabled after 14 rounds**: round 7.73 confirmed
+still crashing, same address, closing out the `QTM_PlayRawSample`
+investigation. Checked three more real, shipped Archimedes codebases
+(`kieranhj/arc-django-2`, `bitshifters/aklang`, `bitshifters/mikroreise`)
+per direct user request -- none use `QTM_PlayRawSample`,
+`QTM_PlaySample`, or `QTM_RegisterSample` for one-shot effects at all;
+all embed extra sounds as MOD instrument samples instead.
+`arc-django-2` also corrected a real standing misunderstanding:
+`QTM_SoundControl`'s R1 is a behaviour-flags bitmask, not a
+channel-reservation count as rounds 7.67-7.73 believed -- that logic was
+removed from `qtm_initialise()`. Decision: `qtm_play_sfx()` disabled as
+a no-op (sample loading/conversion kept, unused, as groundwork); music
+is unaffected and remains confirmed working live. Full writeup,
+including the recommended future approach (embed as MOD instruments,
+trigger via `QTM_PlaySample` by index), in [QTM.md](QTM.md)'s "Round
+7.74" section.
+
+**Round 7.75 -- music didn't stop on quit**: live-tested regression --
+QTM is a relocatable module independent of the ArchiLudo task, so
+neither the Quit menu nor `Message_Quit` stopped it; background music
+kept playing after the application closed. Fixed with a single
+`qtm_set_music_enabled(0)` call in `main()` right after the poll loop
+ends (both quit paths converge there) -- reuses the existing public
+stop entry point (already calls `qtm_clear()` internally) rather than
+adding a new one. `src/main.c`.
+
+**Round 7.76 -- MOD-embedded SFX samples, tried cautiously**: per
+direct user request, implemented round 7.74's recommended path --
+`tools/mod_embed_sfx.py` (new) splices the 6 bundled SFX into empty
+ProTracker sample slots of `Music1`/`Music2`/`Music3` (converted to
+8-bit signed linear PCM, the native tracker format -- unrelated to the
+VIDC-log format `QTM_PlayRawSample` needed), validated via `ffprobe`'s
+libopenmpt demuxer after every run. `Music3`'s own artist-authored
+sample table only has 3 free slots (not 6 like the other two tracks),
+so slot assignment is per-track (`lib/qtm.c`'s new `sfx_slot[][]`
+table) -- Music3 keeps only Capture/Home/Win. `qtm_play_sfx()` now
+calls `QTM_PlaySample` (`0x47e54`), but its register convention is
+unconfirmed guesswork (no working example found anywhere in this
+project's research) -- per explicit user decision, only `QTM_SFX_DICE`
+actually calls it for now, closing the loop on where the original crash
+saga started with a different SWI; every other event stays a no-op
+until this one is confirmed safe live. Full writeup in
+[QTM.md](QTM.md)'s "Round 7.76" section. **Not yet re-confirmed live.**
+
+**Round 7.77 -- QTM_PlaySample confirmed live: no crash, but silent**:
+live-tested round 7.76's call -- the good news first, no crash at all
+(unlike `QTM_PlayRawSample`'s entire 14-round history). But also no
+audible sound. Six individually cautious, single-variable experiments
+followed (auto vs. fixed channel, matching the QTM module version used
+by the reference codebases -- v1.49b swapped for the byte-identical
+v1.49c all three bundle, `QTM_SampleVolume`, `QTM_RemoveChannel`, an
+explicit in-range channel), each live-tested and reported back before
+trying the next. All six were accepted cleanly with no error and no
+audible change; one produced a genuinely different output register
+value that didn't reproduce on a direct follow-up test. No
+documentation or working example of `QTM_PlaySample`'s register
+convention exists anywhere this project's research found. Per direct
+user decision, raised as a question on stardot.org.uk instead of
+continuing to guess:
+`https://stardot.org.uk/forums/viewtopic.php?t=33515`. Code is
+unchanged from round 7.76's safe, silent, Dice-only state pending a
+reply. Full writeup in [QTM.md](QTM.md)'s "Round 7.77" section.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and

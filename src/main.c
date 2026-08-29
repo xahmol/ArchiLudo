@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "oslib/wimp.h"
 #include "archiludo.h"
@@ -9,17 +10,50 @@
 #include "save_view.h"
 #include "win_view.h"
 #include "rules_view.h"
+#include "qtm.h"
 
 wimp_t task_handle;
 
-#define ICONBAR_MENU_ITEMS      5
+#define ICONBAR_MENU_ITEMS      6
 #define ICONBAR_MENU_NEW_GAME   0
 #define ICONBAR_MENU_SAVE_GAME  1
 #define ICONBAR_MENU_LOAD_GAME  2
-#define ICONBAR_MENU_ABOUT      3
-#define ICONBAR_MENU_QUIT       4
+#define ICONBAR_MENU_MUSIC      3
+#define ICONBAR_MENU_ABOUT      4
+#define ICONBAR_MENU_QUIT       5
 
 static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
+
+/* Round 7.60: the "Music" iconbar/window menu entry's own submenu --
+ * "On" (a ticked toggle) and "Track" (round 7.65: itself a further
+ * submenu, see track_menu below, rather than "Track N" entries directly
+ * here -- per explicit user request to show each track's own full title
+ * rather than a generic number). A no-op menu (present, but every click
+ * on it does nothing) if qtm_available() is false, e.g. QTM isn't
+ * loaded -- the entries themselves stay visible rather than
+ * disappearing, so it's obvious the feature exists even when silent. */
+#define MUSIC_MENU_ON    0
+#define MUSIC_MENU_TRACK 1
+#define MUSIC_MENU_ITEMS 2
+
+static wimp_MENU(MUSIC_MENU_ITEMS) music_menu;
+
+/* Round 7.65: "Track"'s own submenu -- one ticked entry per bundled
+ * track, showing its real title (not "Track N") -- per explicit user
+ * request. Indirected text (wimp_ICON_INDIRECTED): at up to ~20
+ * characters, these titles don't fit the 12-byte inline menu-entry text
+ * field every other menu in this project uses. Titles are the bundled
+ * `.mod` files' own embedded song titles (confirmed via `file`/hex
+ * inspection when each was sourced, see CREDITS.md), not invented --
+ * kept here as a parallel fixed array, the same convention lib/qtm.c's
+ * own sfx_leafname[] already uses for a per-index fixed string table. */
+#define TRACK_MENU_ITEMS QTM_MUSIC_TRACK_COUNT
+
+static wimp_MENU(TRACK_MENU_ITEMS) track_menu;
+
+static const char *const track_titles[QTM_MUSIC_TRACK_COUNT] = {
+	"digital innovation1", "lk's doskpop", "on the run"
+};
 
 /*
  * Function: create_iconbar_icon
@@ -91,9 +125,11 @@ static void set_menu_entry(wimp_menu_entry *entry, const char *text, int is_last
  *          dialogue), "Save Game"/"Load Game" (open src/save_view.c's
  *          dialogues -- per explicit user request for GEOS-menu parity;
  *          see docs/ARCHITECTURE.md's Round 7.1 notes on why "Color" and
- *          "(Re)Start" from GEOS's own menu aren't included), "About"
- *          (reopens src/splash_view.c's splash/about window, shown
- *          automatically once at startup too), and "Quit".
+ *          "(Re)Start" from GEOS's own menu aren't included), "Music"
+ *          (opens the Music submenu, see build_music_menu() -- round
+ *          7.60, per explicit user request that music be "selectable and
+ *          optional"), "About" (reopens src/splash_view.c's splash/about
+ *          window, shown automatically once at startup too), and "Quit".
  */
 static void build_iconbar_menu(void)
 {
@@ -109,10 +145,124 @@ static void build_iconbar_menu(void)
 	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_NEW_GAME], "New Game", 0);
 	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_SAVE_GAME], "Save Game", 0);
 	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_LOAD_GAME], "Load Game", 0);
+	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_MUSIC], "Music", 0);
+	iconbar_menu.entries[ICONBAR_MENU_MUSIC].sub_menu = (wimp_menu *) &music_menu;
 	/* "About ArchiLudo" doesn't fit the fixed 12-byte inline menu-icon
 	 * text buffer, hence the shorter "About". */
 	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_ABOUT], "About", 0);
 	set_menu_entry(&iconbar_menu.entries[ICONBAR_MENU_QUIT], "Quit", 1);
+}
+
+/*
+ * Function: build_music_menu
+ * Summary: Build the (fixed, never rebuilt) Music submenu: "On" (a
+ *          ticked toggle) and "Track" (opens track_menu, see
+ *          build_track_menu()) -- ticks/sub_menu are set up here since
+ *          neither changes after creation; refresh_music_menu_ticks()
+ *          only ever updates "On"'s tick. Built and shown regardless of
+ *          qtm_available() -- see include/qtm.h's own doc comment on why
+ *          this stays visible (rather than being hidden) when QTM isn't
+ *          actually present.
+ */
+static void build_music_menu(void)
+{
+	strncpy(music_menu.title_data.text, "Music", 12);
+	music_menu.title_fg = wimp_COLOUR_BLACK;
+	music_menu.title_bg = wimp_COLOUR_LIGHT_GREY;
+	music_menu.work_fg = wimp_COLOUR_BLACK;
+	music_menu.work_bg = wimp_COLOUR_WHITE;
+	music_menu.width = 150;
+	music_menu.height = wimp_MENU_ITEM_HEIGHT;
+	music_menu.gap = wimp_MENU_ITEM_GAP;
+
+	set_menu_entry(&music_menu.entries[MUSIC_MENU_ON], "On", 0);
+	set_menu_entry(&music_menu.entries[MUSIC_MENU_TRACK], "Track", 1);
+	music_menu.entries[MUSIC_MENU_TRACK].sub_menu = (wimp_menu *) &track_menu;
+}
+
+/*
+ * Function: build_track_menu
+ * Summary: Build the (fixed, never rebuilt) Track submenu -- one entry
+ *          per bundled track, showing its real title via indirected text
+ *          (track_titles[], which the Wimp reads directly rather than
+ *          copying into the entry's own 12-byte inline buffer -- these
+ *          titles run well past 12 characters). Ticks reflect the
+ *          current selection and are refreshed by
+ *          refresh_track_menu_ticks() just before the menu opens.
+ */
+static void build_track_menu(void)
+{
+	int i;
+	wimp_menu_entry *entry;
+
+	strncpy(track_menu.title_data.text, "Track", 12);
+	track_menu.title_fg = wimp_COLOUR_BLACK;
+	track_menu.title_bg = wimp_COLOUR_LIGHT_GREY;
+	track_menu.work_fg = wimp_COLOUR_BLACK;
+	track_menu.work_bg = wimp_COLOUR_WHITE;
+	/* Wide enough for "digital innovation1" (20 characters) at the
+	 * system font's fixed-width menu rendering, plus margin -- see
+	 * game_view.h's GAME_VIEW_NAME_LEN comment for the same
+	 * 16-units/character convention this project already relies on
+	 * elsewhere. */
+	track_menu.width = 22 * 16;
+	track_menu.height = wimp_MENU_ITEM_HEIGHT;
+	track_menu.gap = wimp_MENU_ITEM_GAP;
+
+	for (i = 0; i < QTM_MUSIC_TRACK_COUNT; i++) {
+		entry = &track_menu.entries[i];
+		entry->menu_flags = (i == QTM_MUSIC_TRACK_COUNT - 1) ? wimp_MENU_LAST : 0;
+		entry->sub_menu = wimp_NO_SUB_MENU;
+		entry->icon_flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_FILLED |
+		                    wimp_ICON_VCENTRED
+		                  | (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT)
+		                  | (wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT);
+		/* track_titles[] entries are string literals, never written to --
+		 * the cast away from const matches how this project's other
+		 * indirected-text icons already assign literals directly to this
+		 * same (non-const, per OSLib's own struct) field, e.g.
+		 * save_view.c's "Save"/"Cancel" button labels. */
+		entry->data.indirected_text.text = (char *) track_titles[i];
+	}
+}
+
+/*
+ * Function: refresh_music_menu_ticks
+ * Summary: Set the Music submenu's TICKED flag on "On" (per
+ *          qtm_music_enabled()) -- called right before the shared menu
+ *          opens (see main_dispatch()'s wimp_CLICK_MENU handling), the
+ *          same "just-in-time" approach as recomputing a menu's contents
+ *          via Menu_Warning, but simpler since only tick state ever
+ *          changes here, not the entries themselves. Track's own tick
+ *          state is refreshed separately, by refresh_track_menu_ticks(),
+ *          just before *that* submenu opens.
+ */
+static void refresh_music_menu_ticks(void)
+{
+	if (qtm_music_enabled())
+		music_menu.entries[MUSIC_MENU_ON].menu_flags |= wimp_MENU_TICKED;
+	else
+		music_menu.entries[MUSIC_MENU_ON].menu_flags &= ~wimp_MENU_TICKED;
+}
+
+/*
+ * Function: refresh_track_menu_ticks
+ * Summary: Set the Track submenu's TICKED flag on whichever entry
+ *          matches qtm_music_track() -- called right before the Music
+ *          submenu opens (same as refresh_music_menu_ticks()), since
+ *          RISC OS pops a submenu open on hover with no separate event
+ *          this project could hook just for Track specifically.
+ */
+static void refresh_track_menu_ticks(void)
+{
+	int i;
+
+	for (i = 0; i < QTM_MUSIC_TRACK_COUNT; i++) {
+		if (i == qtm_music_track())
+			track_menu.entries[i].menu_flags |= wimp_MENU_TICKED;
+		else
+			track_menu.entries[i].menu_flags &= ~wimp_MENU_TICKED;
+	}
 }
 
 void archiludo_initialise(const char *argv0)
@@ -121,6 +271,8 @@ void archiludo_initialise(const char *argv0)
 
 	task_handle = wimp_initialise(wimp_VERSION_RO30, APP_NAME, NULL, &version_out);
 	create_iconbar_icon();
+	build_track_menu();
+	build_music_menu();
 	build_iconbar_menu();
 	game_view_initialise(argv0);
 	setup_view_initialise();
@@ -132,6 +284,11 @@ void archiludo_initialise(const char *argv0)
 	 * built from game_view_app_dir(), which needs argv0 already
 	 * processed. */
 	save_view_initialise();
+	/* After game_view_initialise() too -- qtm.c's bundled asset paths are
+	 * also built from game_view_app_dir(). Starts background music
+	 * immediately if QTM is available (round 7.60's default: enabled,
+	 * track 1) -- a silent no-op otherwise. */
+	qtm_initialise();
 }
 
 /*
@@ -188,6 +345,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 		 * so there's no risk of hijacking a MENU click meant for some
 		 * other application's window. */
 		if (block->pointer.buttons & wimp_CLICK_MENU) {
+			refresh_music_menu_ticks();
+			refresh_track_menu_ticks();
 			wimp_create_menu((wimp_menu *) &iconbar_menu,
 			                  block->pointer.pos.x, block->pointer.pos.y);
 			break;
@@ -256,29 +415,44 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			save_view_open();
 		else if (block->selection.items[0] == ICONBAR_MENU_LOAD_GAME)
 			load_view_open();
-		else if (block->selection.items[0] == ICONBAR_MENU_ABOUT)
+		else if (block->selection.items[0] == ICONBAR_MENU_MUSIC) {
+			/* items[1] is the Music submenu's own selected entry -- see
+			 * build_music_menu()/refresh_music_menu_ticks(). "On" toggles
+			 * (rather than only ever turning on) since it's a ticked
+			 * toggle, not a one-way action, matching how a ticked menu
+			 * entry conventionally behaves. items[1] == MUSIC_MENU_TRACK
+			 * with items[2] set (round 7.65) means a track was actually
+			 * picked from Track's own submenu (see build_track_menu()) --
+			 * items[2] == -1 would mean Track was merely hovered/opened
+			 * without picking anything, which shouldn't reach here at all
+			 * (Menu_Selection only fires on an actual choice), but is
+			 * still guarded defensively rather than assumed. */
+			if (block->selection.items[1] == MUSIC_MENU_ON)
+				qtm_set_music_enabled(!qtm_music_enabled());
+			else if (block->selection.items[1] == MUSIC_MENU_TRACK
+			      && block->selection.items[2] >= 0
+			      && block->selection.items[2] < QTM_MUSIC_TRACK_COUNT) {
+				/* Picking a track implies wanting to hear it, even if
+				 * music was off -- per explicit user request that music
+				 * be switchable from the menu, a track pick that
+				 * silently does nothing because music happened to be
+				 * off would read as broken, not "off". */
+				qtm_set_music_track(block->selection.items[2]);
+				qtm_set_music_enabled(1);
+			}
+		} else if (block->selection.items[0] == ICONBAR_MENU_ABOUT)
 			splash_view_open();
 		else if (block->selection.items[0] == ICONBAR_MENU_QUIT)
 			return true;
 		break;
 
-	case wimp_USER_DRAG_BOX:
-		/* Only src/save_view.c's Save dialogue ever starts a drag (its
-		 * draggable file icon, see save_view_click()) -- routed here
-		 * unconditionally since there's nothing else in ArchiLudo a
-		 * User_Drag_Box event could belong to. */
-		save_view_drag_ended(&block->dragged);
-		break;
-
 	case wimp_USER_MESSAGE:
 	case wimp_USER_MESSAGE_RECORDED:
+		/* Round 7.59: save/load moved from free-form drag-and-drop to 5
+		 * fixed save slots (see src/save_view.c) -- Message_Quit is the
+		 * only message ArchiLudo has any reason to care about now. */
 		if (block->message.action == message_QUIT)
 			return true;
-		/* Message_DataSaveAck (continuing a save-drag) and an
-		 * unsolicited Message_DataLoad (a file dragged in from Filer) --
-		 * see save_view_message_received()'s doc comment. A no-op for
-		 * any other message action. */
-		save_view_message_received(&block->message);
 		break;
 
 	case wimp_NULL_REASON_CODE:
@@ -320,6 +494,16 @@ int main(int argc, char *argv[])
 	 * Phase 1 implementation notes, "Round 4". */
 	archiludo_initialise(argc > 0 ? argv[0] : "");
 	archiludo_poll_loop();
+
+	/* QTM is a relocatable module, independent of this task -- without an
+	 * explicit stop, background music keeps playing after ArchiLudo itself
+	 * quits (both the Quit menu and Message_Quit converge on the poll loop
+	 * ending here, so this one call covers both). Round 7.81:
+	 * qtm_set_music_enabled(0) no longer actually stops QTM (it mutes,
+	 * leaving the song loaded so SFX keep working with music off) --
+	 * qtm_shutdown() is the dedicated call for real shutdown, see
+	 * lib/qtm.c. */
+	qtm_shutdown();
 
 	wimp_close_down(task_handle);
 

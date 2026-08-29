@@ -186,7 +186,50 @@ def draw_icon(draw):
 # build_pawn_image() already documents for its own highlight dither:
 # "the dither pattern must be chosen at the FINAL pixel grid, not the
 # supersampled one."
-DIE_BOX_WORK = sc(150, 8, 306, 164)
+#
+# Round 7.51: enlarged from (150, 8, 306, 164) (a 156x156 box) to
+# (140, 10, 310, 190) (170x180) -- per direct live user report that the
+# pip whitespace fix below still left NO margin between the outer pips
+# and the die's own border at all, and the user's own suggested fix
+# ("increasing the dice size... enough to have that white space"). The
+# earlier _pip_axis_layout() fix only reserved the 2 INTER-pip gaps,
+# filling the entire white interior with pip+gap+pip+gap+pip and
+# leaving zero room for a margin between the outer pips and the
+# border -- fixed at the same time by adding 2 more reserved segments
+# there (see _pip_axis_layout()'s own doc comment), but that alone
+# needs a real minimum interior of 7px per axis (3 pips + 4 spacing
+# segments, 1px each) to have ANY margin at all, and the smallest
+# ("half") icon's own die box only left ~5px. Grown asymmetrically
+# (not about its own centre) -- extended right and down into this
+# canvas's own generous unused space there, left/top edges nudged only
+# slightly -- confirmed by direct rendering that this doesn't collide
+# with the pawn silhouette (which sits to the lower-left) or get
+# clipped by the canvas edge (unlike the dilate-based clipping risk
+# round 7.33 found for the pawn art, stamp_die()/stamp_pips() draw
+# exact rectangles with no dilation margin to protect, so the only risk
+# here is the box itself exceeding the canvas, checked directly).
+DIE_BOX_WORK = sc(140, 10, 310, 190)
+
+
+def _round_box(die_box):
+    """
+    Function: _round_box (internal)
+    Summary: Round a (x0, y0, x1, y1) box to whole pixels ONCE, shared
+             by stamp_die() and stamp_pips() -- Round 7.50 fix: the two
+             functions used to each work from the raw float die_box
+             independently (stamp_die drawing straight from the floats,
+             stamp_pips rounding its own copy), which at this project's
+             smallest ("half rect") icon size -- a ~7.0x3.7px die box --
+             let stamp_pips round the height up to 4 while stamp_die's
+             own float rectangle only ever painted ~3.7px of it,
+             misaligning the pip grid against the die's actual painted
+             border/interior badly enough to visibly break the pip
+             layout. Both functions must agree on the exact same
+             integer box.
+    Syntax:  x0, y0, x1, y1 = _round_box(die_box)
+    """
+    x0, y0, x1, y1 = die_box
+    return round(x0), round(y0), round(x1), round(y1)
 
 
 def stamp_die(img, die_box):
@@ -210,10 +253,13 @@ def stamp_die(img, die_box):
                        matching the intended "die in front" composition.
              die_box - (x0, y0, x1, y1), the die's own bounding box in
                        THIS image's own pixel coordinates (see
-                       die_box_in()).
+                       die_box_in()). Rounded to whole pixels via
+                       _round_box() -- see its own doc comment for why
+                       this must match stamp_pips()'s own rounding
+                       exactly.
     Output:  none. Draws in place.
     """
-    x0, y0, x1, y1 = die_box
+    x0, y0, x1, y1 = _round_box(die_box)
     w, h = x1 - x0, y1 - y0
     draw = ImageDraw.Draw(img)
     draw.rectangle((x0, y0, x1, y1), fill=(*OUTLINE_COLOUR, 255))
@@ -226,6 +272,50 @@ def stamp_die(img, die_box):
                     fill=(*DIE_COLOUR, 255))
 
 
+def _pip_axis_layout(interior_size):
+    """
+    Function: _pip_axis_layout (internal)
+    Summary: Lay out "margin, pip, gap, pip, gap, pip, margin" along one
+             axis of the die's white interior as a hard INTEGER grid --
+             every one of the 7 segments at least 1px -- so a pip can
+             never touch another pip OR the interior's own edge (i.e.
+             the die's border), regardless of how small `interior_size`
+             is. Round 7.50 (first cut): only reserved the 2 inter-pip
+             gaps, filling the ENTIRE interior with pip+gap+pip+gap+pip
+             and leaving the two OUTER pips flush against the border --
+             per direct live user report ("the app icon pips now have
+             no white space to upper and left border") on the actual
+             rendered icon. This revision adds the 2 outer margins as
+             their own reserved segments, same >=1px guarantee as the
+             inter-pip gaps.
+    Syntax:  pip, margin_a, gap_a, gap_b, margin_b = _pip_axis_layout(interior_size)
+    Input:   interior_size - the die's white interior extent along one
+                             axis, in pixels (already excludes the
+                             die's own border -- see stamp_pips()).
+    Output:  (pip, margin_a, gap_a, gap_b, margin_b) -- pip is the pip
+             square's extent along this axis; margin_a/margin_b are the
+             gaps between the interior's own edges and the outermost
+             pips; gap_a/gap_b are the two inter-pip gaps. All >= 1
+             whenever interior_size >= 7 (the true minimum for 3 pips +
+             4 spacing segments at 1px each -- see DIE_BOX_WORK's own
+             Round 7.50 comment for why the die box was enlarged to
+             make this achievable at every icon size this project
+             actually ships except the smallest rectangular one); below
+             that, pip still floors at 1 and the remaining space is
+             split across the 4 spacing segments as evenly as possible,
+             which can still leave some at 0 if interior_size < 7.
+    """
+    pip = max(1, (interior_size - 4) // 3)
+    while pip > 1 and 3 * pip + 4 > interior_size:
+        pip -= 1
+    remaining = max(0, interior_size - 3 * pip)
+    base = remaining // 4
+    extra = remaining - base * 4
+    spaces = [base + (1 if i < extra else 0) for i in range(4)]
+    margin_a, gap_a, gap_b, margin_b = spaces
+    return pip, margin_a, gap_a, gap_b, margin_b
+
+
 def stamp_pips(img, die_box):
     """
     Function: stamp_pips
@@ -236,6 +326,21 @@ def stamp_pips(img, die_box):
              resampled along with everything else. Call AFTER
              stamp_die(), so the pips land on top of the die's white
              interior.
+
+             Round 7.50: pip positions and sizes are now a hard integer
+             grid within the die's own white interior (border + pip +
+             gap + pip + gap + pip + border along each axis, via
+             _pip_axis_layout()) instead of fractional (0.25/0.5/0.75
+             of the box) positioning -- the old approach had no explicit
+             minimum-gap guarantee, and at this project's smallest
+             ("half") icon size the ~7x7px die box left pips reading as
+             a solid merged blob with no visible whitespace at all
+             (confirmed by rendering and zooming the actual shipped
+             icon). The border width matches stamp_die()'s own
+             `round(w/8)`/`round(h/8)` formula exactly, so the pip grid
+             sits flush against the same white interior the die itself
+             actually painted, not a separately-computed approximation
+             of it.
     Syntax:  stamp_pips(img, die_box)
     Input:   img     - a Pillow RGBA image, already at its final output
                        size, with the die's plain white body (see
@@ -245,22 +350,32 @@ def stamp_pips(img, die_box):
                        die_box_in()).
     Output:  none. Draws in place.
     """
-    x0, y0, x1, y1 = die_box
-    w, h = x1 - x0, y1 - y0
-    # Same face-"5" corners+centre layout as src/game_view.c's own
-    # plot_dice() pips[4] entry. Pip size is a fixed fraction of the
-    # die's own box (not of the pip's own WORK-space size), so it's
-    # always genuinely proportional to how big the die actually came
-    # out in this specific output, with a 1-pixel floor so it can never
-    # vanish entirely at the smallest sizes.
-    pip_w = max(1, round(w / 6))
-    pip_h = max(1, round(h / 6))
+    ix0, iy0, ix1, iy1 = _round_box(die_box)
+    w, h = ix1 - ix0, iy1 - iy0
+    # Same border formula as stamp_die() -- must match exactly, since
+    # the pip grid below is laid out against the interior THAT border
+    # actually leaves.
+    border_w = max(1, round(w / 8))
+    border_h = max(1, round(h / 8))
+    interior_x0, interior_y0 = ix0 + border_w, iy0 + border_h
+    interior_w = w - 2 * border_w
+    interior_h = h - 2 * border_h
+
+    pip_w, margin_wa, gap_wa, gap_wb, margin_wb = _pip_axis_layout(interior_w)
+    pip_h, margin_ha, gap_ha, gap_hb, margin_hb = _pip_axis_layout(interior_h)
+
+    col0 = interior_x0 + margin_wa
+    col1 = col0 + pip_w + gap_wa
+    col2 = interior_x0 + interior_w - margin_wb - pip_w
+    row0 = interior_y0 + margin_ha
+    row1 = row0 + pip_h + gap_ha
+    row2 = interior_y0 + interior_h - margin_hb - pip_h
+
     draw = ImageDraw.Draw(img)
-    for fx, fy in ((0.25, 0.25), (0.75, 0.25), (0.5, 0.5), (0.25, 0.75), (0.75, 0.75)):
-        cx = x0 + fx * w
-        cy = y0 + fy * h
-        draw.rectangle((cx - pip_w / 2, cy - pip_h / 2, cx + pip_w / 2, cy + pip_h / 2),
-                        fill=(*OUTLINE_COLOUR, 255))
+    # Same face-"5" corners+centre layout as src/game_view.c's own
+    # plot_dice() pips[4] entry.
+    for px, py in ((col0, row0), (col2, row0), (col1, row1), (col0, row2), (col2, row2)):
+        draw.rectangle((px, py, px + pip_w - 1, py + pip_h - 1), fill=(*OUTLINE_COLOUR, 255))
 
 
 def die_box_in(target_w, target_h, source_w, source_h):
