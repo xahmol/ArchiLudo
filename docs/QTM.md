@@ -949,4 +949,192 @@ regardless of how the trigger-side mystery resolves. If
 `viewtopic.php?t=33515` gets a real answer, that's the next thing to
 try -- not another guess.
 
+## Round 7.78: the real answer, from QTM's own official documentation
+
+The user found and downloaded the official QTM v1.49 distribution
+archive itself (`Documents/Technical/API-SWIs`, `Documents/Technical/
+Technical`, and the full BBC BASIC-assembler source for the module) --
+a resource none of this project's earlier web/GitHub research had
+turned up. `Documents/Technical/API-SWIs` gives the complete, authoritative
+register convention for every QTM SWI, confirming round 7.76's
+`QTM_PlaySample` guess was already correct (R0=channel 1-8 or -1,
+R1=sample 0/1-64, R2=note-or-period with flags in bits 28-31, R3=linear
+volume 0-64; R4/R5 only required when R0=-1) -- see the register-level
+detail preserved in `qtm_play_sfx()`'s own doc comment in `lib/qtm.c`.
+
+The real missing piece was `QTM_SoundControl`: its R0 genuinely is a
+channel-count switch (4 or 8), confirmed by the official docs --
+**round 7.67's original belief was right all along**; round 7.74's
+"correction" (R1 is a flags bitmask, based on `kieranhj/arc-django-2`'s
+own usage) was also correct, just incomplete -- that code simply never
+happened to touch R0. `Documents/Technical/Technical` spells out exactly
+why this matters: "In 8 channel mode, by default the first 4 channels
+are used to play the song... the remaining 4 can be used for playing
+sound effects uninterrupted by the music." ArchiLudo's MODs are all
+4-channel, which leaves QTM in 4-channel mode by default -- channels 5-8
+are numerically legal `QTM_PlaySample` parameters (accepted, no error)
+but were never actually being mixed by the DMA engine, exactly matching
+round 7.77's "accepted but silent" symptom.
+
+Fix: `qtm_initialise()` now calls `QTM_SoundControl` with R0=8 (enable
+8-channel mode), R1=-1 (leave existing flags alone, so the song stays on
+channels 1-4 by default), R2=-1 (reserved, per the docs). Round 7.67's
+removed "channel reservation" logic is effectively reinstated, but this
+time with the correct, documented meaning rather than a guess.
+
+Also swapped the bundled `QTMModule` from v1.49b to v1.49c during this
+investigation (both confirmed byte-identical across all three GitHub
+reference repos) in case the SWI's behaviour differed by sub-version --
+turned out not to be the actual fix (the SoundControl channel count
+was), but kept since it's the version those reference codebases
+themselves use.
+
+## Round 7.79: per-SFX channel, not one shared fixed channel
+
+Live-tested round 7.78's fix: **confirmed no crash** (unlike
+`QTM_PlayRawSample`'s entire history), and one SFX (pawn release) was
+finally audible. But every SFX had been sharing a single fixed channel
+(5) -- and Dice, always immediately followed by a Move trigger once the
+roll resolves, was found silent. Diagnosed as channel contention between
+*two different SFX* sharing one channel (Move's trigger cutting Dice's
+off), not a repeat of the old music-vs-SFX contention round 7.63 already
+solved. Fixed with `sfx_channel[QTM_SFX_COUNT]` (`lib/qtm.c`), spreading
+the 6 events across all 4 genuinely-free channels (5-8) rather than one
+shared channel -- Home/Win double up on Dice/Release's channels since
+they're rare, end-of-turn events unlikely to overlap with the
+constantly-retriggering per-step Move sound.
+
+## Round 7.80: chasing a red herring -- settle timing, then redraw order
+
+Spreading SFX across channels didn't fix Dice -- still silent regardless
+of which channel it used (confirmed by directly swapping Dice and
+Release's channel assignments: no change, ruling out the channel itself
+as the variable). Two diagnostic-only theories were tried and both
+refuted by live testing:
+
+1. A blind real-time delay (20 centiseconds) inserted right after
+   triggering `QTM_SFX_DICE`, before `start_roll_animation()`'s own
+   further SWI-heavy work (snapshot, dice icon redraw) continued --
+   testing whether a freshly-triggered channel needed real-world settle
+   time. No difference.
+2. Moving the trigger to fire *after* `update_dice_area()`'s own redraw
+   instead of before it -- testing whether that specific redraw's SWI
+   traffic was cutting the channel off. No difference either.
+
+Both reverted once refuted (see round 7.82's diagnosis for what the real
+cause turned out to be -- neither timing nor redraw order, but simple
+loudness).
+
+## Round 7.81: mute vs. shutdown are different operations now
+
+The user asked for a way to test SFX independently of the music, to
+rule out the music simply masking a working-but-quiet effect. This
+needed `qtm_set_music_enabled(0)` to stop being a full `QTM_Clear()` --
+clearing also wipes the loaded song's sample table, which is exactly
+what `qtm_play_sfx()` draws from, so SFX had been silently going dead
+along with the music.
+
+Restructured around `QTM_MusicVolume` (confirmed via the official docs,
+same 0-64 linear scale as `QTM_SampleVolume`, a genuinely separate
+master control): `qtm_set_music_enabled()` now just sets this to 64 or 0
+-- the song stays loaded and playing either way, so `qtm_play_sfx()` no
+longer needs to check `music_enabled` at all (removed that gate). Actual
+shutdown (releasing QTM entirely) is now a dedicated `qtm_shutdown()`,
+called only from `main()` at application quit (round 7.75's original
+fix) -- `qtm_set_music_enabled(0)` and app-quit shutdown are deliberately
+different operations now, not the same call reused for two purposes.
+
+This immediately paid off as a real diagnostic: muting just the music
+(song still loaded) proved every "silent" SFX had actually been playing
+correctly the whole time -- see round 7.82.
+
+## Round 7.82: it was loudness all along, not a technical bug
+
+With music muted via round 7.81's new toggle, **every SFX was audible**.
+Nothing wrong with the trigger mechanism, the channel assignment, or
+QTM at all -- the samples were simply too quiet to be heard against the
+background music at their default embedded loudness.
+
+Root cause: `mod_embed_sfx.py`'s 16-bit-to-8-bit conversion was a flat
+truncation (`s16 // 256`), which preserves each source recording's own
+original loudness rather than normalizing it. The 6 bundled SFX had
+wildly inconsistent recording levels (RMS ranging from ~750 for Dice to
+~8446 for Home, over a 10x spread) -- Release happened to be one of the
+loudest, so it was the only one that reliably cut through the music;
+the rest were technically playing, just far too quiet to perceive.
+
+Two approaches were tried in order:
+
+1. **Peak-normalization** (scale each sample so its own loudest instant
+   reaches full scale) -- a real improvement (Dice's peak amplitude
+   roughly doubled) but insufficient on its own: Dice is a short,
+   punchy "click" with a high peak-to-average ratio, so raising its
+   *peak* barely moved its *perceived* loudness (average level barely
+   changed). Live-tested, still not consistently audible.
+2. **Ducking** the music volume (via `QTM_MusicVolume`) briefly whenever
+   an SFX played, then restoring it via a new `qtm_poll_idle()` called
+   from `game_view.c`'s own idle loop -- live-tested and confirmed
+   working, but rejected by direct user feedback as "really annoying" (a
+   noticeable, repeated dip on every SFX, especially the frequent
+   per-step Move sound). Fully reverted (the `duck_until`/
+   `QTM_DUCK_MUSIC_VOLUME`/`qtm_poll_idle()` machinery was removed
+   entirely, not just disabled).
+
+**Final fix**: proper loudness normalization in `pcm16_to_pcm8()`
+(`tools/mod_embed_sfx.py`) -- target each sample's RMS (average power,
+the metric that actually drives perceived loudness, not peak) towards
+`SFX_TARGET_RMS` (6000, chosen to match `SfxRelease`'s own original RMS
+almost exactly, since Release was the one SFX confirmed audible at its
+*original* loudness -- used as the calibration reference for "how loud
+is actually enough"), using `tanh` as a soft-knee limiter rather than a
+hard clip. `tanh(x)` is close to linear for small `x` (quiet passages
+get a clean gain boost, no distortion) and gracefully compresses toward
+±1 for loud peaks (avoiding the harsh flat-topped distortion a hard
+clip produces) -- the standard shape of an audio limiter, implemented
+here with nothing beyond the Python standard library (`math.tanh`).
+Live-tested working: all 6 SFX now audible over the music, no ducking
+needed. `QTM_PlaySample`'s own volume field and `QTM_SampleVolume` were
+both already at their documented maximum (64) throughout this
+investigation -- the only remaining lever was ever the embedded data's
+own loudness, not a runtime volume setting.
+
+## Round 7.83: forum follow-up posted
+
+Per the user's own initiative, a follow-up was posted to the stardot
+thread from round 7.77 (`viewtopic.php?t=33515`) summarizing this root
+cause for anyone else who finds it via search -- the two concrete SWI
+calls that matter (`QTM_SoundControl` R0=8/-1/-1, then `QTM_PlaySample`
+with a channel outside the song's own range), and the loudness-masking
+lesson (if `QTM_PlaySample` succeeds with no error but nothing's
+audible, check your own source levels before assuming QTM is broken).
+Full source code was offered for a future post once the game itself
+ships.
+
+## Round 7.84: independent SFX on/off toggle
+
+Per explicit user request, SFX and music are now independently
+switchable -- e.g. music with no SFX, or the reverse. Added
+`qtm_set_sfx_enabled()`/`qtm_sfx_enabled()` (`lib/qtm.c`/`include/qtm.h`),
+a plain flag `qtm_play_sfx()` checks (no QTM-level volume/mute SWI
+involved, unlike music -- each SFX is only ever a momentary trigger, so
+there's nothing ongoing to mute). Wired into the existing Music submenu
+as a second ticked toggle, "SFX", alongside "On" (`src/main.c`).
+
 ## Known gaps
+
+As of round 7.84, both music and SFX are confirmed live and working --
+no outstanding crashes, silent-but-accepted calls, or masking issues.
+The remaining gaps are scope decisions, not bugs:
+
+- `Music3` only carries 3 of the 6 SFX (Capture/Home/Win) -- its own
+  artist-authored sample table genuinely has only 3 free slots, unlike
+  `Music1`/`Music2`'s 6+ (see round 7.76's capacity analysis). Dice/
+  Release/Move are silently unavailable (`sfx_slot[][] == 0`) when
+  `Music3` is the active track -- by design, not an oversight, but
+  worth knowing if a future track swap or new background track changes
+  this balance.
+- `QTM_RegisterSample`, the alternative to embedding SFX directly in a
+  track's own sample table, was never tried -- not needed, since
+  embedding covers ArchiLudo's fixed, known-in-advance set of 6 SFX
+  fine. Would only become relevant for dynamically-loaded or
+  user-added sound effects, which this project doesn't have.

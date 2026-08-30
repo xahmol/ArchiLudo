@@ -87,6 +87,7 @@ static qtm_sample samples[QTM_SFX_COUNT];
 static int qtm_ok = 0;
 static int music_enabled = 1;
 static int music_track = 0;
+static int sfx_enabled = 1;
 
 /* Round 7.76: per-track SFX->sample-slot table (1-based ProTracker slot
  * index within that track's own MOD sample table; 0 = not embedded in
@@ -549,6 +550,30 @@ int qtm_music_track(void)
 }
 
 /*
+ * Function: qtm_set_sfx_enabled / qtm_sfx_enabled
+ * Summary: Turn one-shot SFX on or off, independently of background
+ *          music (qtm_set_music_enabled()) -- per explicit user request
+ *          to be able to have music with no SFX (or vice versa) rather
+ *          than the two being tied together. Purely a flag qtm_play_sfx()
+ *          checks; unlike music there's no separate QTM-level volume/mute
+ *          SWI involved, since each SFX is only ever triggered momentarily
+ *          by qtm_play_sfx() itself (nothing ongoing to mute).
+ * Syntax:  void qtm_set_sfx_enabled(int enabled);
+ *          int qtm_sfx_enabled(void);
+ * Input:   enabled - 0 to disable, non-zero to enable.
+ * Output:  qtm_sfx_enabled() returns the current setting (1 or 0).
+ */
+void qtm_set_sfx_enabled(int enabled)
+{
+	sfx_enabled = enabled ? 1 : 0;
+}
+
+int qtm_sfx_enabled(void)
+{
+	return sfx_enabled;
+}
+
+/*
  * Function: qtm_shutdown
  * Summary: Actually stop/release QTM (unlike qtm_set_music_enabled(0),
  *          which only mutes -- see its own doc comment for why those are
@@ -588,12 +613,14 @@ void qtm_shutdown(void)
  *          the register layout guessed in round 7.76 was already
  *          correct. Now widened to all QTM_SFX_COUNT events.
  *
- *          A silent no-op if: QTM isn't available, or the current track
- *          has no slot for this sfx (sfx_slot[][] == 0, e.g. 3 of 6 on
- *          Music3). Round 7.81: no longer gated on music_enabled -- the
- *          song is now always loaded regardless of whether the music
- *          itself is muted (see qtm_set_music_enabled()), so SFX keep
- *          working even with music off.
+ *          A silent no-op if: QTM isn't available, SFX are disabled (see
+ *          qtm_set_sfx_enabled()), or the current track has no slot for
+ *          this sfx (sfx_slot[][] == 0, e.g. 3 of 6 on Music3). Round
+ *          7.81: no longer gated on music_enabled -- the song is now
+ *          always loaded regardless of whether the music itself is
+ *          muted (see qtm_set_music_enabled()), so SFX keep working
+ *          even with music off, and (round 7.84) SFX and music are
+ *          independently switchable -- one can be on with the other off.
  *
  * Syntax:  void qtm_play_sfx(qtm_sfx sfx);
  * Input:   sfx - which effect to play.
@@ -605,7 +632,7 @@ void qtm_play_sfx(qtm_sfx sfx)
 	_kernel_oserror *err;
 	int slot;
 
-	if (!qtm_ok)
+	if (!qtm_ok || !sfx_enabled)
 		return;
 
 	slot = sfx_slot[music_track][sfx];

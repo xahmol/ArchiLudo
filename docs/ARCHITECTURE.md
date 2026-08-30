@@ -83,29 +83,26 @@ round-trip including the slot's own name surviving the round-trip.
 mode") -- see this file's own "Decided against" note under "Roadmap"
 above. Don't resurrect this without checking that note first.
 
-**Audio (QTM music): confirmed live and working, round 7.60/7.65.**
-Background music (3 selectable tracks) and the Music menu (On/Off
-toggle, nested Track submenu with real MOD titles) are both confirmed
-working in Arculator. **One-shot SFX via `QTM_PlayRawSample`: disabled,
-round 7.74**, after 14 rounds (7.60-7.73) of live debugging -- including
-catching the fault live in Arculator's own debugger and disassembling
-the actual faulting code -- never found a parameter combination that
-avoids an internal resampler buffer overrun. Cross-checking three more
-real, shipped Archimedes codebases found none of them use
-`QTM_PlayRawSample` (or `PlaySample`/`RegisterSample`) for one-shot
-effects at all -- see [QTM.md](QTM.md)'s "Round 7.74" and "Recommended
-next approach" sections. **Round 7.76 implemented that recommended
-path** -- SFX embedded as MOD instrument samples in `Music1`/`Music2`/
-`Music3` (see `tools/mod_embed_sfx.py`), triggered via `QTM_PlaySample`.
-**Round 7.77 confirmed it live: no crash (unlike `QTM_PlayRawSample`'s
-whole history), but also no audible sound**, across six individually
-cautious register/setup variations -- no documentation or working
-example of this SWI's convention exists anywhere found. Raised as a
-question on stardot.org.uk rather than continuing to guess:
-`https://stardot.org.uk/forums/viewtopic.php?t=33515`; code stays as
-round 7.76 left it (safe, silent, Dice-only) pending a reply -- see
-[QTM.md](QTM.md)'s "Round 7.77" section. Round 7.75 also fixed music
-not stopping when the application quits.
+**Audio (QTM music + SFX): confirmed live and working, round 7.60
+through 7.84.** Background music (3 selectable tracks) and SFX (6
+one-shot effects, all embedded directly into each track's own MOD
+sample table) are both confirmed working in Arculator, independently
+switchable via the Music submenu's "On"/"SFX" toggles. `QTM_PlayRawSample`
+was abandoned entirely after 14 rounds (7.60-7.73) of live debugging --
+including catching the fault live in Arculator's own debugger and
+disassembling the actual faulting code -- never finding a parameter
+combination that avoids an internal resampler buffer overrun.
+`QTM_PlaySample` against MOD-embedded samples (the approach every real
+Archimedes codebase checked actually uses) took its own path to get
+working: round 7.78 found the real missing piece via the official QTM
+distribution archive (`QTM_SoundControl` needs 8-channel mode enabled),
+round 7.79 fixed cross-SFX channel contention, and round 7.82 found the
+final remaining "silent" SFX weren't a technical bug at all -- just too
+quiet against the music, fixed with proper RMS-targeted loudness
+normalization rather than the ducking approach that was tried, tested
+working, and then rejected as too jarring. Full round-by-round detail in
+[QTM.md](QTM.md) (rounds 7.74-7.84). Round 7.75 also fixed music not
+stopping when the application quits.
 
 For everything else -- AI difficulty levels beyond `NORMAL` (declared,
 unimplemented), release packaging (works, never actually cut) -- see the
@@ -181,7 +178,7 @@ was.
 | Save/load (5 fixed, renamable slots) | done (round 7.59 -- replaced an earlier drag-and-drop design, see round 7.58/7.59 notes below); not yet live-verified |
 | App directory packaging (`!Run`/`!Sprites`/icon) | done |
 | Credits/about screen | done (`splash_view.c`) |
-| Audio (QTM music) | done and live-confirmed (round 7.60/7.65/7.75 -- 3 selectable background tracks, Music menu On/Off + Track submenu, stops cleanly on quit, see [QTM.md](QTM.md)); one-shot SFX via `QTM_PlayRawSample` abandoned after 14 rounds (round 7.74); re-attempted round 7.76 as MOD-embedded samples via `QTM_PlaySample` -- live-confirmed round 7.77 as accepted-but-silent (no crash, no sound) across six variations, question posted to stardot.org.uk (`viewtopic.php?t=33515`), on hold pending a reply |
+| Audio (QTM music + SFX) | done and live-confirmed (rounds 7.60-7.84 -- 3 selectable background tracks + 6 one-shot SFX embedded in each track's MOD sample table, independently switchable via the Music menu's On/SFX toggles, stops cleanly on quit; `QTM_PlayRawSample` abandoned after 14 rounds, see [QTM.md](QTM.md)) |
 | Full-screen enhanced graphics mode | **decided against** (round 7.56) -- staying with the present windowed mode, see below |
 | Release (versioned zip, README screenshots, both Arculator profiles re-verified) | **not started** |
 | Keezen variant (cards instead of dice) | unstarted idea, assessment only, not a commitment -- see the multi-rule-set plan's own "Phase 7" note |
@@ -3760,6 +3757,108 @@ continuing to guess:
 `https://stardot.org.uk/forums/viewtopic.php?t=33515`. Code is
 unchanged from round 7.76's safe, silent, Dice-only state pending a
 reply. Full writeup in [QTM.md](QTM.md)'s "Round 7.77" section.
+
+**Round 7.78 -- the real answer, from QTM's own official docs**: the
+user found and downloaded the official QTM v1.49 distribution archive
+itself (full SWI reference plus assembler source), something none of
+this project's earlier research had turned up. Confirmed round 7.76's
+`QTM_PlaySample` register guess was already correct, and found the
+actual missing piece: `QTM_SoundControl`'s R0 genuinely is a
+channel-count switch (4 or 8) -- round 7.67's original belief, wrongly
+"corrected away" in round 7.74. ArchiLudo's 4-channel MODs left QTM in
+4-channel mode by default, so channels 5-8 were numerically legal but
+never actually mixed. Fixed with an 8-channel `QTM_SoundControl` call
+in `qtm_initialise()`. Full writeup in [QTM.md](QTM.md)'s "Round 7.78"
+section.
+
+**Round 7.79 -- per-SFX channel**: live-tested round 7.78's fix --
+confirmed no crash, and one SFX (Release) finally audible. All 6 SFX
+had been sharing one fixed channel though, and Dice (always immediately
+followed by a Move trigger) was being cut off by it on the same
+channel. Fixed by spreading the 6 events across all 4 free channels
+(`sfx_channel[]`, `lib/qtm.c`). [QTM.md](QTM.md)'s "Round 7.79" section.
+
+**Round 7.80 -- two refuted theories**: Dice was still silent regardless
+of channel (confirmed by directly swapping Dice/Release's channels --
+no change). Tried and refuted, via live testing: a real-time settle
+delay after triggering Dice, then moving the trigger to fire after
+its own redraw instead of before. Neither made a difference -- the real
+cause turned out to be simple loudness (round 7.82). [QTM.md](QTM.md)'s
+"Round 7.80" section.
+
+**Round 7.81 -- mute vs. shutdown split**: per user request, needed a
+way to test SFX independently of music, to rule out masking. This
+required `qtm_set_music_enabled(0)` to stop fully clearing QTM (which
+also wiped the sample table SFX draw from) -- now mutes via
+`QTM_MusicVolume` instead, leaving the song loaded. Actual shutdown
+(app quit) is a new dedicated `qtm_shutdown()`. This immediately proved
+useful: muting music revealed every "silent" SFX had been playing
+correctly all along. [QTM.md](QTM.md)'s "Round 7.81" section.
+
+**Round 7.82 -- it was loudness, not a bug**: root cause found -- the
+6 bundled SFX had wildly inconsistent source recording levels (RMS
+spread over 10x), and a flat 16-to-8-bit truncation carried that
+straight through, so most were simply too quiet to hear over the music.
+Peak-normalizing helped but wasn't enough (high peak-to-average sounds
+like Dice barely got louder); ducking the music volume was tried,
+live-tested working, but rejected by direct user feedback as "really
+annoying" and fully reverted. Final fix: RMS-targeted soft-clip
+(tanh) loudness normalization in `tools/mod_embed_sfx.py`, calibrated
+against Release's own proven-audible original loudness. All 6 SFX
+confirmed audible over music, no ducking needed. [QTM.md](QTM.md)'s
+"Round 7.82" section.
+
+**Round 7.83 -- forum follow-up posted**: root cause summarized back to
+the stardot thread from round 7.77, for anyone else who finds it via
+search. [QTM.md](QTM.md)'s "Round 7.83" section.
+
+**Round 7.84 -- independent SFX on/off toggle**: per explicit user
+request, SFX and music are now separately switchable (e.g. music with
+no SFX). New `qtm_set_sfx_enabled()`/`qtm_sfx_enabled()`, wired into the
+Music submenu as a second ticked toggle alongside "On". [QTM.md](QTM.md)'s
+"Round 7.84" section.
+
+**Round 7.85 -- real-hardware deploy target**: added `make deploy-pibridge`
+to the Makefile, deploying to a PiEconetBridge (Econet-over-IP bridge on
+a Raspberry Pi) via `rsync` over SSH -- a genuinely separate target from
+`make deploy` (Arculator's hostfs), not a replacement, per explicit user
+decision. Connection details (`PIBRIDGE_USER`/`PIBRIDGE_HOST`) live in
+`.env`, matching the existing `ARCULATOR_HOSTFS`/Ultimate II+ `ULTIP1`
+convention; `check-pibridge` verifies SSH reachability first, the same
+"fail fast with a clear error" shape as `check-hostfs`. See
+[BUILDCHAIN.md](BUILDCHAIN.md)'s "Other targets" table.
+
+**Round 7.86 -- password auth, not SSH keys**: round 7.85 assumed
+SSH-key-based auth; the user actually connects to this Pi with
+password auth (via FileZilla/SFTP), not keys. Switched `check-pibridge`/
+`deploy-pibridge` to `sshpass` (password from `SSHPASS`, passed as an
+environment variable rather than `-p`, so it doesn't appear in `ps`
+output), with `StrictHostKeyChecking=accept-new` so a first-time
+connection needs no other interactive prompt either. `PIBRIDGE_PATH`
+also moved from a Makefile default into `.env` alongside the new
+`PIBRIDGE_PASS`, per explicit user request -- all four connection
+details (`PIBRIDGE_USER`/`HOST`/`PASS`/`PATH`) now live there together.
+
+**Round 7.87 -- PiFS filetype preservation**: the first real deploy to
+the PiEconetBridge showed every file's RISC OS filetype was lost --
+PiFS (the PiEconetBridge fileserver) doesn't use Arculator hostfs's
+`,xxx` suffix convention at all. Read PiFS's own source
+(`cr12925/PiEconetBridge` on GitHub, `utilities/fs.c`) to find the real
+answer: it stores file attributes either as Linux extended attributes
+(the default) or, per-file, in a classic Acorn `.inf` sidecar file --
+confirmed the exact format directly from `fs_read_attr_from_file()`/
+`fs_write_attr_to_file()`. Added `tools/prepare_pibridge_deploy.py`,
+which converts `$(APPDIR)`'s `,xxx`-suffixed build output into PiFS's
+expected plain-filename + `.inf`-sidecar form (encoding each file's
+filetype into a standard RISC OS "stamped" load/exec address, per the
+same convention every RISC OS cross-dev tool uses) before
+`deploy-pibridge` rsyncs it -- the `.inf` route was chosen over xattrs
+since it needs no filesystem feature support on either end of the
+transfer, just ordinary files. Live-tested working end to end against
+the real hardware. Also fixed a real security issue caught in the same
+round: the rsync recipe line wasn't prefixed with `@`, so `make
+deploy-pibridge`'s own command echo printed the SSH password in plain
+text to the terminal on every run.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and

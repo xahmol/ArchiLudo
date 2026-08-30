@@ -28,13 +28,17 @@ static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
  * "On" (a ticked toggle) and "Track" (round 7.65: itself a further
  * submenu, see track_menu below, rather than "Track N" entries directly
  * here -- per explicit user request to show each track's own full title
- * rather than a generic number). A no-op menu (present, but every click
- * on it does nothing) if qtm_available() is false, e.g. QTM isn't
- * loaded -- the entries themselves stay visible rather than
- * disappearing, so it's obvious the feature exists even when silent. */
+ * rather than a generic number). Round 7.84: "SFX" (a second, independent
+ * ticked toggle -- per explicit user request to be able to switch music
+ * and SFX on/off separately, e.g. music with no SFX). A no-op menu
+ * (present, but every click on it does nothing) if qtm_available() is
+ * false, e.g. QTM isn't loaded -- the entries themselves stay visible
+ * rather than disappearing, so it's obvious the feature exists even when
+ * silent. */
 #define MUSIC_MENU_ON    0
-#define MUSIC_MENU_TRACK 1
-#define MUSIC_MENU_ITEMS 2
+#define MUSIC_MENU_SFX   1
+#define MUSIC_MENU_TRACK 2
+#define MUSIC_MENU_ITEMS 3
 
 static wimp_MENU(MUSIC_MENU_ITEMS) music_menu;
 
@@ -176,6 +180,7 @@ static void build_music_menu(void)
 	music_menu.gap = wimp_MENU_ITEM_GAP;
 
 	set_menu_entry(&music_menu.entries[MUSIC_MENU_ON], "On", 0);
+	set_menu_entry(&music_menu.entries[MUSIC_MENU_SFX], "SFX", 0);
 	set_menu_entry(&music_menu.entries[MUSIC_MENU_TRACK], "Track", 1);
 	music_menu.entries[MUSIC_MENU_TRACK].sub_menu = (wimp_menu *) &track_menu;
 }
@@ -229,13 +234,14 @@ static void build_track_menu(void)
 /*
  * Function: refresh_music_menu_ticks
  * Summary: Set the Music submenu's TICKED flag on "On" (per
- *          qtm_music_enabled()) -- called right before the shared menu
- *          opens (see main_dispatch()'s wimp_CLICK_MENU handling), the
- *          same "just-in-time" approach as recomputing a menu's contents
- *          via Menu_Warning, but simpler since only tick state ever
- *          changes here, not the entries themselves. Track's own tick
- *          state is refreshed separately, by refresh_track_menu_ticks(),
- *          just before *that* submenu opens.
+ *          qtm_music_enabled()) and "SFX" (per qtm_sfx_enabled(), round
+ *          7.84 -- independent of "On") -- called right before the
+ *          shared menu opens (see main_dispatch()'s wimp_CLICK_MENU
+ *          handling), the same "just-in-time" approach as recomputing a
+ *          menu's contents via Menu_Warning, but simpler since only tick
+ *          state ever changes here, not the entries themselves. Track's
+ *          own tick state is refreshed separately, by
+ *          refresh_track_menu_ticks(), just before *that* submenu opens.
  */
 static void refresh_music_menu_ticks(void)
 {
@@ -243,6 +249,11 @@ static void refresh_music_menu_ticks(void)
 		music_menu.entries[MUSIC_MENU_ON].menu_flags |= wimp_MENU_TICKED;
 	else
 		music_menu.entries[MUSIC_MENU_ON].menu_flags &= ~wimp_MENU_TICKED;
+
+	if (qtm_sfx_enabled())
+		music_menu.entries[MUSIC_MENU_SFX].menu_flags |= wimp_MENU_TICKED;
+	else
+		music_menu.entries[MUSIC_MENU_SFX].menu_flags &= ~wimp_MENU_TICKED;
 }
 
 /*
@@ -417,18 +428,22 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 			load_view_open();
 		else if (block->selection.items[0] == ICONBAR_MENU_MUSIC) {
 			/* items[1] is the Music submenu's own selected entry -- see
-			 * build_music_menu()/refresh_music_menu_ticks(). "On" toggles
-			 * (rather than only ever turning on) since it's a ticked
-			 * toggle, not a one-way action, matching how a ticked menu
-			 * entry conventionally behaves. items[1] == MUSIC_MENU_TRACK
-			 * with items[2] set (round 7.65) means a track was actually
-			 * picked from Track's own submenu (see build_track_menu()) --
-			 * items[2] == -1 would mean Track was merely hovered/opened
-			 * without picking anything, which shouldn't reach here at all
+			 * build_music_menu()/refresh_music_menu_ticks(). "On" and
+			 * "SFX" (round 7.84) both toggle (rather than only ever
+			 * turning on) since they're ticked toggles, not one-way
+			 * actions, matching how a ticked menu entry conventionally
+			 * behaves -- and independently of each other, per explicit
+			 * user request. items[1] == MUSIC_MENU_TRACK with items[2]
+			 * set (round 7.65) means a track was actually picked from
+			 * Track's own submenu (see build_track_menu()) -- items[2]
+			 * == -1 would mean Track was merely hovered/opened without
+			 * picking anything, which shouldn't reach here at all
 			 * (Menu_Selection only fires on an actual choice), but is
 			 * still guarded defensively rather than assumed. */
 			if (block->selection.items[1] == MUSIC_MENU_ON)
 				qtm_set_music_enabled(!qtm_music_enabled());
+			else if (block->selection.items[1] == MUSIC_MENU_SFX)
+				qtm_set_sfx_enabled(!qtm_sfx_enabled());
 			else if (block->selection.items[1] == MUSIC_MENU_TRACK
 			      && block->selection.items[2] >= 0
 			      && block->selection.items[2] < QTM_MUSIC_TRACK_COUNT) {

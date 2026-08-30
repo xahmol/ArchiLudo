@@ -129,8 +129,8 @@ def pcm16_to_pcm8(raw: bytes) -> bytes:
     would produce), which is the standard shape of a soft-knee limiter.
     QTM_PlaySample's own volume field and QTM_SampleVolume are both
     already at their documented maximum (64) -- see docs/QTM.md's "Round
-    7.82"/"Round 7.83" sections -- so boosting the embedded data itself
-    is the only remaining lever."""
+    7.82" section -- so boosting the embedded data itself is the only
+    remaining lever."""
     n = len(raw) // 2
     samples16 = struct.unpack("<%dh" % n, raw[: n * 2])
     if n == 0:

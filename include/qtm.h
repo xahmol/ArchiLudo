@@ -99,8 +99,10 @@ int qtm_music_enabled(void);
 /*
  * Function: qtm_set_music_track / qtm_music_track
  * Summary: Choose which of the QTM_MUSIC_TRACK_COUNT bundled tracks
- *          plays -- immediately switches (stop, load, start) if music is
- *          currently enabled; just remembered for next time otherwise.
+ *          plays -- always switches immediately (stop, load, start),
+ *          regardless of qtm_music_enabled(); the song is always loaded
+ *          so its sample table stays available for qtm_play_sfx() (round
+ *          7.81), with the current mute state re-applied afterward.
  *          src/main.c's Music submenu "Track 1"/"Track 2" entries are
  *          backed by this, per explicit user request that the track be
  *          switchable from a menu.
@@ -111,6 +113,21 @@ int qtm_music_enabled(void);
  */
 void qtm_set_music_track(int track);
 int qtm_music_track(void);
+
+/*
+ * Function: qtm_set_sfx_enabled / qtm_sfx_enabled
+ * Summary: Turn one-shot SFX on or off, independently of background
+ *          music (qtm_set_music_enabled()) -- per explicit user request
+ *          to be able to have music with no SFX (or vice versa) rather
+ *          than the two being tied together. src/main.c's Music submenu
+ *          "SFX" entry is a ticked toggle backed by this.
+ * Syntax:  void qtm_set_sfx_enabled(int enabled);
+ *          int qtm_sfx_enabled(void);
+ * Input:   enabled - 0 to disable, non-zero to enable.
+ * Output:  qtm_sfx_enabled() returns the current setting (1 or 0).
+ */
+void qtm_set_sfx_enabled(int enabled);
+int qtm_sfx_enabled(void);
 
 /*
  * Function: qtm_play_sfx

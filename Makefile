@@ -26,6 +26,18 @@ endif
 -include .env
 ARCULATOR_HOSTFS ?= <set_ARCULATOR_HOSTFS_in_.env>
 
+# PiEconetBridge deployment -- real hardware target (Econet-over-IP bridge
+# on a Raspberry Pi), separate from the Arculator emulator deploy above.
+# SFTP with password auth (matching how the user already connects via
+# FileZilla), so all four of these live in .env, not just the usual
+# ARCULATOR_HOSTFS-style connection details -- PIBRIDGE_PATH included,
+# since per explicit user request it's not hardcoded as a Makefile
+# default either.
+PIBRIDGE_USER ?= <set_PIBRIDGE_USER_in_.env>
+PIBRIDGE_HOST ?= <set_PIBRIDGE_HOST_in_.env>
+PIBRIDGE_PASS ?= <set_PIBRIDGE_PASS_in_.env>
+PIBRIDGE_PATH ?= <set_PIBRIDGE_PATH_in_.env>
+
 # `test` builds and runs the game logic unit tests with the HOST compiler --
 # it needs no ArchieSDK, no Arculator, no RISC OS at all (that's the whole
 # point of keeping src/game_logic.c free of OSLib/WIMP dependencies). Only
@@ -100,7 +112,7 @@ APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
 .SUFFIXES:
-.PHONY: all clean asm zip docs check-hostfs deploy test assets export-sprites import-sprites
+.PHONY: all clean asm zip docs check-hostfs deploy check-pibridge deploy-pibridge test assets export-sprites import-sprites
 
 all: $(APPFILES)
 
@@ -196,6 +208,45 @@ deploy: check-hostfs $(APPFILES)
 	# actually runs now (the app directory above).
 	rm -f "$(ARCULATOR_HOSTFS)/$(APPNAME),ff8" "$(ARCULATOR_HOSTFS)/PawnSprites,ff9" \
 	      "$(ARCULATOR_HOSTFS)/Sprites,ff9"
+
+# Password auth via sshpass (matching how the user already connects with
+# FileZilla over SFTP, rather than SSH keys) -- SSHPASS is passed as an
+# environment variable (sshpass -e), not -p, so the password doesn't
+# appear in `ps` output. StrictHostKeyChecking=accept-new auto-accepts
+# the Pi's host key on first connect (and remembers it after) so a
+# password-auth deploy needs no other interactive prompt either.
+# ConnectTimeout fails fast rather than hanging if the Pi's unreachable.
+check-pibridge:
+	@which sshpass >/dev/null 2>&1 || \
+		(echo "ERROR: sshpass not found -- install with: sudo apt install sshpass" && false)
+	@SSHPASS="$(PIBRIDGE_PASS)" sshpass -e ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new \
+		"$(PIBRIDGE_USER)@$(PIBRIDGE_HOST)" "test -d '$(PIBRIDGE_PATH)'" 2>$(NULLDEV) || \
+		(echo "ERROR: Cannot reach PiEconetBridge at $(PIBRIDGE_USER)@$(PIBRIDGE_HOST):$(PIBRIDGE_PATH) -- check PIBRIDGE_USER/PIBRIDGE_HOST/PIBRIDGE_PASS/PIBRIDGE_PATH in .env" && false)
+
+PIBRIDGE_STAGE = build/pibridge-stage/!$(APPNAME)
+
+# Round 7.87: PiEconetBridge's fileserver (PiFS) does NOT use the ",xxx"
+# hex-suffix convention Arculator's hostfs uses -- a live deploy showed
+# filetypes weren't preserved. Confirmed against PiFS's own source
+# (cr12925/PiEconetBridge, utilities/fs.c): it expects either Linux
+# xattrs or a classic Acorn ".inf" sidecar file per stored file.
+# tools/prepare_pibridge_deploy.py converts $(APPDIR)'s ",xxx"-suffixed
+# files into plain-named files + .inf sidecars (the .inf route, not
+# xattrs -- see that script's own doc comment for why) into
+# $(PIBRIDGE_STAGE), which is what actually gets rsynced below.
+$(PIBRIDGE_STAGE): $(APPFILES)
+	python3 tools/prepare_pibridge_deploy.py "$(APPDIR)" "$(PIBRIDGE_STAGE)"
+
+# rsync over SSH (via sshpass, same password-auth approach as check-pibridge
+# above) -- handles the same "merge into an existing directory" job as
+# deploy's cp/xcopy above, but over the network and only transferring
+# what changed. --delete keeps the remote !ArchiLudo an exact mirror of
+# the local build (safe here since this directory is fully owned by this
+# deploy, not shared with anything else on the Pi).
+deploy-pibridge: check-pibridge $(PIBRIDGE_STAGE)
+	@SSHPASS="$(PIBRIDGE_PASS)" sshpass -e rsync -av --delete \
+		-e "ssh -o StrictHostKeyChecking=accept-new" \
+		"$(PIBRIDGE_STAGE)/" "$(PIBRIDGE_USER)@$(PIBRIDGE_HOST):$(PIBRIDGE_PATH)/!$(APPNAME)/"
 
 zip: $(APPFILES)
 	$(ARCHIEZIP) -r $(ZIPFILE) "$(APPDIR)" README.md
