@@ -3881,6 +3881,50 @@ added a length check to `tools/prepare_pibridge_deploy.py` so any future
 asset over 10 characters fails the build with a clear error instead of
 failing silently on real hardware.
 
+**Round 7.89 -- `make zip` never actually preserved filetypes**: live-
+tested on real hardware with SparkFS -- the zip opened fine, but no
+filetype survived extraction, contradicting this doc's own prior claim
+(and a wrong assumption made mid-investigation that a `,xxx`-suffixed
+filename inside a zip is enough on its own). Root cause, found by reading
+ArchieSDK's own bundled Info-Zip source: `build-infozip.sh` builds
+`zip30` with `-DFORRISCOS`, which compiles in `zipup.c`'s
+`set_extra_field_forriscos()` -- Info-Zip's own code names its constants
+`EB_SPARK_LEN`/`EB_SPARK_SIZE`, confirming this extra field (ID `"AC"`,
+sub-ID `"ARC0"`) is exactly what Spark-aware RISC OS tools read to
+restore a filetype, built from the same stamped load/exec scheme this
+project's own `tools/prepare_pibridge_deploy.py` already implements. But
+that function only runs if the global `decomma` flag is set, and
+`decomma` is only ever set by passing the literal `-,` command-line
+option (`zip.c`) -- off by default. `make zip` never passed it, so the
+`,xxx` suffix was being stored as inert literal text in the zip entry's
+filename the whole time, with no filetype metadata written at all;
+`unzip`/SparkFS extracting the file successfully proves nothing wrong
+with the archive, just that neither had any metadata to restore from.
+Fixed by adding `-,` to both zip invocations in the `zip` target, and
+verified byte-for-byte (not just by reading source) that the fix works:
+the extra field on `!RunImage` now decodes to load address
+`0xFFFFF85D`, which is exactly `&FF8` (`!RunImage,ff8`'s own filetype)
+encoded via the same stamped scheme. Also fixed while in the area:
+`make zip` was including a stray `build/` path prefix on every archive
+entry (zip stores paths exactly as given, and `$(APPDIR)` is
+`build/!ArchiLudo` relative to the repo root) -- fixed by `cd`-ing into
+`build/` first; and the zip now bundles `README.pdf` plus a plain-text,
+CR-line-ended `ReadMe,fff` (via `pandoc -t plain`, RISC OS text files
+being traditionally CR- not LF-terminated) instead of the raw
+`README.md`, so there's something readable both off-machine (the PDF)
+and directly on RISC OS itself (the plain-text copy, no PDF viewer
+needed -- RISC OS 3.10 has none).
+**Why:** a plausible-sounding claim ("the `,xxx` suffix is a well-known
+cross-dev fallback the RISC OS side understands") was stated confidently
+in an earlier round without ever being live-tested against real
+Spark/SparkFS behaviour -- it took the user's own hands-on hardware test
+to catch that it was wrong.
+**How to apply:** don't trust a filename-convention claim about RISC OS
+archive tooling without either a live test or reading the actual tool's
+source (as done here, after the fact) -- this project's own established
+"verify before trusting a plausible theory" lesson (see the round 5/6.1
+history above) applies just as much to build tooling as to game logic.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

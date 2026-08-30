@@ -259,8 +259,52 @@ deploy-pibridge: check-pibridge $(PIBRIDGE_STAGE)
 		-e "ssh -o StrictHostKeyChecking=accept-new" \
 		"$(PIBRIDGE_STAGE)/" "$(PIBRIDGE_USER)@$(PIBRIDGE_HOST):$(PIBRIDGE_PATH)/!$(APPNAME)/"
 
-zip: $(APPFILES)
-	$(ARCHIEZIP) -r $(ZIPFILE) "$(APPDIR)" README.md
+ZIPFILE_ABS = $(abspath $(ZIPFILE))
+
+# Round 7.89: a real Spark-tested bug -- live-tested on real hardware with
+# SparkFS, the zip opened fine but NO filetype survived extraction. Root
+# cause, found by reading ArchieSDK's own bundled Info-Zip source
+# (build-infozip.sh builds zip30 with -DFORRISCOS, which compiles in
+# set_extra_field_forriscos() in zipup.c -- Info-Zip's own code literally
+# names its constants EB_SPARK_LEN/EB_SPARK_SIZE, confirming this IS the
+# extra field Spark-aware tools read): that function, which turns a
+# ",xxx"-suffixed filename into the real Acorn "AC"/"ARC0" extra field
+# (filetype + stamped load/exec, same scheme this project's own
+# tools/prepare_pibridge_deploy.py implements), is gated behind a global
+# `decomma` flag that is only set by passing the literal `-,` option
+# (zip.c) -- never on by default. Without it, the ",xxx" suffix was just
+# being stored as literal text in the zip entry's filename, with no
+# filetype metadata at all -- a plain unzip and SparkFS both "worked" in
+# the sense of extracting successfully, but neither had anything to
+# restore a filetype FROM. `-,` is required on both zip invocations below.
+#
+# cd into build/ first so archive entries are "!ArchiLudo/..." at the zip's
+# own top level, not "build/!ArchiLudo/..." -- zip stores paths exactly as
+# given on the command line, and $(APPDIR) is "build/!ArchiLudo" relative
+# to the repo root where `make` normally runs. The docs are added with -j
+# (junk path) in a second pass since they live outside build/, and -r
+# would otherwise need a shared parent directory for both.
+#
+# Two docs are bundled instead of README.md directly: README.pdf (see the
+# `docs` target below) for reading on whatever machine the zip was
+# downloaded to, and a plain-text conversion typed as RISC OS Text
+# (,fff, restored by -, like everything else here) with CR-only line
+# endings -- RISC OS's own native text-file line-ending convention -- for
+# reading directly on the target machine in !Edit, no PDF viewer needed
+# (RISC OS 3.10 has none).
+zip: $(APPFILES) README.pdf build/ReadMe,fff
+	cd build && $(ARCHIEZIP) -r -, "$(ZIPFILE_ABS)" "!$(APPNAME)"
+	$(ARCHIEZIP) -j -, "$(ZIPFILE_ABS)" README.pdf "build/ReadMe,fff"
+
+# Plain-text, CR-line-ended conversion of README.md for reading directly
+# on RISC OS (see the zip target's comment above for why this exists
+# alongside README.pdf). `pandoc -t plain` strips Markdown formatting;
+# `tr` then converts LF to CR since RISC OS text files are traditionally
+# CR-only, not LF.
+build/ReadMe,fff: README.md | build
+	@which pandoc >$(NULLDEV) 2>&1 || \
+		(echo "ERROR: pandoc not found -- install with: sudo apt install pandoc" && false)
+	pandoc README.md -t plain | tr '\n' '\r' > "$@"
 
 assets:
 	python3 assets/generate_placeholder_art.py
