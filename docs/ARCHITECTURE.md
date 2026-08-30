@@ -3925,6 +3925,33 @@ source (as done here, after the fact) -- this project's own established
 "verify before trusting a plausible theory" lesson (see the round 5/6.1
 history above) applies just as much to build tooling as to game logic.
 
+**Round 7.90 -- README pagination and PDF filetype**: round 7.89's zip
+fix was confirmed live-working with real SparkFS, but the bundled
+`ReadMe,fff` "did not correctly paginate" on real hardware. Root cause:
+`pandoc -t plain` renders this project's own Markdown tables (the
+"Building from source" section's "Prerequisites"/"Make targets" tables)
+as fixed-width grid tables sized to their widest cell -- ~170 characters
+here -- regardless of `--columns`, and separately emits UTF-8 "smart"
+typography (en/em dashes, curly quotes) that RISC OS's single-byte text
+files can't represent at all. New `tools/riscos_readme.py` replaces the
+bare `pandoc | tr` pipeline: it extracts each Markdown table before
+handing the rest to pandoc, renders it directly as stacked
+"Header: value" records (avoiding a second Markdown-parse of cell
+content, which was tried first and corrupted a literal Windows path via
+accidental backslash-escaping), reassembles at 78 columns, then
+transliterates to plain ASCII -- failing the build with a clear error
+if any character has no registered transliteration, rather than
+shipping silent mojibake. Also: `README.pdf` is now staged as
+"README.pdf,adf" -- both a `.pdf` extension AND a comma-hex type suffix
+-- so `-,` strips only the trailing `,adf` on typing, leaving the
+extracted name as plain `README.pdf` everywhere: Windows/Mac/Linux
+extraction (the PDF's actual primary use, since RISC OS 3.10 has no
+viewer by default) keeps its familiar double-clickable extension, while
+RISC OS still gets the correct `&ADF` filetype (confirmed against both
+Wikipedia's List of RISC OS filetypes and riscos.info's own PDF-viewer
+page) for the minority who do have one installed. Verified byte-for-byte
+via the extra field, same as round 7.89.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

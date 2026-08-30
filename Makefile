@@ -291,20 +291,39 @@ ZIPFILE_ABS = $(abspath $(ZIPFILE))
 # (,fff, restored by -, like everything else here) with CR-only line
 # endings -- RISC OS's own native text-file line-ending convention -- for
 # reading directly on the target machine in !Edit, no PDF viewer needed
-# (RISC OS 3.10 has none).
-zip: $(APPFILES) README.pdf build/ReadMe,fff
+# (RISC OS 3.10 has none, though a handful of third-party viewers exist,
+# e.g. riscos.info's xpdf port). README.pdf is staged as
+# "README.pdf,adf" -- dot-extension AND comma-hex-suffix together -- so
+# -, strips only the trailing ",adf" on typing, leaving the extracted
+# name as plain "README.pdf" everywhere: a Windows/Mac/Linux extraction
+# (the PDF's actual primary use, since RISC OS 3.10 has no viewer by
+# default) keeps its familiar double-clickable extension, while RISC OS
+# still gets the correct &ADF filetype (confirmed against both
+# Wikipedia's List of RISC OS filetypes and riscos.info's own PDF-viewer
+# page) via the extra field for the minority who do have a viewer.
+build/README.pdf,adf: README.pdf | build
+	cp "$<" "$@"
+
+zip: $(APPFILES) build/README.pdf,adf build/ReadMe,fff
 	cd build && $(ARCHIEZIP) -r -, "$(ZIPFILE_ABS)" "!$(APPNAME)"
-	$(ARCHIEZIP) -j -, "$(ZIPFILE_ABS)" README.pdf "build/ReadMe,fff"
+	$(ARCHIEZIP) -j -, "$(ZIPFILE_ABS)" "build/README.pdf,adf" "build/ReadMe,fff"
 
 # Plain-text, CR-line-ended conversion of README.md for reading directly
 # on RISC OS (see the zip target's comment above for why this exists
-# alongside README.pdf). `pandoc -t plain` strips Markdown formatting;
-# `tr` then converts LF to CR since RISC OS text files are traditionally
-# CR-only, not LF.
-build/ReadMe,fff: README.md | build
+# alongside README.pdf). Round 7.90: a straight `pandoc -t plain | tr`
+# passed live testing on real hardware but "did not correctly paginate"
+# -- pandoc's plain writer renders this project's own Markdown tables
+# (see the "Building from source" section) as ~170-character-wide grid
+# tables regardless of --columns, and separately emits UTF-8 "smart"
+# typography (en/em dashes, curly quotes) that RISC OS's single-byte
+# text files can't represent. tools/riscos_readme.py flattens tables to
+# stacked "Header: value" records, wraps everything to 78 columns, and
+# transliterates to plain ASCII (failing the build if it can't) before
+# writing CR-only line endings -- see that script's own doc comment.
+build/ReadMe,fff: README.md tools/riscos_readme.py | build
 	@which pandoc >$(NULLDEV) 2>&1 || \
 		(echo "ERROR: pandoc not found -- install with: sudo apt install pandoc" && false)
-	pandoc README.md -t plain | tr '\n' '\r' > "$@"
+	python3 tools/riscos_readme.py README.md "$@"
 
 assets:
 	python3 assets/generate_placeholder_art.py
