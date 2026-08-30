@@ -3997,6 +3997,44 @@ documented-by-reading format knowledge, released as a from-scratch
 Python implementation under this project's own GPLv3 (permitted by
 DiscImageManager's GPL-3.0 licence).
 
+**Round 7.92 -- README line endings, corrected by direct evidence, not
+assumption**: live-tested the round 7.90 fix (which chose CR-only line
+endings on the textbook "RISC OS text files are CR-terminated"
+assumption): the extracted `ReadMe` showed every line break as a
+literal `[0d]` instead of an actual newline, in a plain window (not
+just the broken SparkFS/Wimp$Scrap path chased first -- see below).
+Root cause found not by more inference but by reading the actual bytes
+of files already proven to render correctly on the exact same setup:
+`hxxd` on Arculator's own `hostfs.txt` and on a file the user created
+natively within Arculator showed **both use plain LF (0x0A), not CR**
+-- confirmed directly, not inferred from a screenshot. Whatever
+text-viewing path is actually in use here does not treat a lone CR as
+a line break, regardless of what the general PRM convention says.
+Fixed `tools/riscos_readme.py` to write LF instead of CR; re-verified
+the whole `make disk` pipeline end to end afterward (filetype extra
+field, ADFS checksums, and payload hash) to confirm nothing else
+regressed.
+Also chased down a red herring along the way: double-clicking the
+extracted `ReadMe` gave "Error from Spark: Wimp$Scrap not defined" --
+looked initially like a wrong filetype (the file's icon resembled
+SparkFS's own Archive icon), but Shift+F2 confirmed the stored type
+was already correct (`Text (fff)`). That error is a separate,
+environment-level issue (`Wimp$Scrap`, normally set by a full `!Boot`
+sequence, isn't defined on this setup) unrelated to the actual line-
+ending bug, which only showed up once the file was opened a different
+way (copied to hostfs and viewed directly).
+**Why:** confirms, a third time this session (after the Spark
+`,xxx`-suffix belief in round 7.89 and the zip `-,` flag itself), that
+a plausible-sounding convention about RISC OS file formats needs to be
+checked against this project's own actual, current test environment
+before being trusted -- general RISC OS knowledge and PRM prose can be
+right in general and still wrong for the specific toolchain/viewer
+combination actually in use here.
+**How to apply:** when a "how RISC OS handles X" question comes up
+again for build tooling, check it against a real file already known to
+work on this exact setup (byte-for-byte, via `xxd` or Python, as done
+here) before writing code that assumes the textbook answer.
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,

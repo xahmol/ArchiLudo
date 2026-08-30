@@ -21,6 +21,19 @@ pandoc, so nothing pandoc emits is wider than the prose it already wraps
 correctly with `--columns`. Everything else in the document (headings,
 prose, lists, code fences) passes through untouched -- this only
 touches pipe-table blocks specifically.
+
+Round 7.92 correction: this originally wrote CR-only (0x0D) line
+endings, on the textbook assumption that RISC OS text files are always
+CR-terminated. Live-tested on the user's own real setup: a file written
+that way showed every line break as a literal "[0d]" instead of an
+actual newline, while comparison files already proven to render
+correctly on the SAME setup (Arculator's own hostfs.txt, and a file the
+user created natively within Arculator) both turned out, on direct byte
+inspection, to use plain LF (0x0A), not CR -- confirmed with `xxd`, not
+inferred from a screenshot. Whatever text-viewing path is actually in
+use here does not treat a lone CR as a line break. Switched to LF to
+match the two known-working files rather than the general PRM
+convention, which evidently doesn't hold for this environment/toolset.
 """
 
 import re
@@ -187,7 +200,9 @@ def main() -> None:
 
     plain = to_ascii(plain)
 
-    with open(dest, "w", encoding="ascii", newline="\r") as f:
+    # Round 7.92: LF, not CR -- see module doc comment. newline="\n" pins
+    # this explicitly rather than relying on the host OS's default.
+    with open(dest, "w", encoding="ascii", newline="\n") as f:
         f.write(plain)
 
 
