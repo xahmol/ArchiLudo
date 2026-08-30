@@ -62,7 +62,15 @@ APPNAME = ArchiLudo
 VERSION_MAJOR     = 0
 VERSION_MINOR     = 1
 VERSION_PATCH     = 0
-VERSION_TIMESTAMP = $(shell date "+%Y%m%d-%H%M")
+# Round 7.91: := (immediate expansion), not = -- with plain =, $(shell date)
+# re-runs on every reference to VERSION_TIMESTAMP, so two recipe lines (or
+# two targets, like zip and disk below, where disk's recipe re-derives
+# $(ZIPFILE) rather than being handed it) straddling a minute boundary
+# would silently compute two DIFFERENT version strings/filenames in the
+# same build. := evaluates the shell command exactly once, at the point
+# Make first reads this line, so every reference for the rest of this run
+# sees the same value.
+VERSION_TIMESTAMP := $(shell date "+%Y%m%d-%H%M")
 VERSION           = v$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)-$(VERSION_TIMESTAMP)
 
 # Compile flags. config.mk sets CFLAGS -- always append with += (see its own comment).
@@ -112,7 +120,7 @@ APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
 .SUFFIXES:
-.PHONY: all clean asm zip docs check-hostfs deploy check-pibridge deploy-pibridge test assets export-sprites import-sprites
+.PHONY: all clean asm zip disk docs check-hostfs deploy check-pibridge deploy-pibridge test assets export-sprites import-sprites
 
 all: $(APPFILES)
 
@@ -307,6 +315,25 @@ build/README.pdf,adf: README.pdf | build
 zip: $(APPFILES) build/README.pdf,adf build/ReadMe,fff
 	cd build && $(ARCHIEZIP) -r -, "$(ZIPFILE_ABS)" "!$(APPNAME)"
 	$(ARCHIEZIP) -j -, "$(ZIPFILE_ABS)" "build/README.pdf,adf" "build/ReadMe,fff"
+
+DISKFILE = build/$(APPNAME)-$(VERSION).adf
+
+# Round 7.91: an ADFS "D" format (800KB) disc image containing just the
+# release zip -- fits comfortably (the zip is ~654KB; ADFS "L", the
+# other common DD floppy format, only has 640KB, too small). Filetype
+# &A91 is RISC OS's real Zip filetype (confirmed against RISC OS Open's
+# own Zipper module docs) -- SparkFS is commonly registered to open
+# &A91 too, alongside its own native archives, so double-clicking the
+# file from the Filer still works. No third-party disc-image tool is
+# used -- tools/build_adfs_disk.py is a from-scratch writer, ground-
+# truthed against DiscImageManager's own source and independently
+# verified (structural checksums recomputed by a separately-written
+# reader, payload checked byte-for-byte via SHA-256) -- see that
+# script's own doc comment and docs/ARCHITECTURE.md's round 7.91 notes.
+disk: $(DISKFILE)
+
+$(DISKFILE): zip tools/build_adfs_disk.py
+	python3 tools/build_adfs_disk.py "$(ZIPFILE)" "$(DISKFILE)" "$(APPNAME)" "$(APPNAME)" a91
 
 # Plain-text, CR-line-ended conversion of README.md for reading directly
 # on RISC OS (see the zip target's comment above for why this exists

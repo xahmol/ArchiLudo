@@ -50,6 +50,7 @@ ARCULATOR_HOSTFS = /mnt/d/Retro/Acorn/Arculator_V2.2_Windows/hostfs
 | `make clean` | remove `build/` |
 | `make deploy` | copy `build/!ArchiLudo` to the Arculator hostfs folder |
 | `make zip` | versioned release archive (`build/ArchiLudo-vX.Y.Z-<timestamp>.zip`), RISC OS filetypes preserved |
+| `make disk` | ADFS "D" format (800KB) disc image containing the release zip, correctly filetyped |
 | `make assets` | regenerate the pawn sprites and app icon from their Python generators |
 | `make docs` | regenerate `README.pdf` via pandoc |
 | `make asm` | emit generated ARM assembly for the current sources |

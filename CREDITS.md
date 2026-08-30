@@ -52,6 +52,15 @@ to -- this file consolidates all of it in one place.
   directory" section for what was adapted vs. followed as-is).
   `https://www.stevefryatt.org.uk/risc-os/wimp-prog`. Full local mirror:
   `~/riscos-dev/wimp-prog-mirror/`.
+- **DiscImageManager** -- Gerald Holdsworth's disc-image utility
+  (GPL-3.0). Ground truth for `tools/build_adfs_disk.py`'s ADFS "D"
+  format disc-image writer (round 7.91): every byte offset, field width,
+  and checksum algorithm was read directly from its
+  `DiscImage_ADFS.pas`/`DiscImage_Private.pas` source rather than
+  reconstructed from the PRM's prose. No DiscImageManager code is
+  copied -- `build_adfs_disk.py` is an independent from-scratch Python
+  implementation, released under this project's own GPLv3 as permitted
+  by DiscImageManager's licence. `https://github.com/geraldholdsworth/DiscImageManager`
 
 ## Music
 

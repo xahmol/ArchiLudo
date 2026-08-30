@@ -3952,6 +3952,51 @@ Wikipedia's List of RISC OS filetypes and riscos.info's own PDF-viewer
 page) for the minority who do have one installed. Verified byte-for-byte
 via the extra field, same as round 7.89.
 
+**Round 7.91 -- ADFS disc image, written from scratch**: per explicit
+user request, added `make disk`, building an ADFS "D" format (800KB)
+disc image containing the release zip. Confirmed first that it actually
+fits: the zip (~654KB) is too big for ADFS "L" (655,360 bytes, the
+other common double-density floppy format) but fits "D"'s 819,200 bytes
+with room to spare. Also confirmed the correct filetype is `&A91`
+(Zip) -- not `&DDC` ("Archive", Spark's own native type) -- since round
+7.89/7.90's investigation already established the file is a genuine
+PKZIP archive, not Spark's actual ARC-derived format; `&A91` is
+independently confirmed via RISC OS Open's own Zipper module docs,
+which also confirm its `0x4341`/"AC" extra-field ID matches exactly
+what round 7.89 found in Info-Zip's source.
+Two implementation paths were considered -- compiling Gerald
+Holdsworth's DiscImageManager (GPL-3.0, 110 stars, a real console/
+scriptable build already deep-dived while researching Spark) from
+source, or writing the format from scratch in Python matching this
+project's existing tools (`prepare_pibridge_deploy.py`'s `.inf`
+sidecars, `riscos_readme.py`) -- the user chose the latter, avoiding a
+new Lazarus/FPC build dependency for one target.
+`tools/build_adfs_disk.py` was written by reading DiscImageManager's
+own `DiscImage_ADFS.pas` as ground truth (`FormatOldMapADFS`,
+`CreateADFSDirectory`, `UpdateADFSCat`, `CalculateADFSDirCheck`,
+`ADFSAllocateFreeSpace`, `DiscImage_Private.pas`'s `ByteChecksum`/
+`ROR13`) -- the same "read the real implementation, don't guess from
+prose" approach as round 7.87's PiFS `.inf` format and round 7.89's
+Info-Zip `-,` flag. "D" format specifically was chosen over "L" not
+just for the size fit but because it sidesteps ADFS L's sector-
+interleave compensation entirely (confirmed from `DiscAddrToIntOffset`
+in `DiscImage_Private.pas`: interleaving is applied only to format
+`&02`, i.e. "L" -- "D" uses a plain linear byte layout), avoiding a
+second, unrelated piece of format complexity for a first from-scratch
+attempt. No disc-mounting kernel module was available in this dev
+environment to mount the result directly (`modprobe adfs` found no
+such module), so it was verified instead with an independently
+*written* (not copy-pasted) reader recomputing every checksum from
+scratch and comparing the payload's SHA-256 against the original file
+-- all checks passed. Live verification in Arculator/on real hardware
+is still the authoritative final check, per this project's usual WIMP-
+level testing philosophy.
+CREDITS.md gets a DiscImageManager entry per this project's own code-
+attribution convention -- no DiscImageManager code is copied, only its
+documented-by-reading format knowledge, released as a from-scratch
+Python implementation under this project's own GPLv3 (permitted by
+DiscImageManager's GPL-3.0 licence).
+
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and
 `homedestcoords[4][8][2]` tables (converted `col = raw_x/2`,
