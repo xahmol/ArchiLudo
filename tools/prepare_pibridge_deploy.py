@@ -3,7 +3,7 @@
 ArchiLudo PiEconetBridge deploy staging tool
 =============================================
 
-Round 7.87. PiEconetBridge's fileserver (PiFS) does NOT use the ",xxx"
+PiEconetBridge's fileserver (PiFS) does NOT use the ",xxx"
 hex-suffix filetype convention Arculator's hostfs and this project's own
 build output use -- confirmed by reading PiFS's actual source
 (cr12925/PiEconetBridge, utilities/fs.c) after a live deploy showed
@@ -74,7 +74,7 @@ def riscos_load_exec(filetype: int, when: float) -> tuple[int, int]:
 
 
 PIFS_MAX_FILENAME_LENGTH = 10
-"""Round 7.88: PiFS's default `FS_DEFAULT_NAMELEN` (cr12925/PiEconetBridge,
+"""PiFS's default `FS_DEFAULT_NAMELEN` (cr12925/PiEconetBridge,
 utilities/fs.c) is 10 -- classic-Econet-client compatibility. It truncates
 not just the name it *reports* for a file over this length but the name
 it actually opens on disk, so an 11+ character plain filename (the ,xxx

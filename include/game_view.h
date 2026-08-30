@@ -15,7 +15,7 @@
 
 /* Max characters (including the terminator) in a save slot's own display
  * name -- see game_view_save_to_path()/game_view_peek_slot_name(). Part
- * of the save data itself (round 7.59), not just a filename, so a slot's
+ * of the save data itself, not just a filename, so a slot's
  * label survives being loaded back and is what src/save_view.c's Save/
  * Load dialogues actually display -- see their own doc comments for the
  * 5-slot design this replaced free-form drag-and-drop pathnames with. */
@@ -24,20 +24,17 @@
 /* Size in bytes of a saved-game file -- see game_view_save_to_path()'s
  * "Save/load" block comment in game_view.c for the layout.
  *
- * Round 7.57: +9 for the rules block (magic bumped "ALS1" -> "ALS2") --
+ * Includes the rules block (magic "ALS3") --
  * one byte per ludo_rules field (variant + 8 house-rule booleans, see
- * game_logic.h) -- closing a real gap where the chosen ruleset (which
- * variant, which of the 8 toggles) was silently lost on save/load,
- * always reverting to MEJN defaults on load regardless of what was
- * actually being played.
- *
- * Round 7.59: +GAME_VIEW_SLOT_NAME_LEN for the slot's own display name
- * (magic bumped "ALS2" -> "ALS3") -- part of replacing free-form
- * drag-and-drop save/load (never reliably worked live -- see
- * docs/ARCHITECTURE.md's round 7.58 notes) with 5 fixed, renamable save
- * slots inside the app directory. Each bump intentionally breaks
- * compatibility with older-magic saves -- an accepted trade-off for this
- * hobby project, per docs/ARCHITECTURE.md. */
+ * game_logic.h), so the chosen ruleset (which variant, which of the 8
+ * toggles) survives save/load rather than reverting to MEJN defaults --
+ * and GAME_VIEW_SLOT_NAME_LEN for the slot's own display name, part of
+ * the 5 fixed, renamable save slots inside the app directory (see
+ * docs/ARCHITECTURE.md's "Decisions made and not revisited" section for
+ * why this replaced an earlier free-form drag-and-drop design). The
+ * magic is bumped whenever the layout changes, and an older-magic save
+ * is deliberately rejected rather than partially loaded -- an accepted
+ * trade-off for this hobby project. */
 #define GAME_VIEW_SAVE_FILE_SIZE (4 + GAME_VIEW_SLOT_NAME_LEN + 9 \
                                  + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 1) + 7 \
                                  + LUDO_PLAYERS * LUDO_PAWNS * 3)
@@ -70,7 +67,7 @@
  *                  Used to build absolute paths for "Sprites" and the
  *                  debug log, since the current selected directory at
  *                  launch isn't reliable -- see docs/ARCHITECTURE.md's
- *                  Phase 1 implementation notes, "Round 4".
+ *                  "WIMP conventions and gotchas" section.
  * Output:  none.
  */
 void game_view_initialise(const char *argv0);
@@ -209,7 +206,7 @@ void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_L
  *          game_view_configure_players()'s own two-call pattern: takes
  *          effect only the next time game_view_new_game() is called
  *          (which applies it via ludo_set_rules()), not to a game
- *          already in progress. Round 7.46.
+ *          already in progress.
  * Syntax:  void game_view_configure_rules(const ludo_rules *rules);
  * Input:   rules - the rules to adopt for the next new game. Copied by
  *                  value.
@@ -223,8 +220,7 @@ void game_view_configure_rules(const ludo_rules *rules);
  *          recent) game was actually configured with -- for
  *          src/setup_view.c's "New Game" dialogue to default to, the
  *          same "always default to the in-progress game" convention
- *          game_view_get_players() already follows (round 7.35). Round
- *          7.46.
+ *          game_view_get_players() already follows.
  * Syntax:  void game_view_get_rules(ludo_rules *rules);
  * Input:   none.
  * Output:  rules - filled with the currently configured rules.

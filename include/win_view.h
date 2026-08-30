@@ -9,14 +9,10 @@
  *
  * The "a player has won" dialogue -- shown the moment any player finishes
  * all four pawns, offering a choice between continuing the game with the
- * remaining players (per this project's house-rule variant: play out full
- * placement rather than stopping dead at the first winner -- the rules
- * engine already supports this, see game_logic.c's Round 7.35) or starting
- * a fresh game (opens src/setup_view.c's "New Game" dialogue, which by
- * round 7.35 always defaults to whatever player configuration is/was
- * actually in progress). Round 7.35, per explicit user request ("on
- * victory of a player, dialogue should ask to continue with remaining
- * players, or to start new game").
+ * remaining players (the game does not stop dead at the first winner --
+ * the rules engine plays out full placement, see game_logic.c) or starting
+ * a fresh game (opens src/setup_view.c's "New Game" dialogue, which always
+ * defaults to whatever player configuration is/was actually in progress).
  *
  * Kept as its own module (its own window, own icons, own click/redraw
  * handling) rather than folded into game_view.c or main.c, matching how

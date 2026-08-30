@@ -49,15 +49,14 @@ except ImportError:
 # as wide, non-square. ArchiLudo targets mode 15 (this project's chosen
 # 256-colour screen mode -- it's the normal RISC OS desktop mode, and mode
 # 13's square pixels turned out not to be worth chasing: it wasn't even
-# selectable under the user's Arculator monitor-type setup). Sprites are
-# tagged with the mode matching mode 15's own aspect for their bpp, so
-# there's no sprite/screen mode mismatch -- the non-square-pixel distortion
-# this caused for ArchiLudo's pawn art (round circles rendering as tall
-# thin "bottle" shapes) is instead compensated for in the SOURCE art itself
-# (see assets/generate_placeholder_art.py's MODE15_OS_UNITS_PER_PIXEL,
-# which pre-squishes the drawing canvas by the inverse ratio so mode 15's
-# stretch brings it back to the intended shape). See
-# docs/GRAPHICS_TOOLING.md's "Round 6 correction" for the full writeup.
+# selectable under the user's Arculator monitor-type setup). These modes
+# all have non-square (2x4 OS units/pixel) geometry; a sprite tagged with
+# one of them must either be drawn on a pre-squished canvas to compensate
+# (see assets/generate_placeholder_art.py's MODE15_OS_UNITS_PER_PIXEL) or,
+# this project's current preferred approach for new sprite art, be drawn
+# square and tagged mode 27 instead, letting Wimp_PlotIcon's own scaling
+# handle the aspect automatically -- see docs/GRAPHICS_TOOLING.md's
+# "Current rendering approach" section.
 MODES_BY_BPP = {
     1: 0,   # 2 colours,   2x4 OS units
     2: 8,   # 4 colours,   2x4 OS units

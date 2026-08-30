@@ -24,11 +24,9 @@
 #define BUTTON_HEIGHT   40
 #define ROW_GAP          8 /* gap between the last slot row and Cancel */
 
-/* Round 7.59: 5 fixed, renamable save slots inside the app directory,
- * replacing the earlier free-form pathname/drag-and-drop design --
- * see save_view.h's own doc comment for why (drag-and-drop never
- * reliably completed a live save/load round-trip across extensive
- * Arculator testing, see docs/ARCHITECTURE.md's round 7.58 notes). */
+/* 5 fixed, renamable save slots inside the app directory -- see
+ * save_view.h's own doc comment for why this replaced an earlier
+ * free-form pathname/drag-and-drop design. */
 #define SLOT_COUNT 5
 
 /* Row `row` (0 = topmost), same downward-growing-negative-Y convention
@@ -83,7 +81,7 @@ static char button_validation[4] = "R1";
  * Summary: The fixed pathname for save slot `slot` (0-based) --
  *          `<ArchiLudo$Dir>.Slot1` .. `.Slot5`. Every slot always has
  *          exactly one possible path; there is no user-chosen pathname
- *          anywhere in this module any more (round 7.59).
+ *          anywhere in this module.
  */
 static void build_slot_path(int slot, char *out, size_t out_size)
 {
@@ -304,8 +302,8 @@ void save_view_initialise(void)
  * Function: save_view_open
  * Summary: Refresh all 5 slot rows from whatever is actually on disc
  *          right now (occupied slots show their real saved name,
- *          otherwise "Slot N"), then open the window. Round 7.59: always
- *          re-reads on every open -- see the module's own note on the
+ *          otherwise "Slot N"), then open the window. Always re-reads
+ *          on every open -- see the module's own note on the
  *          one accepted edge case this causes (an in-progress, unsaved
  *          rename gets discarded if the dialogue is somehow reopened
  *          without being closed first; not reachable through this
@@ -430,15 +428,14 @@ void load_view_click(wimp_pointer *pointer)
 				return; /* shaded/empty slot -- no-op */
 
 			build_slot_path(slot, path, sizeof(path));
-			/* game_view_open() -- round 7.24, per explicit user report:
-			 * unlike setup_view.c's ICON_START handler (which explicitly
-			 * opens the game window before game_view_new_game()), this
-			 * path only ever set game_started/loaded the board, never
-			 * actually opened the window -- it only became visible on a
-			 * *later*, separate iconbar click (game_view_has_started()
-			 * then being true routes that click to game_view_open() --
-			 * see main.c). Matches game_view_new_game()'s own pattern:
-			 * open first, so a load that's about to succeed is
+			/* game_view_open() must be called here, matching
+			 * setup_view.c's ICON_START handler (which explicitly opens
+			 * the game window before game_view_new_game()) -- loading a
+			 * game must open the window immediately rather than only
+			 * setting game_started/loading the board and leaving the
+			 * window to appear on some later, separate iconbar click.
+			 * Matches game_view_new_game()'s own pattern: open first,
+			 * so a load that's about to succeed is
 			 * immediately visible. */
 			if (game_view_load_from_path(path)) {
 				game_view_open();

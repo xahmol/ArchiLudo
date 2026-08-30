@@ -3,24 +3,20 @@
 ArchiLudo placeholder art generator
 ====================================
 
-Summary: Generates ArchiLudo's Phase 1 placeholder art (see
-docs/ARCHITECTURE.md's Roadmap) by recolouring and resizing bitmaps from
-this game's own prior GEOS port, rather than drawing new shapes from
-scratch -- the user's call: reuse the existing GeoLudo artwork properly
-resized until bespoke Phase 2 art is designed, instead of inventing
-placeholder shapes. Source bitmaps are local copies (see
-assets/geos_source/) of the matching files under
-/home/xahmol/git/ludo/GEOS/assets/ -- see CREDITS.md and
-docs/GRAPHICS_TOOLING.md's "Round 6: reusing GeoLudo's own art" for the
-full writeup of what was reused and why. (The board-entry direction
-markers this round *also* first tried reusing -- bm_gstart/rstart/bstart/
-ystart.gbm -- are drawn programmatically in src/game_view.c instead as of
-round 6.1; see that file's plot_start_marker() and
-docs/GRAPHICS_TOOLING.md's "Round 6.1" for why. The .gbm files themselves
-are left in assets/geos_source/ in case they're useful again later.)
-dice1..6.gbm (GEOS's own die-face icons) were added in round 6.3 to give
-the Throw button's outcome an actual on-screen face, per repeated user
-request -- see game_view.c's plot_dice().
+Summary: Generates ArchiLudo's pawn/dice art by recolouring and
+resizing bitmaps from this game's own prior GEOS port, rather than
+drawing new shapes from scratch -- reuses the existing GeoLudo artwork
+properly resized, rather than inventing placeholder shapes. Source
+bitmaps are local copies (see assets/geos_source/) of the matching
+files under /home/xahmol/git/ludo/GEOS/assets/ -- see CREDITS.md and
+docs/GRAPHICS_TOOLING.md for the full writeup of what was reused and
+why. The board-entry direction markers were also first tried this way
+(bm_gstart/rstart/bstart/ystart.gbm) but are drawn programmatically in
+src/game_view.c instead (see that file's plot_start_marker()) -- the
+.gbm files themselves are left in assets/geos_source/ in case they're
+useful again later. dice1..6.gbm (GEOS's own die-face icons) give the
+Throw button's outcome an actual on-screen face -- see
+game_view.c's plot_dice().
 
 Then converts+packs the result into a single RISC OS Sprite file via
 tools/riscos_sprite.py.
@@ -53,21 +49,20 @@ PLAYER_COLOURS = [
     (230, 200, 30),  # player 3: yellow
 ]
 
-# Mode 15 -- this project's target screen mode, per docs/GRAPHICS_TOOLING.md
-# and CLAUDE.md's Testing section -- is 640x256 pixels at 1280x1024 OS
-# units: 2 OS units per pixel horizontally, 4 vertically. Round 5 tried
-# switching to mode 13 (which has genuinely square 4x4 OS-unit pixels)
-# specifically to sidestep this, but mode 13 turned out not to be
-# selectable in the user's Arculator monitor-type setup, and mode 15 is
-# simply the normal RISC OS desktop mode anyway -- so ArchiLudo targets
-# mode 15 and compensates for its non-square pixels here instead: source
-# art is drawn on a canvas pre-squished by the INVERSE of mode 15's pixel
-# aspect (half as many rows as columns, in raw pixel terms), so that once
-# mode 15 stretches each raw pixel back out (2 OS units wide, 4 tall) the
-# final on-screen shape is the intended square/circle, not the raw
-# canvas's own (very flat) aspect. See docs/GRAPHICS_TOOLING.md's "Round 6
-# correction" for the full writeup and tools/riscos_sprite.py's
-# MODES_BY_BPP for the matching old-style sprite mode per bpp.
+# Mode 15 -- one of this project's supported screen modes, per
+# docs/GRAPHICS_TOOLING.md and CLAUDE.md's Testing section -- is 640x256
+# pixels at 1280x1024 OS units: 2 OS units per pixel horizontally, 4
+# vertically (non-square). This script compensates for that here by
+# drawing its source art on a canvas pre-squished by the INVERSE of mode
+# 15's pixel aspect (half as many rows as columns, in raw pixel terms),
+# so that once mode 15 stretches each raw pixel back out (2 OS units
+# wide, 4 tall) the final on-screen shape is the intended square/circle.
+# This project's current preferred approach for new sprite art (see
+# docs/GRAPHICS_TOOLING.md's "Current rendering approach" section) is
+# instead to draw square and tag the sprite mode 27, letting
+# Wimp_PlotIcon's own scaling handle every supported mode's aspect
+# automatically -- see tools/riscos_sprite.py's MODES_BY_BPP for the
+# old-style sprite mode per bpp.
 MODE15_OS_UNITS_PER_PIXEL = (2, 4)  # (x, y)
 
 # On-screen sizes in OS units (square) -- must match src/game_view.c's
@@ -131,16 +126,15 @@ def recolour_and_squish(mask_img, colour, target_pixel_size):
              target_pixel_size - (width, height) in raw pixels.
     Output:  a Pillow RGBA image at target_pixel_size.
     """
-    # Round 6.3 fix: the previous version built this via Image.paste(solid,
-    # box, resized_mask) -- for LANCZOS-resized (i.e. partially transparent
-    # at the edges) mask pixels, paste() *blends* every channel including
-    # RGB by the mask strength against the destination's starting colour
-    # (0,0,0,0), so a half-opaque edge pixel came out at roughly half
-    # brightness, not full colour at half alpha. On a canvas this small
-    # (20x10 raw pixels for a pawn) most of the visible shape *is*
-    # antialiased edge, so this washed almost the whole sprite out toward
-    # grey/black regardless of player colour -- exactly the "colour fill
-    # doesn't show, all colours look the same" report. Fixed by setting
+    # Image.paste(solid, box, resized_mask) is deliberately NOT used here:
+    # for LANCZOS-resized (i.e. partially transparent at the edges) mask
+    # pixels, paste() *blends* every channel including RGB by the mask
+    # strength against the destination's starting colour (0,0,0,0), so a
+    # half-opaque edge pixel comes out at roughly half brightness, not
+    # full colour at half alpha. On a canvas this small (20x10 raw pixels
+    # for a pawn) most of the visible shape *is* antialiased edge, so this
+    # would wash almost the whole sprite out toward grey/black regardless
+    # of player colour. Avoided by setting
     # every pixel's RGB to the flat player colour unconditionally and
     # driving only the alpha channel from the mask, so a partially-opaque
     # edge pixel is a partially-transparent *true-coloured* pixel, not a

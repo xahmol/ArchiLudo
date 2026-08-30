@@ -24,17 +24,14 @@ wimp_t task_handle;
 
 static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
 
-/* Round 7.60: the "Music" iconbar/window menu entry's own submenu --
- * "On" (a ticked toggle) and "Track" (round 7.65: itself a further
- * submenu, see track_menu below, rather than "Track N" entries directly
- * here -- per explicit user request to show each track's own full title
- * rather than a generic number). Round 7.84: "SFX" (a second, independent
- * ticked toggle -- per explicit user request to be able to switch music
- * and SFX on/off separately, e.g. music with no SFX). A no-op menu
- * (present, but every click on it does nothing) if qtm_available() is
- * false, e.g. QTM isn't loaded -- the entries themselves stay visible
- * rather than disappearing, so it's obvious the feature exists even when
- * silent. */
+/* The "Music" iconbar/window menu entry's own submenu -- "On" (a
+ * ticked toggle), "SFX" (a second, independent ticked toggle, so music
+ * and SFX can be switched on/off separately), and "Track" (itself a
+ * further submenu, see track_menu below, showing each track's own full
+ * title rather than a generic "Track N"). A no-op menu (present, but
+ * every click on it does nothing) if qtm_available() is false, e.g.
+ * QTM isn't loaded -- the entries themselves stay visible rather than
+ * disappearing, so it's obvious the feature exists even when silent. */
 #define MUSIC_MENU_ON    0
 #define MUSIC_MENU_SFX   1
 #define MUSIC_MENU_TRACK 2
@@ -42,15 +39,15 @@ static wimp_MENU(ICONBAR_MENU_ITEMS) iconbar_menu;
 
 static wimp_MENU(MUSIC_MENU_ITEMS) music_menu;
 
-/* Round 7.65: "Track"'s own submenu -- one ticked entry per bundled
- * track, showing its real title (not "Track N") -- per explicit user
- * request. Indirected text (wimp_ICON_INDIRECTED): at up to ~20
- * characters, these titles don't fit the 12-byte inline menu-entry text
- * field every other menu in this project uses. Titles are the bundled
- * `.mod` files' own embedded song titles (confirmed via `file`/hex
- * inspection when each was sourced, see CREDITS.md), not invented --
- * kept here as a parallel fixed array, the same convention lib/qtm.c's
- * own sfx_leafname[] already uses for a per-index fixed string table. */
+/* "Track"'s own submenu -- one ticked entry per bundled track, showing
+ * its real title (not "Track N"). Indirected text (wimp_ICON_INDIRECTED):
+ * at up to ~20 characters, these titles don't fit the 12-byte inline
+ * menu-entry text field every other menu in this project uses. Titles
+ * are the bundled `.mod` files' own embedded song titles (confirmed via
+ * `file`/hex inspection when each was sourced, see CREDITS.md), not
+ * invented -- kept here as a parallel fixed array, the same convention
+ * lib/qtm.c's own sfx_leafname[] already uses for a per-index fixed
+ * string table. */
 #define TRACK_MENU_ITEMS QTM_MUSIC_TRACK_COUNT
 
 static wimp_MENU(TRACK_MENU_ITEMS) track_menu;
@@ -67,15 +64,11 @@ static const char *const track_titles[QTM_MUSIC_TRACK_COUNT] = {
  *          afterwards (see main_dispatch(), game_view_has_started());
  *          MENU click shows the shared app menu.
  *
- *          Round 7.37: plots the real "!ArchiLudo" sprite (a red pawn
- *          beside a die -- see assets/generate_app_icon.py,
- *          docs/BUILDCHAIN.md's "Application directory" section) instead
- *          of the placeholder "AL" text icon this used before the round
- *          7.36 application-directory work -- that work built and
- *          deployed the sprite but never actually wired the iconbar icon
- *          to use it, a plain oversight found via live user report ("task
- *          bar icon is still the old AL letter one"). Plain (non-
- *          indirected) sprite icon: `app/!Run`'s `IconSprites
+ *          Plots the real "!ArchiLudo" sprite (a red pawn beside a
+ *          die -- see assets/generate_app_icon.py,
+ *          docs/BUILDCHAIN.md's "Application directory" section), not a
+ *          placeholder text icon. Plain (non-indirected) sprite icon:
+ *          `app/!Run`'s `IconSprites
  *          <ArchiLudo$Dir>.!Sprites` line (run before this task even
  *          starts, see main()'s own doc comment -- Wimp_Initialise
  *          happens after !Run's IconSprites line executes) has already
@@ -127,13 +120,10 @@ static void set_menu_entry(wimp_menu_entry *entry, const char *text, int is_last
  * Summary: Build the (fixed, never rebuilt) iconbar/window menu: "New
  *          Game" (opens src/setup_view.c's player-configuration
  *          dialogue), "Save Game"/"Load Game" (open src/save_view.c's
- *          dialogues -- per explicit user request for GEOS-menu parity;
- *          see docs/ARCHITECTURE.md's Round 7.1 notes on why "Color" and
- *          "(Re)Start" from GEOS's own menu aren't included), "Music"
- *          (opens the Music submenu, see build_music_menu() -- round
- *          7.60, per explicit user request that music be "selectable and
- *          optional"), "About" (reopens src/splash_view.c's splash/about
- *          window, shown automatically once at startup too), and "Quit".
+ *          dialogues), "Music" (opens the Music submenu, see
+ *          build_music_menu()), "About" (reopens src/splash_view.c's
+ *          splash/about window, shown automatically once at startup
+ *          too), and "Quit".
  */
 static void build_iconbar_menu(void)
 {
@@ -297,8 +287,8 @@ void archiludo_initialise(const char *argv0)
 	save_view_initialise();
 	/* After game_view_initialise() too -- qtm.c's bundled asset paths are
 	 * also built from game_view_app_dir(). Starts background music
-	 * immediately if QTM is available (round 7.60's default: enabled,
-	 * track 1) -- a silent no-op otherwise. */
+	 * immediately if QTM is available (default: enabled, track 1) --
+	 * a silent no-op otherwise. */
 	qtm_initialise();
 }
 
@@ -429,12 +419,10 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 		else if (block->selection.items[0] == ICONBAR_MENU_MUSIC) {
 			/* items[1] is the Music submenu's own selected entry -- see
 			 * build_music_menu()/refresh_music_menu_ticks(). "On" and
-			 * "SFX" (round 7.84) both toggle (rather than only ever
-			 * turning on) since they're ticked toggles, not one-way
-			 * actions, matching how a ticked menu entry conventionally
-			 * behaves -- and independently of each other, per explicit
-			 * user request. items[1] == MUSIC_MENU_TRACK with items[2]
-			 * set (round 7.65) means a track was actually picked from
+			 * "SFX" both toggle (rather than only ever turning on)
+			 * since they're ticked toggles, not one-way actions, and
+			 * independently of each other. items[1] == MUSIC_MENU_TRACK
+			 * with items[2] set means a track was actually picked from
 			 * Track's own submenu (see build_track_menu()) -- items[2]
 			 * == -1 would mean Track was merely hovered/opened without
 			 * picking anything, which shouldn't reach here at all
@@ -463,9 +451,9 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 
 	case wimp_USER_MESSAGE:
 	case wimp_USER_MESSAGE_RECORDED:
-		/* Round 7.59: save/load moved from free-form drag-and-drop to 5
-		 * fixed save slots (see src/save_view.c) -- Message_Quit is the
-		 * only message ArchiLudo has any reason to care about now. */
+		/* Save/load uses 5 fixed save slots (see src/save_view.c), not
+		 * drag-and-drop -- Message_Quit is the only message ArchiLudo
+		 * has any reason to care about. */
 		if (block->message.action == message_QUIT)
 			return true;
 		break;
@@ -504,20 +492,19 @@ int main(int argc, char *argv[])
 	 * invoked as (e.g. "HostFS:$.ArchiLudo"), unlike Unix where a bare
 	 * relative command name is common. game_view_initialise() uses this to
 	 * build absolute paths for "Sprites" and its debug log, rather than
-	 * relying on the current selected directory (CSD) at launch time, which
-	 * turned out not to be reliable here -- see docs/ARCHITECTURE.md's
-	 * Phase 1 implementation notes, "Round 4". */
+	 * relying on the current selected directory (CSD) at launch time,
+	 * which is not reliable here -- see docs/ARCHITECTURE.md's "WIMP
+	 * conventions and gotchas" section. */
 	archiludo_initialise(argc > 0 ? argv[0] : "");
 	archiludo_poll_loop();
 
 	/* QTM is a relocatable module, independent of this task -- without an
 	 * explicit stop, background music keeps playing after ArchiLudo itself
 	 * quits (both the Quit menu and Message_Quit converge on the poll loop
-	 * ending here, so this one call covers both). Round 7.81:
-	 * qtm_set_music_enabled(0) no longer actually stops QTM (it mutes,
-	 * leaving the song loaded so SFX keep working with music off) --
-	 * qtm_shutdown() is the dedicated call for real shutdown, see
-	 * lib/qtm.c. */
+	 * ending here, so this one call covers both). qtm_set_music_enabled(0)
+	 * does not stop QTM (it only mutes, leaving the song loaded so SFX
+	 * keep working with music off) -- qtm_shutdown() is the dedicated
+	 * call for real shutdown, see lib/qtm.c. */
 	qtm_shutdown();
 
 	wimp_close_down(task_handle);

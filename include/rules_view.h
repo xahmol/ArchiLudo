@@ -44,7 +44,7 @@ void rules_view_initialise(void);
  *          this should be (its own pending rules, so reopening the
  *          dialogue mid-edit shows what was left there, matching this
  *          project's "New Game dialogue always defaults to the
- *          in-progress game" convention from round 7.35).
+ *          in-progress game" convention).
  * Syntax:  void rules_view_open(const ludo_rules *rules);
  * Input:   rules - the rules to display/edit. Copied by value; the
  *                  caller's own storage is not aliased or modified.

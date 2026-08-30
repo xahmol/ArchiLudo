@@ -17,43 +17,32 @@ sprite (named after the app, `!archiludo`) and a "half size" sprite
 (`sm!archiludo`, prefixed per the tutorial's own convention, for the
 Filer's small-icon views).
 
-Round 7.38: sprite names lowercased from `!ArchiLudo`/`sm!ArchiLudo` --
-per the tutorial's own literal example ("!examplapp"/"sm!examplapp" for
-a directory named "!ExamplApp"), which is very likely deliberate and
-not just a stylistic choice: the Filer's own directory-icon lookup is
-suspected to normalise the directory name to lowercase before searching
-the sprite pool, unlike Wimp_CreateIcon's own sprite lookup (confirmed
-working with the exact-case "!ArchiLudo" for the iconbar icon, round
-7.37) which is known to be case-insensitive. Tried after the Filer
-directory icon still didn't appear even after a live user retest with a
-fresh Filer window -- not confirmed as the actual cause yet, but a
-direct, low-risk match to Fryatt's own working convention rather than a
-guess at something novel. `src/main.c`'s iconbar icon reference was
-NOT changed to match (still references "!ArchiLudo") -- Wimp sprite
-name matching is case-insensitive, already proven working at that
-exact call site, so there's nothing to fix there.
+Sprite names are lowercase (`!archiludo`/`sm!archiludo`), per the
+tutorial's own literal example ("!examplapp"/"sm!examplapp" for a
+directory named "!ExamplApp") -- the Filer's own directory-icon lookup
+normalises the directory name to lowercase before searching the sprite
+pool, unlike `Wimp_CreateIcon`'s own sprite lookup (used for the
+iconbar icon, which stays exact-case "!ArchiLudo" in `src/main.c`),
+which is case-insensitive.
 
 Design: drawn once at a square WORK=320 supersample canvas (same
 technique as assets/generate_icon_sprites.py's pawn art -- solid 0/255
-masks, RGB and alpha resized separately to avoid the round 6.3
-transparent-edge colour bleed this project already found once), bold
+masks, RGB and alpha resized separately, since compositing them
+together before resizing bleeds colour into the transparent edge), bold
 and simplified (thick outline, no dither/shading detail) since the
 final sizes are tiny (34x34 down to 17x9 pixels) and fine detail would
 just read as noise. The square-pixel outputs (!Sprites22) downsample
 the WORK canvas directly; the rectangular-pixel outputs (!Sprites)
-first squish it 2:1 vertically (the same "pre-squish the source" trick
-this project used for its own mode-15-targeted placeholder art before
-the round 7.16 mode-27 pivot -- see tools/riscos_sprite.py's
-MODES_BY_BPP doc comment) so mode 12's own 2x4-OS-units/pixel stretch
-brings the design back to the right proportions on screen.
+first squish it 2:1 vertically so mode 12's own 2x4-OS-units/pixel
+stretch brings the design back to the right proportions on screen --
+see tools/riscos_sprite.py's MODES_BY_BPP doc comment for the mode
+geometry this compensates for.
 
-Round 7.38 also switched every resize in this file from `Image.BOX` to
-`Image.NEAREST` -- per explicit user report that the icon looked
-"fuzzy" (BOX resize blends/antialiases across source pixels when
-downsampling, which is exactly what a soft photographic image wants
-but reads as a grey halo/blur at these tiny icon sizes). NEAREST picks
-one source pixel per destination pixel with no blending at all, giving
-the same hard-edged, no-antialiasing look classic RISC OS icons use.
+Every resize in this file uses `Image.NEAREST`, not `Image.BOX` --
+BOX resize blends/antialiases across source pixels when downsampling,
+which reads as a grey halo/blur at these tiny icon sizes. NEAREST
+picks one source pixel per destination pixel with no blending at all,
+giving the hard-edged, no-antialiasing look classic RISC OS icons use.
 
 Syntax:  python3 assets/generate_app_icon.py
 Output:  assets/app_icon_full.png, assets/app_icon_half.png (square-pixel
@@ -87,20 +76,18 @@ WORK = 320
 FULL = 34
 HALF = 17
 
-# Round 7.39: the raw (unscaled) design below spans x=18..306/y=8..306 --
-# only 8-18 WORK units of margin per side before OUTLINE_DILATE_WORK-
-# style dilation even runs, nowhere near enough once that dilation is
-# 18 (round 7.38's widening, for NEAREST-resize robustness -- see
-# build_icon_image()'s own comment). Per live user report ("top black
-# line missing"), the dilated outline was being clipped against the
-# WORK canvas boundary itself before the sprite ever reached
-# Wimp_PlotIcon -- the exact same class of bug
-# assets/generate_icon_sprites.py's CONTENT_SCALE fixed for the pawn
-# sprites in round 7.33 (see that file's own doc comment for the full
-# mechanism). Fixed the same way here: CONTENT_SCALE shrinks every
-# drawn coordinate below around CONTENT_CENTRE via sc()/sc_pts(),
-# giving every edge real margin instead of resizing the canvas or
-# hand-adjusting each hand-picked coordinate.
+# The raw (unscaled) design below spans x=18..306/y=8..306 -- on its
+# own, not enough margin per side to survive OUTLINE_DILATE_WORK-style
+# dilation (18 WORK units, for NEAREST-resize robustness -- see
+# build_icon_image()'s own comment) without the dilated outline
+# clipping against the WORK canvas boundary itself before the sprite
+# ever reaches Wimp_PlotIcon -- the same class of bug CONTENT_SCALE
+# fixes for the pawn sprites in assets/generate_icon_sprites.py (see
+# that file's own doc comment for the full mechanism). Fixed the same
+# way here: CONTENT_SCALE shrinks every drawn coordinate below around
+# CONTENT_CENTRE via sc()/sc_pts(), giving every edge real margin
+# instead of resizing the canvas or hand-adjusting each hand-picked
+# coordinate.
 CONTENT_SCALE = 0.85
 CONTENT_CENTRE = WORK / 2
 
@@ -129,12 +116,10 @@ def draw_icon(draw):
     Function: draw_icon
     Summary: Draw the PAWN silhouette only (outline colour only, solid
              fill 255) onto the given ImageDraw -- shared by the
-             outline/red-fill passes in build_icon_image(). Round 7.41:
-             the die is NO LONGER drawn here at all -- see
-             DIE_BOX_WORK's own doc comment (updated) for why it's
-             stamped directly at each output's native resolution
-             instead, the same fix already applied to the pips in
-             round 7.40.
+             outline/red-fill passes in build_icon_image(). The die is
+             NOT drawn here at all -- see DIE_BOX_WORK's own doc
+             comment for why it, like the pips, is stamped directly at
+             each output's native resolution instead.
     Syntax:  draw_icon(draw)
     Input:   draw - a PIL.ImageDraw.Draw bound to an 'L' mode image
                     sized (WORK, WORK).
@@ -148,66 +133,48 @@ def draw_icon(draw):
     draw.rounded_rectangle(sc(18, 268, 166, 306), radius=sc_len(14), fill=255)      # base
 
 
-# Round 7.40: pips are no longer drawn into the WORK canvas at all --
-# per live user report that round 7.39's square pips still "look bit
-# weird and uneven" across the different output sizes. Root cause: at
-# a 320-unit source downsampled by NEAREST to anywhere from 34 down to
-# 17 (or 9, for the rectangular-pixel half-size), each pip's exact
-# rendered shape/position depends on where NEAREST's sample grid
-# happens to fall relative to that pip's edges in WORK space -- which
-# differs slightly between the four separate outputs (square/
-# rectangular x full/half all resize by different ratios), so the
-# SAME nominal pip design ends up looking subtly different in each one
-# even though nothing about the pips themselves changed. No amount of
-# tuning the WORK-space pip size fixes this, because the problem is
-# the resampling step itself, not the shape being resampled.
+# Neither the pips nor the die's own square outline are drawn into the
+# WORK canvas at all. At a 320-unit source downsampled by NEAREST to
+# anywhere from 34 down to 9 pixels, a shape's exact rendered position
+# depends on where NEAREST's sample grid happens to fall relative to
+# its edges in WORK space -- which differs between the four separate
+# outputs (square/rectangular x full/half all resize by different
+# ratios), so the same nominal design ends up looking subtly different
+# in each one even though nothing about the shape itself changed. No
+# amount of tuning the WORK-space size fixes this, because the problem
+# is the resampling step itself, not the shape being resampled. This
+# matters more for the die than for the pawn: the shared WORK-space
+# silhouette-dilate-then-NEAREST-resize pipeline that correctly serves
+# the pawn's organic, curved outline can round each of a plain square's
+# four corners slightly differently once resampled, with no curve to
+# hide the asymmetry the way the pawn's silhouette does.
 #
-# Round 7.41: the die's own black/white square (not just its pips) has
-# exactly the same problem -- per live user report ("outline of die
-# should be square, and is not always now as it misses pixel in lower
-# right corner"), the die's outline was still going through the shared
-# WORK-space silhouette-dilate-then-NEAREST-resize pipeline (the same
-# one that still correctly serves the pawn's own organic, curved
-# outline), which can round each of the die's four corners slightly
-# differently once resampled -- a plain square has no room to hide that
-# asymmetry the way a curved pawn silhouette does. So the die is now
-# stamped whole (border AND interior, not just pips) directly at each
-# output's native resolution too, via stamp_die() below -- draw_icon()
-# no longer includes the die at all.
+# Fix: the die (border, interior, and pips) is stamped directly at each
+# output's own native resolution instead, via stamp_die()/stamp_pips()
+# below -- draw_icon() only ever draws the pawn. DIE_BOX_WORK is the
+# die's own bounding box (already CONTENT_SCALE'd) in WORK-space
+# coordinates; die_box_in() maps it analytically into each output
+# image's own native pixel grid (accounting for that output's square/
+# rectangular resize ratio and any pre-squish); stamp_die()/
+# stamp_pips() then draw directly at that resolution -- guaranteeing
+# identical relative layout and genuinely proportional sizing in every
+# output, with zero dependence on resampling luck. This is the same
+# lesson assets/generate_icon_sprites.py's build_pawn_image() documents
+# for its own highlight dither: the dither pattern must be chosen at
+# the final pixel grid, not the supersampled one.
 #
-# DIE_BOX_WORK is the die's own bounding box (already CONTENT_SCALE'd)
-# in WORK-space coordinates; die_box_in() maps it analytically into
-# each output image's own native pixel grid (accounting for that
-# output's square/rectangular resize ratio and any pre-squish);
-# stamp_die()/stamp_pips() then draw directly at that resolution --
-# guaranteeing identical relative layout and genuinely proportional
-# sizing in every output, with zero dependence on resampling luck. This
-# is the same lesson assets/generate_icon_sprites.py's
-# build_pawn_image() already documents for its own highlight dither:
-# "the dither pattern must be chosen at the FINAL pixel grid, not the
-# supersampled one."
-#
-# Round 7.51: enlarged from (150, 8, 306, 164) (a 156x156 box) to
-# (140, 10, 310, 190) (170x180) -- per direct live user report that the
-# pip whitespace fix below still left NO margin between the outer pips
-# and the die's own border at all, and the user's own suggested fix
-# ("increasing the dice size... enough to have that white space"). The
-# earlier _pip_axis_layout() fix only reserved the 2 INTER-pip gaps,
-# filling the entire white interior with pip+gap+pip+gap+pip and
-# leaving zero room for a margin between the outer pips and the
-# border -- fixed at the same time by adding 2 more reserved segments
-# there (see _pip_axis_layout()'s own doc comment), but that alone
-# needs a real minimum interior of 7px per axis (3 pips + 4 spacing
-# segments, 1px each) to have ANY margin at all, and the smallest
-# ("half") icon's own die box only left ~5px. Grown asymmetrically
-# (not about its own centre) -- extended right and down into this
-# canvas's own generous unused space there, left/top edges nudged only
-# slightly -- confirmed by direct rendering that this doesn't collide
-# with the pawn silhouette (which sits to the lower-left) or get
-# clipped by the canvas edge (unlike the dilate-based clipping risk
-# round 7.33 found for the pawn art, stamp_die()/stamp_pips() draw
-# exact rectangles with no dilation margin to protect, so the only risk
-# here is the box itself exceeding the canvas, checked directly).
+# The box is sized (170x180, asymmetrically grown to leave more room to
+# the right and below) to leave real margin between the outer pips and
+# the die's own border at every output size, including the smallest
+# ("half") icon -- _pip_axis_layout() reserves both the inter-pip gaps
+# and a margin segment on each side of the 3-pip row (see that
+# function's own doc comment) rather than filling the entire interior
+# edge-to-edge, and the box itself was grown until even the smallest
+# icon has enough interior pixels for that margin to be visible.
+# stamp_die()/stamp_pips() draw exact rectangles with no dilation
+# margin to protect (unlike the pawn's dilated outline), so the only
+# constraint here is the box itself staying inside the canvas, checked
+# directly.
 DIE_BOX_WORK = sc(140, 10, 310, 190)
 
 
@@ -215,17 +182,13 @@ def _round_box(die_box):
     """
     Function: _round_box (internal)
     Summary: Round a (x0, y0, x1, y1) box to whole pixels ONCE, shared
-             by stamp_die() and stamp_pips() -- Round 7.50 fix: the two
-             functions used to each work from the raw float die_box
-             independently (stamp_die drawing straight from the floats,
-             stamp_pips rounding its own copy), which at this project's
-             smallest ("half rect") icon size -- a ~7.0x3.7px die box --
-             let stamp_pips round the height up to 4 while stamp_die's
-             own float rectangle only ever painted ~3.7px of it,
-             misaligning the pip grid against the die's actual painted
-             border/interior badly enough to visibly break the pip
-             layout. Both functions must agree on the exact same
-             integer box.
+             by stamp_die() and stamp_pips() -- both must agree on the
+             exact same integer box, or the pip grid can misalign
+             against the die's actual painted border/interior (e.g. one
+             function rounding a fractional dimension up while the
+             other only ever paints the unrounded, smaller extent) at
+             this project's smallest ("half rect") icon size, where the
+             die box is only a few pixels across.
     Syntax:  x0, y0, x1, y1 = _round_box(die_box)
     """
     x0, y0, x1, y1 = die_box
@@ -280,14 +243,9 @@ def _pip_axis_layout(interior_size):
              every one of the 7 segments at least 1px -- so a pip can
              never touch another pip OR the interior's own edge (i.e.
              the die's border), regardless of how small `interior_size`
-             is. Round 7.50 (first cut): only reserved the 2 inter-pip
-             gaps, filling the ENTIRE interior with pip+gap+pip+gap+pip
-             and leaving the two OUTER pips flush against the border --
-             per direct live user report ("the app icon pips now have
-             no white space to upper and left border") on the actual
-             rendered icon. This revision adds the 2 outer margins as
-             their own reserved segments, same >=1px guarantee as the
-             inter-pip gaps.
+             is. The 2 outer margins are their own reserved segments,
+             with the same >=1px guarantee as the 2 inter-pip gaps, so
+             the outermost pips never end up flush against the border.
     Syntax:  pip, margin_a, gap_a, gap_b, margin_b = _pip_axis_layout(interior_size)
     Input:   interior_size - the die's white interior extent along one
                              axis, in pixels (already excludes the
@@ -298,9 +256,9 @@ def _pip_axis_layout(interior_size):
              pips; gap_a/gap_b are the two inter-pip gaps. All >= 1
              whenever interior_size >= 7 (the true minimum for 3 pips +
              4 spacing segments at 1px each -- see DIE_BOX_WORK's own
-             Round 7.50 comment for why the die box was enlarged to
-             make this achievable at every icon size this project
-             actually ships except the smallest rectangular one); below
+             doc comment for why the die box is sized to make this
+             achievable at every icon size this project actually ships
+             except the smallest rectangular one); below
              that, pip still floors at 1 and the remaining space is
              split across the 4 spacing segments as evenly as possible,
              which can still leave some at 0 if interior_size < 7.
@@ -327,16 +285,15 @@ def stamp_pips(img, die_box):
              stamp_die(), so the pips land on top of the die's white
              interior.
 
-             Round 7.50: pip positions and sizes are now a hard integer
-             grid within the die's own white interior (border + pip +
-             gap + pip + gap + pip + border along each axis, via
-             _pip_axis_layout()) instead of fractional (0.25/0.5/0.75
-             of the box) positioning -- the old approach had no explicit
-             minimum-gap guarantee, and at this project's smallest
-             ("half") icon size the ~7x7px die box left pips reading as
-             a solid merged blob with no visible whitespace at all
-             (confirmed by rendering and zooming the actual shipped
-             icon). The border width matches stamp_die()'s own
+             Pip positions and sizes are a hard integer grid within the
+             die's own white interior (border + pip + gap + pip + gap +
+             pip + border along each axis, via _pip_axis_layout()), not
+             fractional (0.25/0.5/0.75 of the box) positioning -- a
+             fractional approach has no explicit minimum-gap guarantee,
+             and at this project's smallest ("half") icon size the
+             ~7x7px die box would leave pips reading as a solid merged
+             blob with no visible whitespace at all. The border width
+             matches stamp_die()'s own
              `round(w/8)`/`round(h/8)` formula exactly, so the pip grid
              sits flush against the same white interior the die itself
              actually painted, not a separately-computed approximation
@@ -407,13 +364,13 @@ def build_icon_image():
     """
     Function: build_icon_image
     Summary: Compose the full-colour WORKxWORK BASE icon image -- black
-             outline + red pawn fill ONLY (round 7.41: the die, body
-             and border alike, is stamped on separately at each
-             output's own resolution instead -- see DIE_BOX_WORK's own
-             doc comment) -- using the same "resize RGB and alpha
-             separately" technique as
-             assets/generate_icon_sprites.py's build_pawn_image(), to
-             avoid the round 6.3 transparent-edge colour-bleed bug.
+             outline + red pawn fill only (the die, body and border
+             alike, is stamped on separately at each output's own
+             resolution instead -- see DIE_BOX_WORK's own doc comment)
+             -- using the same "resize RGB and alpha separately"
+             technique as assets/generate_icon_sprites.py's
+             build_pawn_image(), to avoid bleeding colour into the
+             transparent edge.
     Syntax:  img = build_icon_image()
     Output:  a Pillow RGBA image, WORKxWORK.
     """
@@ -421,14 +378,12 @@ def build_icon_image():
     draw_icon(ImageDraw.Draw(silhouette))
 
     # Outline: silhouette dilated by a fixed margin, same approach as
-    # generate_icon_sprites.py's OUTLINE_DILATE_WORK. Round 7.38: widened
-    # from 10 to 18 (WORK units) after switching to NEAREST resizing (see
-    # this file's own Round 7.38 doc comment) revealed the half-size
-    # (17x17) icon's outline mostly vanishing -- NEAREST point-samples
-    # roughly one WORK pixel every WORK/HALF ~= 18.8 units, so any
+    # generate_icon_sprites.py's OUTLINE_DILATE_WORK. 18 (WORK units) is
+    # wide enough to stay reliably present at both the full and half
+    # sizes under NEAREST resizing -- NEAREST point-samples roughly one
+    # WORK pixel every WORK/HALF ~= 18.8 units at the half size, so any
     # feature much thinner than that gap can fall entirely between
-    # sample points and disappear in some rows/columns. 18 keeps the
-    # outline reliably present at both the full and half sizes.
+    # sample points and disappear in some rows/columns.
     from PIL import ImageFilter
     outline_dilate = 18
     dilated = silhouette.filter(ImageFilter.MaxFilter(outline_dilate * 2 + 1))
@@ -528,12 +483,12 @@ def main():
     for p in rect_sprs:
         p.unlink()
     print(f"wrote {sprites}")
-    # Round 7.42: squished_full_png/squished_half_png used to be deleted
-    # here -- kept now (renamed on disk to app_icon_full_rect.png/
-    # app_icon_half_rect.png just above) as stable, native-resolution
-    # reference artifacts, matching how the square-pixel app_icon_full/
-    # half.png and the pawn sprites' own pawn_iconN.png were already
-    # kept. See assets/export_sprites_for_editing.py, which exports all
+    # squished_full_png/squished_half_png are kept on disk (renamed to
+    # app_icon_full_rect.png/app_icon_half_rect.png just above) as
+    # stable, native-resolution reference artifacts, matching how the
+    # square-pixel app_icon_full/half.png and the pawn sprites' own
+    # pawn_iconN.png are already kept. See assets/export_sprites_for_editing.py,
+    # which exports all
     # of these (plus nearest-neighbour-upscaled copies) for hand pixel-
     # editing in an external tool, and assets/import_edited_sprites.py
     # to convert edits back into the real packed sprite files.

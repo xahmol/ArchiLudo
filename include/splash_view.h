@@ -15,9 +15,11 @@
  *
  * The logo itself is drawn as a small grid of coloured `os_plot`
  * rectangles (see splash_view.c's `logo_rects[]`), not a sprite --
- * consistent with every other piece of ArchiLudo art since round 6.4 of
- * `docs/GRAPHICS_TOOLING.md` (repeated unexplained sprite-plotting
- * failures in this project's toolchain/environment). The rectangle data
+ * unlike the pawn/dice/icon art elsewhere in this project (see
+ * `docs/GRAPHICS_TOOLING.md`'s "Current rendering approach" section),
+ * this logo is flat-colour blocky pixel art with no per-pixel detail a
+ * primitive can't express, so there was no need to switch it over. The
+ * rectangle data
  * is a pixel-exact decode of the real source art (a PETSCII "Petmate"
  * file, decoded against a real C64 character ROM dump -- there are no
  * genuine curves to approximate, every letter is built from flat

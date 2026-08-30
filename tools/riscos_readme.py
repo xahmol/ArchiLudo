@@ -3,17 +3,17 @@
 ArchiLudo RISC OS plain-text README generator
 ==============================================
 
-Round 7.90. Live-tested on real hardware: the plain-text README (built via
-a straight `pandoc README.md -t plain`) did not "correctly paginate" --
-traced to `pandoc`'s `plain` writer rendering Markdown pipe-tables as
-fixed-width grid tables sized to the longest cell (this project's own
-"Prerequisites"/"Make targets" tables, per the "Building from source"
-section convention in `~/.claude/makefile_conventions.md`, both run to
-~170 characters wide once rendered), regardless of `--columns`. On a
-RISC OS text display (traditionally far narrower, and RISC OS's own
-`*Show`/paged-mode text scrolling has no line-wrap awareness -- it
-advances a fixed number of *logical* lines per screen, not visual rows),
-a 170-character line blows straight through that budget.
+A straight `pandoc README.md -t plain` does not "correctly paginate" on
+real RISC OS hardware -- `pandoc`'s `plain` writer renders Markdown
+pipe-tables as fixed-width grid tables sized to the longest cell (this
+project's own "Prerequisites"/"Make targets" tables, per the "Building
+from source" section convention in `~/.claude/makefile_conventions.md`,
+both run to ~170 characters wide once rendered), regardless of
+`--columns`. On a RISC OS text display (traditionally far narrower, and
+RISC OS's own `*Show`/paged-mode text scrolling has no line-wrap
+awareness -- it advances a fixed number of *logical* lines per screen,
+not visual rows), a 170-character line blows straight through that
+budget.
 
 Fix: flatten each Markdown pipe-table into a stacked "Header: value"
 record per row (one field per line) BEFORE handing the document to
@@ -22,18 +22,14 @@ correctly with `--columns`. Everything else in the document (headings,
 prose, lists, code fences) passes through untouched -- this only
 touches pipe-table blocks specifically.
 
-Round 7.92 correction: this originally wrote CR-only (0x0D) line
-endings, on the textbook assumption that RISC OS text files are always
-CR-terminated. Live-tested on the user's own real setup: a file written
-that way showed every line break as a literal "[0d]" instead of an
-actual newline, while comparison files already proven to render
-correctly on the SAME setup (Arculator's own hostfs.txt, and a file the
-user created natively within Arculator) both turned out, on direct byte
-inspection, to use plain LF (0x0A), not CR -- confirmed with `xxd`, not
-inferred from a screenshot. Whatever text-viewing path is actually in
-use here does not treat a lone CR as a line break. Switched to LF to
-match the two known-working files rather than the general PRM
-convention, which evidently doesn't hold for this environment/toolset.
+This writes LF (0x0A) line endings, not CR (0x0D), despite the textbook
+assumption that RISC OS text files are always CR-terminated: direct
+byte inspection (via `xxd`) of files already proven to render correctly
+on the actual target setup (Arculator's own hostfs.txt, and a file
+created natively within Arculator) showed both use plain LF, not CR --
+whatever text-viewing path is actually in use there does not treat a
+lone CR as a line break, contradicting the general PRM convention for
+this specific environment/toolset.
 """
 
 import re
@@ -200,8 +196,8 @@ def main() -> None:
 
     plain = to_ascii(plain)
 
-    # Round 7.92: LF, not CR -- see module doc comment. newline="\n" pins
-    # this explicitly rather than relying on the host OS's default.
+    # LF, not CR -- see module doc comment. newline="\n" pins this
+    # explicitly rather than relying on the host OS's default.
     with open(dest, "w", encoding="ascii", newline="\n") as f:
         f.write(plain)
 

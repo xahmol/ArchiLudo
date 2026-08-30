@@ -70,8 +70,8 @@
  *   steps == LUDO_TOTAL_STEPS - N       (N = however many of this
  *                                       player's *other* pawns have
  *                                       already finished) is where THIS
- *                                       pawn finishes -- see the Round
- *                                       7.20 note below. For the first
+ *                                       pawn finishes -- see the note
+ *                                       below. For the first
  *                                       pawn a player finishes, N == 0,
  *                                       so it finishes on the last home
  *                                       column square exactly (steps ==
@@ -80,38 +80,33 @@
  *                                       finishes one square earlier than
  *                                       the last.
  *
- * Round 7.13 correction: LUDO_TOTAL_STEPS used to be defined one higher
- * than this (LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH), treating
- * "finished" as a square *past* the home column's own
- * LUDO_HOME_COLUMN_LENGTH squares -- reported live as a pawn one square
- * from the true end being allowed to move on a roll that should have
- * overshot. Re-checked against the actual GEOS source
+ * LUDO_TOTAL_STEPS is exactly LUDO_RING_LENGTH + LUDO_HOME_COLUMN_LENGTH
+ * - 1, not + LUDO_HOME_COLUMN_LENGTH -- "finished" is the LAST of the
+ * home column's own LUDO_HOME_COLUMN_LENGTH squares, not one square past
+ * it. This matches the actual GEOS source
  * (`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s `turngeneric()`,
- * `if(vn>7) { gv=1; }`) rather than trusting an earlier docs summary:
- * GEOS's home-track positions are 4..7 (4 squares, `homedestcoords[
- * player][4..7]`), and a destination beyond 7 is explicitly rejected as
- * not a legal move -- position 7 itself, the last of the 4 squares, is
- * both reachable *and* the win condition, with nothing beyond it. This
- * header's own home-column square count (LUDO_HOME_COLUMN_LENGTH == 4)
- * was already correct and unchanged; only where "finished" sits
- * relative to it was off by one.
+ * `if(vn>7) { gv=1; }`): GEOS's home-track positions are 4..7 (4
+ * squares, `homedestcoords[player][4..7]`), and a destination beyond 7
+ * is explicitly rejected as not a legal move -- position 7 itself, the
+ * last of the 4 squares, is both reachable *and* the win condition,
+ * with nothing beyond it.
  *
- * Round 7.20 correction: a single fixed LUDO_TOTAL_STEPS for every pawn
- * turned out to be wrong too, reported live as pawns visibly stacking
- * on the same final square once more than one of a player's pawns had
- * finished. Re-checked against GEOS's `gamelogic.c` again (specifically
- * `pawnselect()`, not `turngeneric()` this time): `playerdata[player][1]`
- * is a *shrinking* "pawns still needed home" counter, and a pawn only
- * counts as reaching home when its landing position exactly matches
- * `playerdata[player][1]+3` -- a target that itself decrements by one
- * every time a pawn reaches it. GEOS's own blocking check (in
- * `turngeneric()`) also never exempts an already-finished pawn from
- * blocking a later one. Put together: a finished pawn permanently
- * occupies its own square, still blocks like any other occupant, and
- * each subsequent pawn's own reachable maximum is mechanically capped
- * one square lower for every pawn already parked ahead of it -- so
- * finished pawns queue into the home column's 4 distinct squares one at
- * a time, from the far end inward, rather than all converging on
+ * A single fixed LUDO_TOTAL_STEPS is not, however, where every pawn
+ * finishes -- each player has a shrinking "pawns still needed home"
+ * target, and a pawn only counts as finished when its landing position
+ * reaches that target, which itself decrements by one every time a
+ * pawn finishes. This matches GEOS's own equivalent mechanism
+ * (`gamelogic.c`'s `pawnselect()`): `playerdata[player][1]` is that
+ * shrinking counter, and a pawn counts as reaching home when its
+ * landing position exactly matches `playerdata[player][1]+3`. GEOS's
+ * own blocking check (in `turngeneric()`) never exempts an already-
+ * finished pawn from blocking a later one either. Put together: a
+ * finished pawn permanently occupies its own square, still blocks like
+ * any other occupant, and each subsequent pawn's own reachable maximum
+ * is mechanically capped one square lower for every pawn already
+ * parked ahead of it -- so finished pawns queue into the home column's
+ * 4 distinct squares one at a time, from the far end inward, rather
+ * than all converging on
  * LUDO_TOTAL_STEPS. See `finish_threshold_for()` and the corrected
  * `home_column_blocked()` in `game_logic.c`.
  *

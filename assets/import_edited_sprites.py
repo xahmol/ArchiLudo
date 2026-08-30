@@ -13,11 +13,10 @@ application sprites").
 
 For each of the 8 sprites this project has, in order of preference:
 1. assets/edit/<name>.png, if present -- used at face value, already
-   native resolution (round 7.49 dropped the earlier 16x-upscaled
-   `_16x.png` "editing copy" and its downscale step entirely -- edits
-   are now made directly to this file; see
-   docs/ARCHITECTURE.md's Round 7.49 for why: the two-file setup let a
-   real native-resolution edit go silently ignored because the stale,
+   native resolution (an earlier 16x-upscaled `_16x.png` "editing copy"
+   and its downscale step were dropped entirely -- edits are made
+   directly to this file, since the two-file setup let a real
+   native-resolution edit go silently ignored because the stale,
    unedited `_16x.png` sibling took priority over it).
 2. The sprite's own original native PNG (e.g. assets/pawn_icon0.png)
    if assets/edit/ doesn't exist at all or is missing that file --

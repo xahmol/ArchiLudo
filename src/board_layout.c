@@ -61,8 +61,8 @@ board_cell board_pawn_cell(const ludo_game *g, int player, int pawn_index)
 		return board_ring_cell((entry + p->steps) % LUDO_RING_LENGTH);
 	}
 	/* A finished pawn's steps is NOT always pinned at LUDO_TOTAL_STEPS --
-	 * round 7.20 correction: each pawn finishes at its OWN dynamic
-	 * threshold (game_logic.c's finish_threshold_for()), one less than
+	 * each pawn finishes at its OWN dynamic threshold
+	 * (game_logic.c's finish_threshold_for()), one less than
 	 * the previous pawn's for every one of that player's pawns already
 	 * finished, so a player's four finished pawns naturally occupy all
 	 * four distinct home-column cells (LUDO_TOTAL_STEPS down to

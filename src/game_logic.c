@@ -242,23 +242,19 @@ static int release_blocked_by_blockade(const ludo_game *g, int player)
  *          home column is a single-file final stretch, so both passing
  *          over and landing on an own pawn are illegal.
  *
- *          Round 7.20 correction: a *finished* pawn used to be excluded
- *          from this check (the assumption being that a finished pawn is
- *          "off the board" and can't block anything) -- this was wrong,
- *          confirmed by reading the actual GEOS source
+ *          A *finished* pawn is NOT excluded from this check: it is
+ *          simply a pawn parked at a fixed home-column square, exactly
+ *          like any other occupant, still fully able to block a later
+ *          pawn from landing on or passing its square. This matches the
+ *          original GEOS source
  *          (`/home/xahmol/git/ludo/GEOS/src/gamelogic.c`'s
  *          `turngeneric()`): its own blocking loop tests
  *          `playerpos[player][y][1]<=vn && playerpos[player][y][1]>3`
  *          against *every* other pawn's raw position with no exemption
- *          for one that has already reached the end -- a finished pawn
- *          is simply a pawn parked at a fixed home-column square,
- *          exactly like any other occupant, still fully able to block a
- *          later pawn from landing on or passing its square. This is
- *          also what makes finished pawns naturally queue into the home
- *          column's 4 distinct squares one at a time (see
- *          finish_threshold_for()) instead of stacking on the single
- *          last square -- per explicit user report ("the logic stacks
- *          the pawns at end field, not intended").
+ *          for one that has already reached the end. This is also what
+ *          makes finished pawns naturally queue into the home column's
+ *          4 distinct squares one at a time (see finish_threshold_for())
+ *          instead of stacking on the single last square.
  *
  *          Direction-aware since the multi-rule-set work: to_steps may
  *          be *less* than from_steps when rules.overshoot_bounce sends a
@@ -584,13 +580,11 @@ ludo_rules ludo_default_rules(ludo_variant variant)
 		r.mandatory_six_release = 0;
 		r.own_pawn_capture = 0;
 		r.overshoot_bounce = 0;
-		/* Round 7.55: blockade=1, not 0 -- corrected after auditing
-		 * against two independent external Ludo rules references, both
-		 * of which describe blocking as an unconditional consequence of
-		 * two own pawns sharing a square, not an optional variant (see
-		 * docs/GAME_LOGIC.md's "Round 7.55" note). own_pawn_capture=0
-		 * alone only permits the STACK to form; without blockade=1 it
-		 * grants no protection at all, which isn't how real Ludo works. */
+		/* blockade=1: blocking is an unconditional consequence of two
+		 * own pawns sharing a square in standard Ludo, not an optional
+		 * variant (see docs/RULES.md). own_pawn_capture=0 alone only
+		 * permits the STACK to form; without blockade=1 it would grant
+		 * no protection at all, which isn't how real Ludo works. */
 		r.blockade = 1;
 		r.backward_movement = 0;
 		r.free_home_column = 0;
@@ -625,9 +619,8 @@ ludo_rules ludo_default_rules(ludo_variant variant)
 		r.backward_movement = 0;
 		r.free_home_column = 0;
 		r.no_six_needed_last_pawn = 0;
-		/* Off -- preserves this project's original, traditional
-		 * unlimited six-chaining exactly as it always worked, per
-		 * explicit user decision (round 7.55). */
+		/* Off -- Mens Erger Je Niet's traditional unlimited
+		 * six-chaining, with no forfeit cap. */
 		r.three_sixes_forfeit_turn = 0;
 		break;
 	}
@@ -659,7 +652,7 @@ int ludo_roll(ludo_game *g, int forced_roll)
 	g->last_roll = roll;
 	g->just_released = 0;
 
-	/* rules.three_sixes_forfeit_turn (round 7.55): a third six in a row
+	/* rules.three_sixes_forfeit_turn: a third six in a row
 	 * voids itself entirely -- no release, no move, straight to
 	 * ludo_end_turn() exactly as if this had been a genuinely stuck
 	 * roll. Checked, and handled, before anything else this function
@@ -788,7 +781,7 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 		return 0;
 	}
 	p->steps = new_steps;
-	/* Round 7.20: each pawn's own finish line, not a single shared
+	/* Each pawn has its own finish line, not a single shared
 	 * LUDO_TOTAL_STEPS for all four -- see finish_threshold_for(). A
 	 * legal move can never actually exceed this (every square above it
 	 * is occupied by an earlier-finished pawn and therefore blocked by
@@ -808,14 +801,13 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 	if (g->winner == -1 && all_pawns_finished(g, player))
 		g->winner = player;
 
-	/* Round 7.35: checks THIS player's own all_pawns_finished(), not the
-	 * global g->winner == -1 -- per the new "continue playing after the
-	 * first winner" mode (see docs/ARCHITECTURE.md's Round 7.35). The
-	 * old g->winner == -1 check meant that once ANY player won, EVERY
-	 * remaining player permanently lost their own six-goes-again bonus
-	 * for the rest of the game, which was never exercised/noticed while
-	 * the game simply ended at the first winner. A player who just
-	 * finished obviously has nothing left to roll for, but a player who
+	/* Checks THIS player's own all_pawns_finished(), not the global
+	 * g->winner == -1 -- players may continue after the first winner
+	 * (see docs/RULES.md), so using g->winner == -1 here would mean
+	 * that once ANY player won, EVERY remaining player permanently lost
+	 * their own six-goes-again bonus for the rest of the game. A player
+	 * who just finished obviously has nothing left to roll for, but a
+	 * player who
 	 * hasn't finished should keep the normal bonus regardless of
 	 * whether someone else already has. */
 	if (roll == 6 && !all_pawns_finished(g, player)) {

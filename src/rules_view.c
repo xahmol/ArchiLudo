@@ -11,19 +11,15 @@
 #include "rules_view.h"
 #include "setup_view.h"
 
-/* Column/row sizing -- Round 7.47 redesign. The first cut (round 7.46)
- * used 150/110-unit boxes with HCENTRED text, which turned out too
- * narrow: a bordered/filled icon at this desktop font size needs
- * roughly 14 OS units per character plus ~16 units of padding (e.g.
- * "Cancel", 6 chars, just fits a 100-unit button elsewhere in this
- * project's setup_view.c; "Six-release", 11 chars, needs ~170). The
- * live Arculator screenshot that caught this showed HCENTRED text
- * genuinely overflowing its icon (RISC OS clips icon redraw to the
- * icon's own extent, so an over-length centred string loses characters
- * from both ends -- "Rules..." at 100 units rendered as "ules..").
+/* Column/row sizing: a bordered/filled icon at this desktop font size
+ * needs roughly 14 OS units per character plus ~16 units of padding
+ * (e.g. "Cancel", 6 chars, just fits a 100-unit button elsewhere in
+ * this project's setup_view.c; "Six-release", 11 chars, needs ~170).
  * These constants are sized generously against that per-character
- * estimate rather than against this file's own (too-optimistic) first
- * guess. */
+ * estimate -- RISC OS clips icon redraw to the icon's own extent, so
+ * an over-length HCENTRED string silently loses characters from both
+ * ends rather than overflowing visibly, which makes an undersized box
+ * easy to miss until checked live. */
 #define MARGIN         16
 #define LABEL_WIDTH   190
 #define OPTION_WIDTH  190
@@ -97,11 +93,9 @@
  * pair used for a group of mutually-exclusive choices) are standard
  * sprites always present in the Wimp Sprite Pool (def.sprite_area =
  * wimpspriteop_AREA below tells these icons to look there rather than
- * in a private sprite area) -- NOT "optoff"/"opton" (round 7.47's own
- * first attempt at this used that pair, which is actually the square
- * *tick-box* pair for an independent on/off option, not a radio choice;
- * caught from a live screenshot showing tick-boxes instead of round
- * buttons). Based on Steve Fryatt's "Wimp Programming In C", Chapter 18
+ * in a private sprite area) -- NOT "optoff"/"opton", which is actually
+ * the square *tick-box* pair for an independent on/off option, not a
+ * radio choice. Based on Steve Fryatt's "Wimp Programming In C", Chapter 18
  * ("Sprite Icons and Choosing Options", specifically its "Multiple
  * options" section and Listing 18.10) and Chapter 20 ("Radio Icons
  * Revisited") -- www.stevefryatt.org.uk/risc-os/wimp-prog/ -- which is
@@ -157,11 +151,11 @@ static const toggle_info TOGGLES[TOGGLE_COUNT] = {
  * docs/GAME_LOGIC.md's "Rule-set variants" section for the same table
  * in prose. Toggle indices, matching TOGGLES[] above: 0=six-release,
  * 1=own capture, 2=overshoot, 3=blockade, 4=backward, 5=free home,
- * 6=last pawn, 7=three sixes. Round 7.55: three-sixes-forfeit hidden for
- * MEJN specifically, same reasoning as blockade/backward/free-home --
- * not part of this project's original traditional ruleset, which keeps
- * its own unlimited six-chaining regardless (see
- * ludo_default_rules()'s own doc comment in game_logic.c). */
+ * 6=last pawn, 7=three sixes. Three-sixes-forfeit is hidden for MEJN
+ * specifically, same reasoning as blockade/backward/free-home -- not
+ * part of this project's traditional ruleset, which keeps its own
+ * unlimited six-chaining regardless (see ludo_default_rules()'s own
+ * doc comment in game_logic.c). */
 static const unsigned char VARIANT_HIDDEN_MASK[3] = {
 	(1u << 3) | (1u << 4) | (1u << 5) | (1u << 7), /* MEJN: blockade/backward/free-home/three-sixes hidden */
 	(1u << 4) | (1u << 5),             /* Ludo: backward/free-home hidden */
@@ -174,10 +168,8 @@ static const unsigned char VARIANT_HIDDEN_MASK[3] = {
  * src/main.c's set_menu_entry(), used for this project's OTHER,
  * shorter-worded menu), so both the value icon and the menu entries
  * use indirected text here -- see variant_text/variant_menu_text and
- * rules_view_click(). Round 7.47.2: written out in full per explicit
- * user request ("is there room to write MEJN in full?") -- there was
- * (VALUE_WIDTH comfortably fits it), so the abbreviation this dialogue
- * started with wasn't actually needed. */
+ * rules_view_click(). Names are written out in full (VALUE_WIDTH
+ * comfortably fits even "Mens Erger Je Niet"), not abbreviated. */
 static const char *VARIANT_NAMES[3] = { "Mens Erger Je Niet", "Ludo", "Pachisi-style" };
 
 static wimp_w window_handle = (wimp_w) -1;
@@ -331,8 +323,7 @@ static void init_radio_icon(wimp_icon *icon, int x0, int row, char *buffer,
 	icon->extent.y0 = ROW_Y0(row);
 	/* No BORDER/FILLED and no HCENTRED -- a real radio icon is a small
 	 * sprite followed by its label, left-aligned within the icon, not a
-	 * filled push-button (round 7.47's fix for exactly that look-alike
-	 * problem in the first cut of this dialogue). Initial SELECTED/
+	 * filled push-button look-alike. Initial SELECTED/
 	 * SHADED state is left at 0 here -- rules_view_open() always calls
 	 * refresh_all_toggle_displays() before the window is ever actually
 	 * shown, so nothing meaningful is lost by not computing it twice. */

@@ -24,9 +24,9 @@
  *   used "< 6", i.e. 1-5, missing the exact-6 case).
  * - GEOS scores landing on one of *its own* pawns at -8000 (strongly
  *   avoided, reflecting that game's rule that this is illegal/blocked).
- *   ArchiLudo's rule is different (see game_logic.c's capture_at(),
- *   "Round 6.5"): landing on your own pawn is legal and sends the
- *   earlier one home. Scored here as a real but *scaled* penalty instead
+ *   ArchiLudo's rule is different (see game_logic.c's capture_at()):
+ *   landing on your own pawn can be legal and send the earlier one
+ *   home. Scored here as a real but *scaled* penalty instead
  *   of a near-absolute one -- losing a pawn that had barely moved barely
  *   matters, losing one that was almost home matters a lot -- since it's
  *   sometimes the only legal (or the objectively best) move, not
@@ -46,32 +46,31 @@
  * possible future minimax/lookahead search -- see docs/ARCHITECTURE.md's
  * Roadmap.
  *
- * Round 7.45 (multi-rule-set Phase 3): score_move() previously baked in
- * three assumptions that only held under the engine's original one-and-
- * only MEJN ruleset -- fixed once game_logic.c grew a configurable
- * g->rules (see game_logic.h's ludo_rules):
- * - Own-pawn collision was scored as a real setback unconditionally --
- *   only true when g->rules.own_pawn_capture is on. Now gated (see
- *   score_landing_at()), with a small new positive term for forming a
- *   blockade (g->rules.blockade) instead.
- * - A pawn's destination was computed as a naive p->steps + roll --
- *   wrong under g->rules.overshoot_bounce, where the actual landing
- *   square can bounce backward off the end of the home column. Fixed by
- *   calling game_logic.c's own ludo_resolve_move_destination() rather
- *   than duplicating (and risking drifting from) that math.
- * - Releasing a pawn from home was never a scored move at all -- under
- *   the original mandatory six-release, ludo_roll() always released
- *   automatically before the AI ever got a choice. Now scored via the
- *   new score_release(), reached whenever score_move() is asked to
- *   score a pawn that's still in_play == 0 (only possible at all when
- *   g->rules.mandatory_six_release is off -- see
- *   compute_movable_pawns()'s own doc comment in game_logic.c).
+ * score_move() accounts for game_logic.c's configurable g->rules (see
+ * game_logic.h's ludo_rules) throughout, rather than assuming a single
+ * fixed ruleset:
+ * - Own-pawn collision is only scored as a real setback when
+ *   g->rules.own_pawn_capture is on (see score_landing_at()), with a
+ *   small positive term for forming a blockade (g->rules.blockade)
+ *   instead when it's off.
+ * - A pawn's destination is computed by calling game_logic.c's own
+ *   ludo_resolve_move_destination(), not a naive p->steps + roll --
+ *   under g->rules.overshoot_bounce the actual landing square can
+ *   bounce backward off the end of the home column, and duplicating
+ *   that math here would risk it drifting out of sync.
+ * - Releasing a pawn from home is scored via score_release(), reached
+ *   whenever score_move() is asked to score a pawn that's still
+ *   in_play == 0 (only possible at all when
+ *   g->rules.mandatory_six_release is off -- under the mandatory
+ *   variant, ludo_roll() always releases automatically before the AI
+ *   ever gets a choice; see compute_movable_pawns()'s own doc comment
+ *   in game_logic.c).
  *
  * Backward movement (g->rules.backward_movement) and blockade-aware
- * strategy are NOT deeply scored -- per the multi-rule-set plan, real
- * strategic sophistication for those is an explicit stretch goal, not a
- * v1 requirement. The only hard requirement is that the AI never gets
- * stuck or picks something illegal when they're active. See
+ * strategy are NOT deeply scored -- real strategic sophistication for
+ * those is an explicit stretch goal, not core scope. The only hard
+ * requirement is that the AI never gets stuck or picks something
+ * illegal when they're active. See
  * ludo_ai_choose_pawn_backward()/score_move_backward() below, a
  * deliberately much simpler fallback used only when no forward move is
  * available at all.
@@ -96,21 +95,19 @@
 #define WEIGHT_DANGER_STILL_IN      -300
 #define WEIGHT_DANGER_APPROACH_OPPONENT 150
 #define WEIGHT_PROGRESS_PER_STEP       5
-/* Round 7.14: a move that places the pawn in its home column -- whether
- * it was already there or crosses in from the ring this move -- is
- * risk-free (no capture/danger heuristic can ever apply there, see
- * score_move()) and directly shortens the road to winning, so it
- * deserves a real, explicit incentive rather than competing on the same
- * flat WEIGHT_PROGRESS_PER_STEP as everything else. Sized to clearly
- * beat the ring-tactic bonuses above (WEIGHT_ENTRY_SQUARE_LEAVE,
+/* A move that places the pawn in its home column -- whether it was
+ * already there or crosses in from the ring this move -- is risk-free
+ * (no capture/danger heuristic can ever apply there, see score_move())
+ * and directly shortens the road to winning, so it deserves a real,
+ * explicit incentive rather than competing on the same flat
+ * WEIGHT_PROGRESS_PER_STEP as everything else. Sized to clearly beat
+ * the ring-tactic bonuses above (WEIGHT_ENTRY_SQUARE_LEAVE,
  * WEIGHT_DANGER_ESCAPE/APPROACH_OPPONENT) but still lose to an actual
- * capture (WEIGHT_CAPTURE alone already exceeds it) -- per explicit
- * user report that the AI wasn't visibly prioritising advancing a pawn
- * already in its home stretch. */
+ * capture (WEIGHT_CAPTURE alone already exceeds it). */
 #define WEIGHT_HOME_COLUMN_ADVANCE_BASE     2000
 #define WEIGHT_HOME_COLUMN_ADVANCE_PER_STEP  100
 
-/* Round 7.45: releasing a pawn is only ever a *scored* decision when
+/* Releasing a pawn is only ever a *scored* decision when
  * g->rules.mandatory_six_release is off (see score_release()) -- a
  * first-pass heuristic, not deeply tuned. Scaled down per pawn the
  * player already has racing, on the reasoning that a 4th pawn joining
@@ -118,14 +115,13 @@
 #define WEIGHT_RELEASE_BASE               3000
 #define WEIGHT_RELEASE_PER_PAWN_ALREADY_OUT 300
 
-/* Round 7.45: a small, deliberately modest bonus for landing on a square
- * already occupied by one of the player's own pawns when doing so forms
- * or reinforces a blockade (g->rules.blockade) instead of sending that
+/* A small, deliberately modest bonus for landing on a square already
+ * occupied by one of the player's own pawns when doing so forms or
+ * reinforces a blockade (g->rules.blockade) instead of sending that
  * pawn home (which only happens when g->rules.own_pawn_capture is also
  * off -- the two can only coexist in the first place under that
- * combination). Kept intentionally small/neutral, per the multi-rule-set
- * plan's own framing of blockade strategy as a stretch goal, not
- * something to score aggressively in a first pass. */
+ * combination). Kept intentionally small/neutral -- blockade strategy
+ * is a stretch goal, not something to score aggressively. */
 #define WEIGHT_BLOCKADE_FORM                800
 
 /* A capture is worth extra when the captured pawn was this close (or

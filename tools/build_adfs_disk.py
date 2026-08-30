@@ -3,7 +3,7 @@
 ArchiLudo ADFS disc image builder
 ===================================
 
-Round 7.91. Writes a single-file ADFS "D" format (800KB, old map, New
+Writes a single-file ADFS "D" format (800KB, old map, New
 Directory) disc image from scratch -- no third-party disc-image tool
 dependency, matching this project's other from-scratch RISC OS format
 tools (tools/prepare_pibridge_deploy.py's .inf sidecars,
@@ -29,10 +29,10 @@ UpdateADFSCat, CalculateADFSDirCheck, ADFSAllocateFreeSpace, and
 DiscImage_Private.pas's ByteChecksum/ROR13 -- read directly rather than
 worked out from the PRM's prose, the same "read the real implementation"
 approach this project used for the PiFS .inf format and the Info-Zip
--, flag (see docs/ARCHITECTURE.md's rounds 7.87/7.89). This is a
-from-scratch Python port of that logic (no DiscImageManager code is
-copied), released under this project's own GPLv3 licence as permitted
-by DiscImageManager's own GPL-3.0 terms.
+-, flag (see docs/ARCHITECTURE.md's "Decisions made and not revisited"
+section). This is a from-scratch Python port of that logic (no
+DiscImageManager code is copied), released under this project's own
+GPLv3 licence as permitted by DiscImageManager's own GPL-3.0 terms.
 
 Disc layout (byte offsets, decimal comments in hex for PRM cross-
 reference):

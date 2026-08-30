@@ -14,11 +14,10 @@
  * src/game_view.c (see game_view_configure_players()/
  * game_view_configure_rules()) and starts a fresh game; Rules... opens
  * src/rules_view.c's "Rule Options" dialogue to pick a rule-set variant
- * and override individual house-rule toggles (round 7.46); Load skips
- * this dialogue's own setup entirely and opens src/save_view.c's Load
- * dialogue instead, per explicit user request ("the new game dialogue
- * needs a button to optionally load a previously saved game"); Cancel
- * closes the dialogue without changing anything.
+ * and override individual house-rule toggles; Load skips this
+ * dialogue's own setup entirely and opens src/save_view.c's Load
+ * dialogue instead; Cancel closes the dialogue without changing
+ * anything.
  *
  * Kept as its own module (its own window, own icons, own click/redraw/
  * key handling) rather than folded into game_view.c or main.c, matching
@@ -90,7 +89,7 @@ void setup_view_click(wimp_pointer *pointer);
  *          stores the edited ludo_rules as this dialogue's own pending
  *          rules (the same way pending player names/AI settings are
  *          held directly in this module's own buffers), applied to the
- *          actual game only when Start is next clicked. Round 7.46.
+ *          actual game only when Start is next clicked.
  * Syntax:  void setup_view_configure_rules(const ludo_rules *rules);
  * Input:   rules - the rules to adopt as pending. Copied by value.
  * Output:  none.

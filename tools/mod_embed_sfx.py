@@ -3,24 +3,24 @@
 ArchiLudo MOD SFX embedding tool
 =================================
 
-Round 7.76 (see docs/QTM.md's "Round 7.74" section for why this exists:
-QTM_PlayRawSample never worked after 14 rounds of investigation, and
-every real Archimedes codebase checked embeds one-shot effects as MOD
-instrument samples instead of playing them from a raw pointer).
+This exists because QTM_PlayRawSample never worked (see docs/QTM.md's
+"SWI reference" section -- abandoned after extensive investigation),
+and every real Archimedes codebase checked embeds one-shot effects as
+MOD instrument samples instead of playing them from a raw pointer.
 
 Splices ArchiLudo's 6 bundled SFX (assets/audio/Sfx*, raw headerless
 16-bit signed mono PCM at 11025Hz) into empty ProTracker sample slots of
 assets/audio/Music1/Music2/Music3, converting to 8-bit signed PCM (the
 native ProTracker sample format -- unrelated to the VIDC-log format
-QTM_PlayRawSample needed, see docs/QTM.md's "Sample format" section).
-QTM's own sample player reads a MOD's sample data directly, so no
-Sound_SoundLog-style runtime conversion is needed for this path.
+QTM_PlayRawSample would have needed). QTM's own sample player reads a
+MOD's sample data directly, so no runtime conversion is needed for
+this path.
 
 Each of Music1/Music2/Music3 is a real ripped tracker module with its
 own artist-authored sample table (see docs/ARCHITECTURE.md/CREDITS.md);
 ProTracker's format hard-caps a module at 31 sample slots, and how many
 are actually free varies a lot per track (checked via a one-off
-inspection script this round, not kept in the repo):
+inspection script, not kept in the repo):
 
     Music1: 8 free slots (24-31) -- room for all 6 SFX
     Music2: 7 free slots (4, 24-29) -- room for all 6 SFX
@@ -36,7 +36,7 @@ track simply omitting an SFX it has no room for. Music3 keeps only the
 3 highest-impact, least-frequent events (Capture/Home/Win) rather than
 the high-frequency Dice/Release/Move ticks, since Dice and Move in
 particular retrigger constantly during a turn -- see
-docs/QTM.md's "Round 7.76" section for the reasoning. Music1 and Music2
+docs/QTM.md's "How SFX actually work" section for the reasoning. Music1 and Music2
 deliberately use the SAME slot indices for all 6 SFX (24-29), so most of
 the game (2 of 3 tracks) needs no per-track branching at the call site;
 lib/qtm.c still needs the full per-track table for the Music3 case.
@@ -93,9 +93,9 @@ SFX_TARGET_RMS = 6000.0
 towards before soft-clipping to 8-bit -- see pcm16_to_pcm8(). Chosen to
 match SfxRelease's own original RMS (5901.6) almost exactly: Release is
 the one SFX confirmed audible against the music at its ORIGINAL,
-unmodified loudness during round 7.80/7.81's live testing, so it's used
-here as the calibration reference for how loud "audible over the music"
-actually needs to be, rather than an arbitrary number."""
+unmodified loudness, so it's used here as the calibration reference for
+how loud "audible over the music" actually needs to be, rather than an
+arbitrary number."""
 
 SFX_MAX_GAIN = 12.0
 """Safety cap on how hard a near-silent sample can be driven -- without
@@ -109,16 +109,15 @@ def pcm16_to_pcm8(raw: bytes) -> bytes:
     """16-bit signed LE PCM -> 8-bit signed PCM, loudness-normalized via
     a soft-clip (tanh) limiter, not just peak-scaled.
 
-    Round 7.82's first attempt only peak-normalized (scaled so each
-    sample's own loudest instant reached full scale) -- technically
-    correct, but live-tested and found insufficient: a short, punchy
-    sound like SfxDice has a high peak-to-average ratio (one brief loud
-    "click", mostly quiet otherwise), so raising its PEAK to full scale
-    barely raised its PERCEIVED loudness (average level barely moved).
-    Round 7.82 also tried ducking the music volume instead -- live-tested
-    working, but rejected by direct user feedback as "really annoying"
-    (a noticeable, repeated dip on every SFX, especially the frequent
-    per-step Move sound).
+    Peak normalization alone (scaling so each sample's own loudest
+    instant reaches full scale) is not used here -- it's technically
+    correct but insufficient: a short, punchy sound like SfxDice has a
+    high peak-to-average ratio (one brief loud "click", mostly quiet
+    otherwise), so raising its PEAK to full scale barely raises its
+    PERCEIVED loudness (average level barely moves). Ducking the music
+    volume instead was also tried and worked, but was rejected by
+    direct user feedback as "really annoying" (a noticeable, repeated
+    dip on every SFX, especially the frequent per-step Move sound).
 
     This instead targets RMS (average power, the metric that actually
     drives perceived loudness) via SFX_TARGET_RMS, using tanh as a soft
@@ -279,8 +278,8 @@ def validate(track_filename: str):
 def main():
     if not PRISTINE_BACKUP.exists():
         print(f"error: {PRISTINE_BACKUP} not found -- see docs/QTM.md's "
-              f"\"Round 7.76\" section for how to (re)create it from the "
-              f"CREDITS.md ModArchive URLs if it's ever lost", file=sys.stderr)
+              f"\"Asset preparation\" section for how to (re)create it "
+              f"from the CREDITS.md ModArchive URLs if it's ever lost", file=sys.stderr)
         sys.exit(1)
     for track_filename, slots in SFX_SLOTS.items():
         embed(track_filename, slots)

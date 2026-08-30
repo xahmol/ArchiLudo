@@ -8,12 +8,12 @@
  * ==========================
  *
  * Two small dialogue windows -- Save and Load -- each listing 5 fixed
- * save slots (round 7.59), per explicit user request to replace the
- * previous free-form pathname/drag-and-drop design entirely: drag-and-
- * drop never reliably completed a single live save/load round-trip
- * across extensive Arculator testing (see docs/ARCHITECTURE.md's round
- * 7.58 notes -- the message send always appeared to succeed at the SWI
- * level, including a direct icon-bar drop, but no DataSaveAck reply ever
+ * save slots, replacing an earlier free-form pathname/drag-and-drop
+ * design: drag-and-drop never reliably completed a single live
+ * save/load round-trip across extensive Arculator testing (see
+ * docs/ARCHITECTURE.md's "Decisions made and not revisited" section --
+ * the message send always appeared to succeed at the SWI level,
+ * including a direct icon-bar drop, but no DataSaveAck reply ever
  * arrived, most likely because Arculator's HostFS bridge doesn't
  * implement the Filer-side of that protocol at all), and typing a full
  * RISC OS pathname by hand is its own real friction for a simple board

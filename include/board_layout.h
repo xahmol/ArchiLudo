@@ -42,13 +42,12 @@
  *   corners -- see `board_home_base_cell()`.
  * - Finished pawns stay on their own home column's last square (index
  *   `LUDO_HOME_COLUMN_LENGTH - 1`) -- there is no separate shared "finish"
- *   cell. An earlier version of this module invented one at the board's
- *   centre (5,5), which turned out not to match the GEOS source at all:
+ *   cell. This matches the GEOS source exactly:
  *   `homedestcoords[player][0..7]` there has exactly 8 slots per player
  *   (0-3 home base, 4-7 home column) and nothing beyond index 7 -- a
  *   finished pawn simply occupies that last slot, staying put rather than
- *   moving anywhere new. Fixed in `board_pawn_cell()` -- see
- *   docs/BOARD_LAYOUT.md's "Round 6.7 correction".
+ *   moving anywhere new. See `board_pawn_cell()` and
+ *   docs/BOARD_LAYOUT.md.
  */
 
 #define BOARD_GRID_SIZE 11

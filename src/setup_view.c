@@ -28,9 +28,8 @@
 
 #define ROWS_HEIGHT (LUDO_PLAYERS * ROW_HEIGHT + (LUDO_PLAYERS - 1) * ROW_GAP)
 #define ROWS_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH + MARGIN)
-/* Four buttons (Start/Rules/Load/Cancel) now, not three (round 7.46
- * added "Rules...") -- widen the window if that row would otherwise be
- * wider than the name/type rows above it. */
+/* Four buttons: Start/Rules/Load/Cancel -- widen the window if that row
+ * would otherwise be wider than the name/type rows above it. */
 #define BUTTONS_WIDTH (MARGIN + 4 * BUTTON_WIDTH + 3 * BUTTON_GAP + MARGIN)
 #define WINDOW_WIDTH (ROWS_WIDTH > BUTTONS_WIDTH ? ROWS_WIDTH : BUTTONS_WIDTH)
 #define WINDOW_HEIGHT (MARGIN + ROWS_HEIGHT + MARGIN + BUTTON_HEIGHT + MARGIN)
@@ -85,8 +84,7 @@ static char cancel_validation[4] = "R1";
 /* Pending rules for the next Start click -- see setup_view_configure_rules()
  * (called by src/rules_view.c's OK button) and game_view_configure_rules()
  * (applied to the actual game when Start is clicked). Defaults to
- * LUDO_VARIANT_MEJN, matching this project's original, pre-multi-rule-set
- * behaviour, until the Rules dialogue is ever touched. Round 7.46. */
+ * LUDO_VARIANT_MEJN until the Rules dialogue is ever touched. */
 static ludo_rules pending_rules;
 
 static wimp_w window_handle = (wimp_w) -1;
@@ -142,11 +140,10 @@ void setup_view_initialise(void)
 	                   wimp_ICON_VCENTRED | wimp_ICON_FILLED;
 	/* No custom drawing in this window at all (unlike game_view.c's
 	 * board) -- every row is plain Wimp icons, so plain background click
-	 * behaviour (BUTTON_NEVER) is correct here, not the
-	 * work_flags-must-be-BUTTON_CLICK fix game_view.c needed (see that
-	 * file's game_view_initialise(), "Round 6.4" -- that was specifically
-	 * about detecting clicks on custom-plotted background content, which
-	 * this window has none of). */
+	 * behaviour (BUTTON_NEVER) is correct here. game_view.c's own window
+	 * needs BUTTON_CLICK instead, since it must detect clicks on its
+	 * custom-plotted board background, which this window has none of --
+	 * see docs/ARCHITECTURE.md's "WIMP conventions and gotchas" section. */
 	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_NEVER << wimp_ICON_BUTTON_TYPE_SHIFT);
 	def.sprite_area = wimpspriteop_AREA;
 	def.xmin = WINDOW_WIDTH;
@@ -289,17 +286,13 @@ void setup_view_open(void)
 	if (window_handle == (wimp_w) -1)
 		return;
 
-	/* Round 7.35: sync from the actual in-progress (or just-finished)
-	 * game's own live player configuration every time this dialogue is
-	 * opened -- per explicit user request ("for new game dialogue,
-	 * defaults always should be the in progress game, unless we just
-	 * started a new one"). Before this, every icon's indirected buffer
-	 * only ever held whatever setup_view_initialise()'s one-time
-	 * hardcoded defaults or a PREVIOUS session's own edits in this same
-	 * window had left there -- correct the very first time this window
-	 * is ever opened (nothing to sync from yet, game_view_has_started()
-	 * is still 0), stale on every later reopen if the actual game had
-	 * since been reconfigured some other way (e.g. Load). */
+	/* Sync from the actual in-progress (or just-finished) game's own
+	 * live player configuration every time this dialogue is opened, so
+	 * its defaults always reflect the current game rather than
+	 * whichever hardcoded/stale values were last left in these icons'
+	 * indirected buffers. Nothing to sync from the very first time this
+	 * window is opened (game_view_has_started() is still 0), in which
+	 * case setup_view_initialise()'s own hardcoded defaults stand. */
 	if (game_view_has_started()) {
 		char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 		int is_ai[LUDO_PLAYERS];
@@ -312,8 +305,8 @@ void setup_view_open(void)
 			set_type(player, is_ai[player]);
 		}
 
-		/* Round 7.46: same "always default to the in-progress game"
-		 * convention, now for rules too -- see game_view_get_rules(). */
+		/* Same "always default to the in-progress game" convention,
+		 * for rules too -- see game_view_get_rules(). */
 		game_view_get_rules(&pending_rules);
 	}
 

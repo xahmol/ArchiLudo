@@ -79,13 +79,13 @@ int qtm_available(void);
  *          music be "selectable and optional" -- src/main.c's Music
  *          submenu "On" entry is a ticked toggle backed by this.
  *
- *          Round 7.81: this MUTES (QTM_MusicVolume) rather than actually
- *          stopping QTM -- the song stays loaded and playing either way,
- *          so qtm_play_sfx() keeps working regardless of this setting
- *          (per direct user request, to be able to test SFX in isolation
- *          without background music potentially masking a quiet one).
- *          This is NOT the same as application shutdown -- see
- *          qtm_shutdown() for actually stopping/releasing QTM.
+ *          This MUTES (QTM_MusicVolume) rather than actually stopping
+ *          QTM -- the song stays loaded and playing either way, so
+ *          qtm_play_sfx() keeps working regardless of this setting,
+ *          and SFX can be tested in isolation without background music
+ *          potentially masking a quiet one. This is NOT the same as
+ *          application shutdown -- see qtm_shutdown() for actually
+ *          stopping/releasing QTM.
  * Syntax:  void qtm_set_music_enabled(int enabled);
  *          int qtm_music_enabled(void);
  * Input:   enabled - 0 to mute, non-zero to make audible.
@@ -99,8 +99,8 @@ int qtm_music_enabled(void);
  * Summary: Choose which of the QTM_MUSIC_TRACK_COUNT bundled tracks
  *          plays -- always switches immediately (stop, load, start),
  *          regardless of qtm_music_enabled(); the song is always loaded
- *          so its sample table stays available for qtm_play_sfx() (round
- *          7.81), with the current mute state re-applied afterward.
+ *          so its sample table stays available for qtm_play_sfx(), with
+ *          the current mute state re-applied afterward.
  *          src/main.c's Music submenu "Track 1"/"Track 2" entries are
  *          backed by this, per explicit user request that the track be
  *          switchable from a menu.
@@ -143,12 +143,11 @@ void qtm_play_sfx(qtm_sfx sfx);
 /*
  * Function: qtm_shutdown
  * Summary: Actually stop/release QTM -- unlike qtm_set_music_enabled(0),
- *          which only mutes (round 7.81, see its own doc comment for
- *          why those are now different calls). Call once at application
- *          quit (round 7.75's fix for background music otherwise
- *          continuing to play after ArchiLudo itself closed, since QTM
- *          is a relocatable module independent of this task). A silent
- *          no-op if QTM isn't available.
+ *          which only mutes (see its own doc comment for why those are
+ *          different calls). Call once at application quit, so
+ *          background music doesn't keep playing after ArchiLudo
+ *          itself has closed (QTM is a relocatable module independent
+ *          of this task). A silent no-op if QTM isn't available.
  * Syntax:  void qtm_shutdown(void);
  * Input:   none.
  * Output:  none.

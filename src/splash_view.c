@@ -240,11 +240,11 @@ void splash_view_initialise(void)
 	def.title_flags = wimp_ICON_TEXT | wimp_ICON_BORDER | wimp_ICON_HCENTRED |
 	                   wimp_ICON_VCENTRED | wimp_ICON_FILLED;
 	/* The logo is the only custom-plotted content, and it's well away
-	 * from the icons below -- but per game_view.c's "Round 6.4" lesson
-	 * (a window's work_flags controls whether clicking its plain
-	 * background generates a Mouse_Click at all), set this to CLICK
-	 * anyway so clicking directly on the logo also dismisses the splash,
-	 * not just clicking OK or the surrounding margin. */
+	 * from the icons below -- but a window's work_flags controls whether
+	 * clicking its plain background generates a Mouse_Click at all, so
+	 * set this to CLICK anyway so clicking directly on the logo also
+	 * dismisses the splash, not just clicking OK or the surrounding
+	 * margin. */
 	def.work_flags = (wimp_icon_flags) (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
 	def.sprite_area = wimpspriteop_AREA;
 	def.xmin = WINDOW_WIDTH;

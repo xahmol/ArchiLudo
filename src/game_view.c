@@ -15,10 +15,11 @@
                                   * project's OWN private sprite area, loaded
                                   * separately and unrelated to this one */
 #include "oslib/osspriteop.h" /* xosspriteop_load_sprite_file() -- see
-                                * load_pawn_sprites() (round 7.17, the
-                                * Wimp_PlotIcon sprite pivot -- see
-                                * docs/ARCHITECTURE.md's "Resume here"/Round
-                                * 7.17 for the full background) */
+                                * load_pawn_sprites(), which loads pawn/dice
+                                * art as real sprites plotted via
+                                * Wimp_PlotIcon -- see docs/ARCHITECTURE.md's
+                                * WIMP conventions section for the full
+                                * background */
 
 #include "game_view.h"
 #include "game_logic.h"
@@ -27,12 +28,10 @@
 #include "win_view.h"
 #include "qtm.h"
 
-/* Round 6: redesigned to match GeoLudo's own screen layout (board on the
- * left, a status/controls panel on the right -- see
+/* Layout matches GeoLudo's own screen layout (board on the left, a
+ * status/controls panel on the right -- see
  * /home/xahmol/git/ludo/GEOS/screenshots/ludo-game-c64.png, the reference
- * this was resized from) instead of ArchiLudo's earlier invented
- * top-header layout, per explicit user request. CELL doubled from the
- * original 32 in round 5 (board read as too small), kept here. */
+ * this was resized from), not an independently-designed layout. */
 #define CELL          64
 #define BOARD_PIXELS  (BOARD_GRID_SIZE * CELL)
 #define MARGIN         8
@@ -45,43 +44,23 @@
 
 /* Pawn's on-screen size in OS units (square) -- see plot_pawn(). Used
  * both for the os_plot fallback's circle radii and for the real
- * Wimp_PlotIcon sprite path's icon extent (round 7.16/7.17's sprite
- * pivot -- see plot_pawn()'s own doc comment for the full history).
+ * Wimp_PlotIcon sprite path's icon extent.
  *
- * Rounds 7.29/7.30 reduced this from 48 to 40 then to 36, on the theory
- * that Wimp_PlotIcon scales a sprite icon's content to fit whatever
- * extent this constant produces, so shrinking it would shrink the
- * on-screen pawn and give it more margin inside its 64-unit CELL.
- *
- * ROUND 7.31 CORRECTION: that theory was wrong, confirmed by the user
- * reporting the on-screen pawn size was visually IDENTICAL across all
- * three values (48, 40, 36) -- and by primary-source research once that
- * was reported: the PRM documents no continuous scale-to-extent
- * behaviour for a plain sprite icon at all, only a binary "half size"
- * flag (see assets/generate_icon_sprites.py's own Round 7.31 correction
- * for the full writeup and citation). Wimp_PlotIcon plots an old-style
- * sprite icon at its NATIVE size (source pixel count x the sprite's own
- * recorded mode's OS-units-per-pixel -- mode 27 is 2 OS units/pixel
- * both axes), centred within this extent via HCENTRED/VCENTRED, never
- * stretched or shrunk to fill it. This constant was therefore never
- * actually controlling the on-screen pawn size, and the real fix for
- * the pawn-crop investigation (rounds 7.21-7.30) was shrinking the
- * SPRITE ITSELF (assets/generate_icon_sprites.py's FINAL constant)
- * rather than this extent.
- *
- * Round 7.32: FINAL=18 (36 OS units) was too aggressive a cut from the
- * originally-approved look ("now they are small and very ugly, we
- * maybe overcompensated") and also exposed a real bug in round 7.31's
- * own outline-scaling maths that left the sprite's outline nearly
- * invisible at that size -- see that script's own Round 7.32 comment.
- * Settled on FINAL=26 (52 OS units, 6 units/side margin -- still real,
- * deliberate margin versus zero at the original 32, but a much smaller
- * visual cut and enough final pixels for the design's detail to read).
- * Kept in sync here at 52 = FINAL*2 exactly, so the extent is just big
- * enough to contain the sprite with no dead padding. */
+ * Wimp_PlotIcon does NOT scale a sprite icon's content to fit this
+ * extent -- the PRM documents no continuous scale-to-extent behaviour
+ * for a plain sprite icon at all, only a binary "half size" flag (see
+ * assets/generate_icon_sprites.py). It plots an old-style sprite icon
+ * at its NATIVE size (source pixel count x the sprite's own recorded
+ * mode's OS-units-per-pixel -- mode 27 is 2 OS units/pixel both axes),
+ * centred within this extent via HCENTRED/VCENTRED, never stretched or
+ * shrunk to fill it. The actual on-screen pawn size is controlled by
+ * the SPRITE ITSELF (assets/generate_icon_sprites.py's FINAL constant),
+ * not this extent -- this constant only needs to be big enough to
+ * contain that sprite with no dead padding: currently FINAL=26 (52 OS
+ * units), kept in sync here at 52 = FINAL*2 exactly. */
 #define PAWN_SIZE     52
 
-/* Round 7.34: how far up (in OS units) plot_pawn() shifts a pawn's own
+/* How far up (in OS units) plot_pawn() shifts a pawn's own
  * centre from its cell's true centre -- see plot_pawn()'s own doc
  * comment for the full derivation. Cell_range_to_work_box()'s +8
  * request-box padding (needed for its own reason, on y1 only) can
@@ -99,9 +78,8 @@
 #define PAWN_Y_NUDGE 4
 
 /* Side panel: player name (+ a colour swatch, see game_view_redraw()),
- * action status, the current die face (round 6.3 -- GEOS's own
- * dice1..6.gbm, see plot_dice(); previously nothing showed the roll's
- * outcome at all, per repeated user request), and the Throw button --
+ * action status, the current die face (GEOS's own dice1..6.gbm art, see
+ * plot_dice()), and the Throw button --
  * laid out top-to-bottom on the right of the board, Throw positioned
  * lower rather than at the very top, again matching the GEOS reference.
  * The die sits in the gap between the status text and Throw, which is
@@ -114,9 +92,8 @@
 #define SWATCH_Y1     (-(MARGIN + (NAME_HEIGHT - SWATCH_SIZE) / 2))
 #define STATUS_GAP     8
 #define STATUS_HEIGHT 40
-/* Round 6.7: bumped from 56 -- reported pip crowding on face 6 (two
- * columns of 3) with the old pip_radius/step ratio at that size; a
- * bigger die gives more room per pip regardless of the exact ratio. */
+/* Sized to give enough room per pip that face 6 (two columns of 3)
+ * doesn't crowd, regardless of the exact pip_radius/step ratio. */
 #define DICE_SIZE     72
 #define DICE_CENTRE_X (PANEL_X0 + PANEL_WIDTH / 2)
 #define DICE_CENTRE_Y (-260)
@@ -241,7 +218,7 @@ static char throw_text[10] = "Throw";
 static char throw_validation[4] = "R1";
 /* Current on-screen shaded state of the Throw/Continue icon, so
  * refresh_status() only toggles wimp_ICON_SHADED (an EOR flag) when it
- * actually needs to change -- see round 7.15. */
+ * actually needs to change, avoiding an unnecessary redraw. */
 static int throw_shaded = 0;
 
 /* True once a game has actually been started via game_view_new_game()
@@ -251,7 +228,7 @@ static int throw_shaded = 0;
  * in progress). See game_view_has_started(). */
 static int game_started = 0;
 
-/* Round 7.35: whether the CURRENT game.winner (if any) has been
+/* Whether the CURRENT game.winner (if any) has been
  * acknowledged via src/win_view.c's "Continue" (or "New Game", which
  * also acknowledges it before opening setup -- see
  * game_view_win_continue()). While a player has won but this is still
@@ -330,14 +307,13 @@ static int move_anim_path_len;
 static int move_anim_tick;
 static os_t move_anim_next_tick;
 
-/* Round 7.15: a snapshot of every pawn's board cell/in_play state, taken
+/* A snapshot of every pawn's board cell/in_play state, taken
  * immediately before a state-changing ludo_roll()/ludo_move_pawn() call
  * -- see snapshot_pawn_positions()/update_settle_diff_area(). Lets the
  * post-animation "settle" redraw at turn's end be scoped to only the
  * pawns a capture or a six's mandatory release actually displaced,
- * instead of the whole board, per explicit user report that the
- * full-window redraw at every turn transition was itself visibly
- * flickering. */
+ * instead of the whole board, avoiding a visibly flickering full-window
+ * redraw at every turn transition. */
 static board_cell settle_prev_cell[LUDO_PLAYERS][LUDO_PAWNS];
 static int settle_prev_in_play[LUDO_PLAYERS][LUDO_PAWNS];
 
@@ -363,37 +339,31 @@ static os_t highlight_next_flash;
 static cell_kind cell_kinds[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 static int cell_owner[BOARD_GRID_SIZE][BOARD_GRID_SIZE];
 
-/* Round 7.25: replaces the round 7.23/7.24 unconditional per-tick
- * debug_log() calls in update_move_animation_area()/update_settle_diff_area()/
- * update_highlight_area()/redraw_now()/game_view_redraw() -- those were
- * confirmed to cost real, visible animation smoothness (debug_log() opens/
- * writes/closes the Log file from scratch every call; round 7.24 already
- * cut this from per-pawn to per-tick, but per-tick over a multi-cell
- * animated move is still dozens of calls per throw). Removed entirely and
- * replaced with this: each of those five functions records, in WORK AREA
- * coordinates, the box it explicitly requested to have redrawn (what
- * cell_range_to_work_box()/the window's own extent said was enough), and
- * plot_pawn() cheaply compares its icon's extent (also work area, round
- * 7.18) against it on every single call -- but only calls debug_log() if
- * the extent doesn't fully fit, which should never happen and so costs
- * nothing in the working case.
+/* Each of update_move_animation_area()/update_settle_diff_area()/
+ * update_highlight_area()/redraw_now()/game_view_redraw() records, in
+ * WORK AREA coordinates, the box it explicitly requested to have
+ * redrawn (what cell_range_to_work_box()/the window's own extent said
+ * was enough). plot_pawn() cheaply compares its icon's extent (also
+ * work area) against it on every single call, but only calls
+ * debug_log() if the extent doesn't fully fit -- which should never
+ * happen and so costs nothing in the working case. An unconditional
+ * per-tick debug_log() call (it opens/writes/closes the Log file from
+ * scratch every call) was tried first and confirmed to cost real,
+ * visible animation smoothness, hence this cheap guard instead.
  *
- * Round 7.26 correction: the round 7.25 version of each assignment read
- * these back from `redraw.box`/`redraw->box` *after* calling
- * wimp_update_window()/wimp_redraw_window()/wimp_get_rectangle() -- but
- * those calls overwrite that same struct field with SCREEN coordinates
- * (confirmed by round 7.21's PRM research), not the work-area coordinates
- * that were put into it beforehand. Comparing a work-area icon extent
- * against a screen-coordinate box is close to meaningless once the window
- * isn't near the screen origin, and made this check false-positive on
- * essentially every pawn -- reintroducing the exact per-pawn debug_log()
- * cost round 7.24 had already found and removed once (see live user
- * report "no redrawing things is still really slow" + a fresh Log showing
- * hundreds of spurious CROP lines). Fixed by taking each function's own
- * *pre-call* work-area locals instead (or, for game_view_redraw(), by
- * converting its post-call screen-coordinate box back to work area via
+ * Each site takes its own *pre-call* work-area locals for this
+ * comparison, never a value read back from `redraw.box`/`redraw->box`
+ * *after* calling wimp_update_window()/wimp_redraw_window()/
+ * wimp_get_rectangle() -- those calls overwrite that same struct field
+ * with SCREEN coordinates, not the work-area coordinates that were put
+ * into it beforehand, and comparing a work-area icon extent against a
+ * screen-coordinate box is close to meaningless once the window isn't
+ * near the screen origin (it also makes this check false-positive on
+ * essentially every pawn, reintroducing the exact per-tick debug_log()
+ * cost this mechanism exists to avoid). game_view_redraw() instead
+ * converts its post-call screen-coordinate box back to work area via
  * the same origin_x/origin_y subtraction it already does for its own
- * drawing) -- see each call site's own Round 7.26 comment. */
+ * drawing. */
 static int dbg_request_x0, dbg_request_y0, dbg_request_x1, dbg_request_y1;
 
 #define APP_DIR_LEN 200
@@ -468,16 +438,15 @@ static void debug_log(const char *fmt, ...)
 	fclose(f);
 }
 
-/* Round 7.17 pawn icon sprites -- see load_pawn_sprites()/plot_pawn().
+/* Pawn icon sprites -- see load_pawn_sprites()/plot_pawn().
  * pawn_sprite_area is this program's OWN private sprite area (loaded
  * from assets/PawnSprite, malloc()'d once at startup), entirely
  * separate from wimpspriteop_AREA (the Wimp's shared pool, still used
  * for def.sprite_area) -- one named sprite per player, "pawn0".."pawn3"
  * in game_logic.c's player-index order. pawn_sprites_loaded stays 0 if
  * the file can't be found/loaded, in which case plot_pawn() falls back
- * to the original os_plot circles -- per this project's established
- * "the game must stay playable if a sprite approach fails again"
- * caution (see docs/ARCHITECTURE.md's round 6.3/6.4 notes). */
+ * to the original os_plot circles, so the game stays playable even if
+ * sprite loading fails. */
 static osspriteop_area *pawn_sprite_area = NULL;
 static int pawn_sprites_loaded = 0;
 static const char *pawn_sprite_names[LUDO_PLAYERS] = { "pawn0", "pawn1", "pawn2", "pawn3" };
@@ -620,12 +589,11 @@ static void fill_rect(int x0, int y0, int x1, int y1)
  *          update_highlight_area(), redraw_now()) -- unlike a genuine
  *          Redraw_Window_Request, handled via Wimp_RedrawWindow in
  *          game_view_redraw(), Wimp_UpdateWindow does not clear
- *          anything first (see docs/ARCHITECTURE.md's Round 7.10), so
- *          without this, a shape drawn between two grid points one tick
- *          (a pawn mid-slide, a ring at its full radius) is never
- *          actually erased before the next tick draws over it -- per
- *          explicit user report ("old pawn position is not restored to
- *          old state in interim frames").
+ *          anything first (see docs/ARCHITECTURE.md's redraw/animation
+ *          architecture section), so without this, a shape drawn
+ *          between two grid points one tick (a pawn mid-slide, a ring
+ *          at its full radius) is never actually erased before the
+ *          next tick draws over it.
  */
 static void fill_window_background(int x0, int y0, int x1, int y1)
 {
@@ -638,7 +606,8 @@ static void fill_window_background(int x0, int y0, int x1, int y1)
  * Summary: Plot a filled or outline circle in the current foreground
  *          colour, centred at (cx, cy) with the given radius, all in OS
  *          units -- mode-independent, unlike sprite plotting (see
- *          docs/GRAPHICS_TOOLING.md's "Round 6 correction"). Per the RISC
+ *          docs/GRAPHICS_TOOLING.md's "Sprite file format" section on
+ *          non-square pixel modes). Per the RISC
  *          OS 3 PRM's os_plot summary (~/riscos-dev/prm-mirror/vdu.html):
  *          "Move to centre. Plot circle to point on the circumference."
  */
@@ -692,7 +661,7 @@ static const char *player_display_name(int player)
 
 static void refresh_status(void)
 {
-	/* Round 7.35: "paused" means there's a winner the user hasn't yet
+	/* "paused" means there's a winner the user hasn't yet
 	 * acknowledged via src/win_view.c's dialogue -- see win_acknowledged's
 	 * own doc comment. Only genuinely an "AI's turn" while NOT paused
 	 * (either no one has won yet, or someone has but play is continuing) --
@@ -729,9 +698,8 @@ static void refresh_status(void)
 			 * a move -- the roll that released the pawn has nothing left
 			 * to pick, and the player throws again next. Distinct wording
 			 * from "Throw again" below so this doesn't read as the same
-			 * no-op repeating (see docs/ARCHITECTURE.md's Phase 1 notes on
-			 * the "endless reroll" confusion this was originally reported
-			 * as). */
+			 * no-op repeating: a run of sixes should read as progress, not
+			 * an apparent stuck loop. */
 			snprintf(status_text, STATUS_TEXT_LEN, "Pawn released!");
 		} else {
 			snprintf(status_text, STATUS_TEXT_LEN, "Throw again");
@@ -744,7 +712,7 @@ static void refresh_status(void)
 	strncpy(throw_text, ai_turn ? "Continue" : "Throw", sizeof(throw_text) - 1);
 	throw_text[sizeof(throw_text) - 1] = '\0';
 
-	/* Round 7.15: shade the button whenever clicking it wouldn't actually
+	/* Shade the button whenever clicking it wouldn't actually
 	 * do anything -- mid-animation, an AI turn between its own automatic
 	 * actions, or a human with a pawn to pick instead -- per explicit
 	 * user request ("show the buttons only when user is supposed to
@@ -755,10 +723,9 @@ static void refresh_status(void)
 		int throw_active;
 
 		if (paused)
-			/* Round 7.35: no longer "play again, always clickable" --
-			 * the win-choice dialogue (src/win_view.c) owns that
-			 * decision now, so the underlying Throw button does
-			 * nothing while paused and should look it. */
+			/* The win-choice dialogue (src/win_view.c) owns the
+			 * "play again" decision, so the underlying Throw button
+			 * does nothing while paused and should look it. */
 			throw_active = 0;
 		else if (step == STEP_AWAIT_CONTINUE)
 			throw_active = 1;
@@ -819,7 +786,7 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
  * Function: cell_centre_work
  * Summary: Same as cell_centre(), but in WORK AREA coordinates (no
  *          origin_x/origin_y applied) -- what Wimp_PlotIcon needs for an
- *          icon's bounding box. Round 7.18 fix: Wimp_PlotIcon's icon
+ *          icon's bounding box. Wimp_PlotIcon's icon
  *          block "is the same format as that used by Wimp_CreateIcon...
  *          this being implicitly the window which is currently being
  *          redrawn or updated" (PRM, wimp.html) -- i.e. work-area
@@ -830,12 +797,10 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
  *          to an icon's `.box` before calling wimp_ploticon(), and even
  *          passes that same untranslated box straight to
  *          Wimp_UpdateWindow's own (also work-area) box parameter.
- *          plot_pawn() originally used cell_centre() (screen-absolute)
- *          for the icon's extent too, by mistake -- this placed every
- *          pawn icon at the wrong screen location entirely (off the
- *          visible window whenever the window wasn't at OS-unit
- *          position (0,0)), which is why pawns stopped rendering at all
- *          once the sprite pivot shipped.
+ *          Using cell_centre() (screen-absolute) for the icon's extent
+ *          instead would place every pawn icon at the wrong screen
+ *          location entirely (off the visible window whenever the
+ *          window wasn't at OS-unit position (0,0)).
  */
 static void cell_centre_work(int col, int row, int *wx, int *wy)
 {
@@ -852,35 +817,21 @@ static void cell_centre_work(int col, int row, int *wx, int *wy)
  *          loaded successfully; falls back to two overlapping filled
  *          circles (a wider "body" below a narrower "head") otherwise.
  *
- *          Round 6.3 dropped sprite plotting entirely after three
- *          separate small sprites rendered wrong in Arculator in ways
- *          that never reproduced in any offline check (round 6.1's
- *          board-entry markers too narrow, round 6.3's dice cropped,
- *          this pawn sprite solid black regardless of player) -- see
- *          docs/GRAPHICS_TOOLING.md's "Round 6.4". Round 7.16/7.17
- *          research found the actual, specific, documented cause: the
- *          old code used `OS_SpriteOp 34`
- *          (xosspriteop_put_sprite_user_coords), which the PRM states
- *          outright is undefined for a sprite whose mode doesn't match
- *          the current screen mode -- not an unexplained platform
- *          mystery after all. `Wimp_PlotIcon` sidesteps that specific
- *          bug (confirmed against real, shipped example code,
- *          `github.com/marutan/ro-chess`'s `icon_update()`) -- see
- *          docs/ARCHITECTURE.md's "Resume here"/round history for the
- *          full writeup. ROUND 7.31 CORRECTION: this comment used to
- *          also claim Wimp_PlotIcon goes through "PutSpriteScaled with
- *          a proper scale/translation table", i.e. that it scales the
- *          sprite to fit the icon's extent -- that part was never true
- *          and was never actually verified; see PAWN_SIZE's own Round
- *          7.31 comment for how that surfaced and what the PRM actually
- *          documents (only a binary half-size flag, no continuous
- *          scaling). Wimp_PlotIcon plots a sprite icon at its own
- *          native size, centred within the extent -- the extent's SIZE
- *          doesn't affect the sprite's own rendered size at all, only
- *          its position. The `os_plot` fallback stays in place
- *          regardless (this project's established "the game must stay
- *          playable" caution) for whenever load_pawn_sprites() didn't
- *          find/load assets/PawnSprite.
+ *          Real sprites are plotted via `Wimp_PlotIcon` rather than a
+ *          direct `OS_SpriteOp 34` (xosspriteop_put_sprite_user_coords)
+ *          call -- the PRM states outright that the latter is undefined
+ *          for a sprite whose mode doesn't match the current screen
+ *          mode, which `Wimp_PlotIcon` sidesteps entirely (confirmed
+ *          against real, shipped example code,
+ *          `github.com/marutan/ro-chess`'s `icon_update()`). Note that
+ *          `Wimp_PlotIcon` does NOT scale a sprite to fit the icon's
+ *          extent -- it plots at the sprite's own native size, centred
+ *          within the extent; the extent's SIZE doesn't affect the
+ *          sprite's own rendered size at all, only its position (see
+ *          PAWN_SIZE's own doc comment). The `os_plot` fallback stays
+ *          in place regardless, for whenever load_pawn_sprites() didn't
+ *          find/load assets/PawnSprite, so the game stays playable
+ *          either way.
  */
 /*
  * Function: stack_offset
@@ -988,26 +939,19 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		wx += sdx;
 		wy += sdy;
 	}
-	/* Round 7.34: nudge the pawn's own centre up by a few OS units --
-	 * per explicit live user report/diagnosis after round 7.33 fixed
-	 * the sprite's own generation margin but a smaller crop persisted
-	 * specifically "when something moves passed" ("Pawn does not stick
-	 * above the circle at the top... but does stick out of the circle
-	 * at the bottom"). That's consistent with round 7.27's original
-	 * (correct) diagnosis, never actually fully resolved: cell_range_
+	/* Nudge the pawn's own centre up by a few OS units. cell_range_
 	 * to_work_box()'s own +8 request padding (needed for its own
 	 * documented reason, see that function's doc comment) is on y1 --
 	 * the numerically-larger/visually-upper edge of a redraw box -- so
 	 * it can still bleed into the row ABOVE the redraw range from that
 	 * row's own bottom edge, and the sprite's real per-side margin (6
 	 * units at PAWN_SIZE=52 in a 64-unit CELL) is less than that 8-unit
-	 * pad. Rather than re-attempt precisely re-tuning the erase/request
-	 * clip boundaries again (rounds 7.27/7.28 already tried narrowing
-	 * the erase and widening the repaint, respectively, and both were
-	 * reverted for other costs -- see docs/ARCHITECTURE.md's history),
-	 * simply give the bottom edge more of the pawn's own existing spare
-	 * top margin instead -- cheap, low-risk, and directly matches what
-	 * the user visually confirmed has room to give. */
+	 * pad. Rather than re-tune the erase/request clip boundaries
+	 * themselves (narrowing the erase or widening the repaint both cost
+	 * more elsewhere -- see docs/ARCHITECTURE.md's redraw/animation
+	 * architecture section), this simply gives the bottom edge more of
+	 * the pawn's own existing spare top margin instead -- cheap and
+	 * low-risk. */
 	wy += PAWN_Y_NUDGE;
 	cx = origin_x + wx;
 	cy = origin_y + wy;
@@ -1029,10 +973,9 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 		icon.data.indirected_sprite.id = (osspriteop_id) pawn_sprite_names[player];
 		icon.data.indirected_sprite.area = pawn_sprite_area;
 		icon.data.indirected_sprite.size = 13;
-		/* Round 7.24 removed a per-pawn debug_log() call that was here --
-		 * confirmed to visibly slow pawn-movement animation down (see
-		 * dbg_request_x0's doc comment above for the full history). Round
-		 * 7.25: rather than no check at all, compare this icon's own
+		/* An unconditional per-pawn debug_log() call here would visibly
+		 * slow pawn-movement animation down (see dbg_request_x0's doc
+		 * comment above). Instead, compare this icon's own
 		 * extent against the work-area box the caller actually requested
 		 * be redrawn (dbg_request_*, set by update_move_animation_area()/
 		 * update_highlight_area()/update_settle_diff_area()/redraw_now()/
@@ -1070,17 +1013,9 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
  * Summary: Draw one player's board-entry marker at a CELL_RING_ENTRY
  *          cell: a filled circle in the player's colour (same size as an
  *          ordinary marker) with a white arrow pointing in that player's
- *          direction of travel -- per explicit user request ("should
- *          look like a normal round but filled in the corresponding
- *          color and an arrow in it in direction of movement"). Round
- *          6's first attempt reused GEOS's own bm_gstart/rstart/bstart/
- *          ystart bitmaps as sprites here, but they rendered far too
- *          narrow in Arculator for reasons that didn't reproduce in any
- *          offline check (the packed sprite file's own metadata and a
- *          round-tripped/stretched preview both looked correct -- see
- *          docs/GRAPHICS_TOOLING.md's "Round 6.1"); drawn programmatically
- *          instead, sidestepping the whole sprite-scaling question and
- *          giving an exact, guaranteed-correct size and shape.
+ *          direction of travel. Drawn programmatically with `os_plot`
+ *          primitives rather than a sprite, giving an exact,
+ *          guaranteed-correct size and shape regardless of screen mode.
  */
 static void plot_start_marker(int player, int cx, int cy)
 {
@@ -1114,19 +1049,11 @@ static void plot_start_marker(int player, int cx, int cy)
  * Function: plot_dice
  * Summary: Draw a die face for the current roll -- a white square with a
  *          thin black border and the standard pip layout -- in the panel
- *          gap between the status line and the Throw button. Added in
- *          round 6.3 since nothing previously showed the roll's actual
- *          outcome anywhere on screen (per repeated user report: "no dice
- *          are shown still, nor outcome of the dice throw"). Draws
+ *          gap between the status line and the Throw button. Draws
  *          nothing before the first throw of a turn (`game.last_roll ==
- *          0`).
- *
- *          Round 6.3 first tried this via GEOS's own dice1..6.gbm
- *          sprites (see assets/generate_placeholder_art.py); like the
- *          pawn sprite (see plot_pawn()'s doc comment), it rendered
- *          wrong in Arculator (cropped) for reasons that never
- *          reproduced offline. Drawn with `os_plot` primitives instead,
- *          for the same reliability reason.
+ *          0`). Drawn with `os_plot` primitives rather than a sprite,
+ *          for the same mode-independence/reliability reason as
+ *          plot_start_marker().
  */
 static void plot_dice(int origin_x, int origin_y)
 {
@@ -1174,15 +1101,6 @@ static void plot_dice(int origin_x, int origin_y)
 	x1 = cx + DICE_SIZE / 2;
 	y1 = cy + DICE_SIZE / 2;
 
-	/* The "last line of die does not show" report this diagnostic was
-	 * added for is now understood and fixed (round 7.7's mode-15
-	 * minimum-line-thickness finding, not a coordinate bug -- see
-	 * docs/ARCHITECTURE.md). Removed rather than left logging: this ran
-	 * on every single animation tick (dice-roll cycling, ~8 times per
-	 * throw), which had come to dominate the debug Log's size and made
-	 * genuinely useful entries (move/roll outcomes) hard to find --
-	 * exactly the noise that made the Round 7.8 investigation slower
-	 * than it needed to be. */
 	set_gcol(0, 0, 0);
 	fill_rect(x0, y0, x1, y1);
 	set_gcol(255, 255, 255);
@@ -1293,12 +1211,9 @@ static void draw_board_region(int origin_x, int origin_y, int col0, int row0, in
  *          inverse of cell_centre()'s per-cell math, but for a whole
  *          range at once rather than one cell's centre point.
  *
- *          Round 7.22: `*x1`/`*y1` get a small extra pad beyond the
- *          requested cell range's own edge -- per explicit user report
- *          that highlight rings on the board's top rows were cropped at
- *          the top, and (worse) left a residue after the flash's "off"
- *          phase. Same root cause as round 7.21's die-border crop: the
- *          PRM documents `Wimp_UpdateWindow`'s request box's maximum
+ *          `*x1`/`*y1` get a small extra pad beyond the
+ *          requested cell range's own edge. The PRM documents
+ *          `Wimp_UpdateWindow`'s request box's maximum
  *          x/y as EXCLUSIVE, so a requested upper bound landing exactly
  *          on the true content edge can come back with a paintable
  *          `.clip` one pixel short -- cropping the "on" phase's draw,
@@ -1323,28 +1238,17 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
 	*y0 = BOARD_ORIGIN_Y - (row1 + 1) * CELL;
 }
 
-/* Round 7.27/7.28 history (kept here since this is the root of the
- * whole "bottom cropped pawn" investigation -- see
- * update_move_animation_area()'s own doc comment for the current fix):
- * cell_range_to_work_box()'s +8 pad on x1/y1 exists only to guard the
+/* cell_range_to_work_box()'s +8 pad on x1/y1 exists only to guard the
  * *Wimp_UpdateWindow request* against the PRM's documented exclusive-
- * upper-bound shortfall (round 7.21/7.22). Round 7.27 tried clamping the
- * *erase* rectangle back down to the true, unpadded cell edge, on the
- * theory that the granted `redraw.clip` could otherwise legitimately
- * include the full pad and silently erase 8 OS units into whatever
- * NEIGHBOURING cell sits just past it -- a cell never covered by this
- * call's own draw_board_region(), since the padding zone is outside the
- * ±1-cell margin these three functions already add for the "previous
- * tick's position" concern. That diagnosis was correct (it fixed the
- * crop), but narrowing the erase also stopped erasing whatever the
- * pawn's *own* real Wimp_PlotIcon-rendered footprint paints in that same
- * zone on the tick it's the one animating -- per live user report, a
- * visible multi-frame trail ("pawn is now not erased"). Round 7.28's fix
- * (below) keeps the erase exactly as wide as the Wimp grants it, and
- * instead widens what gets *repainted* by one extra cell on the padded
- * sides, so anything the padding zone could touch is always covered by
- * this same call's draw_board_region() -- guaranteed repainted, not
- * guaranteed untouched. */
+ * upper-bound shortfall. The *erase* rectangle is kept exactly as wide
+ * as the Wimp actually grants (never clamped back down to the true,
+ * unpadded cell edge -- doing so would stop erasing whatever the pawn's
+ * *own* real Wimp_PlotIcon-rendered footprint paints in that padding
+ * zone on the tick it's the one animating, leaving a visible multi-
+ * frame trail). Instead, what gets *repainted* is widened by one extra
+ * cell on the padded sides, so anything the padding zone could touch is
+ * always covered by this same call's draw_board_region() -- guaranteed
+ * repainted, not guaranteed untouched. */
 
 /*
  * Function: update_move_animation_area
@@ -1355,50 +1259,45 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
  *          boundary aren't clipped) via Wimp_UpdateWindow -- used
  *          instead of a full redraw_now() on every STEP_MOVING tick.
  *
- *          Third attempt at this (see docs/ARCHITECTURE.md's Rounds
- *          7.3/7.5/7.10 for the full history). Round 7.3's direct
- *          synchronous Wimp_RedrawWindow call auto-cleared the *entire*
- *          exposed window to background colour every tick (a manually
- *          invoked RedrawWindow always reports the whole window, not a
- *          caller-supplied clip). Round 7.5's fix -- Wimp_ForceRedraw +
- *          letting a genuine Redraw_Window_Request arrive back through
- *          the normal Wimp_Poll loop -- was correct and is still what
- *          game_view_redraw() uses for real window-exposure redraws
- *          below, but Wimp_RedrawWindow's auto-clear-then-repaint is
- *          itself a visible two-step flash on real/emulated ARM2/ARM3
- *          speeds, seen on every single animation tick (per explicit
- *          user report, and confirmed by research citing the RISC OS 3
- *          PRM's Wimp_UpdateWindow entry, ~/riscos-dev/prm-mirror/wimp.html:
- *          "the rectangles to be updated are not cleared by the Wimp
- *          first... this can be called at any time, not just in
- *          response to a Redraw_Window_Request").
+ *          Uses `Wimp_UpdateWindow`, not `Wimp_RedrawWindow` -- a manually
+ *          invoked `Wimp_RedrawWindow` always auto-clears and reports the
+ *          *entire* exposed window, not a caller-supplied clip, which
+ *          would be a visible two-step flash on every single animation
+ *          tick at real/emulated ARM2/ARM3 speeds. `Wimp_RedrawWindow`
+ *          (via `Wimp_ForceRedraw` + a genuine `Redraw_Window_Request`
+ *          arriving back through the normal `Wimp_Poll` loop) is still
+ *          what `game_view_redraw()` uses for real window-exposure
+ *          redraws below -- this function exists specifically because
+ *          that path isn't suitable for per-tick animation (per the RISC
+ *          OS 3 PRM's `Wimp_UpdateWindow` entry,
+ *          ~/riscos-dev/prm-mirror/wimp.html: "the rectangles to be
+ *          updated are not cleared by the Wimp first... this can be
+ *          called at any time, not just in response to a
+ *          Redraw_Window_Request").
  *
- *          Wimp_UpdateWindow was tried once already (Round 7.3) and
- *          produced no visible frames at all -- the actual bug, found by
- *          this round's research: unlike Wimp_RedrawWindow (where only
- *          `.w` is meaningful on entry, and the Wimp computes the
- *          rectangle itself), Wimp_UpdateWindow takes the rectangle as
- *          *input* (`w, x0, y0, x1, y1`) -- the earlier attempt left
- *          `redraw.box` as uninitialised stack garbage before the call,
- *          so the Wimp had no valid area to report back, and the
- *          `while (more)` loop's drawing call never ran. Confirmed
- *          against real, shipped example code (not just the PRM
- *          description): `github.com/marutan/ro-chess`'s `icon_update()`
- *          helper sets its redraw block's box to the icon's own
- *          work-area bounds before calling Wimp_UpdateWindow, then plots
- *          inline in the same `while (more)` loop -- exactly the
- *          pattern used here. Direct screen plotting outside this
- *          protocol entirely was considered and rejected: the PRM
- *          explicitly warns that in-window dragging "must use
+ *          Unlike `Wimp_RedrawWindow` (where only `.w` is meaningful on
+ *          entry, and the Wimp computes the rectangle itself),
+ *          `Wimp_UpdateWindow` takes the rectangle as *input*
+ *          (`w, x0, y0, x1, y1`) -- it must be filled in correctly
+ *          before the call, or the Wimp has no valid area to report
+ *          back and the `while (more)` loop's drawing call never runs.
+ *          Confirmed against real, shipped example code (not just the
+ *          PRM description): `github.com/marutan/ro-chess`'s
+ *          `icon_update()` helper sets its redraw block's box to the
+ *          icon's own work-area bounds before calling
+ *          `Wimp_UpdateWindow`, then plots inline in the same
+ *          `while (more)` loop -- exactly the pattern used here. Direct
+ *          screen plotting outside this protocol entirely is avoided:
+ *          the PRM explicitly warns that in-window dragging "must use
  *          Wimp_UpdateWindow... rather than drawing directly on the
  *          screen" (window occlusion/multitasking correctness).
  *
  *          Any *other* pawn's position change this same move triggered
  *          (a capture sent home, a six-release) is outside this
  *          animation's scope and only appears once resolve_move() calls
- *          update_settle_diff_area() after the animation finishes (round
- *          7.15) -- an acceptable, deliberate limit (nothing asked for
- *          those to animate too, only the moving pawn itself).
+ *          update_settle_diff_area() after the animation finishes -- an
+ *          acceptable, deliberate limit (nothing asked for those to
+ *          animate too, only the moving pawn itself).
  */
 static void update_move_animation_area(void)
 {
@@ -1455,27 +1354,22 @@ static void update_move_animation_area(void)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
-	/* Round 7.25 bug (fixed round 7.26): this must be taken from the
+	/* This must be taken from the
 	 * work-area x0/y0/x1/y1 just computed, NOT read back from
 	 * redraw.box after the call below -- wimp_update_window()/
-	 * wimp_get_rectangle() overwrite redraw.box with SCREEN coordinates
-	 * (see this file's Round 7.21 finding), while plot_pawn()'s icon
-	 * extent is in WORK AREA coordinates (round 7.18). Comparing the two
-	 * directly made the crop check false-positive on literally every
-	 * pawn, which made every single draw call debug_log() -- the exact
-	 * per-pawn logging cost round 7.24 had already found and removed
-	 * once, reintroduced by accident. */
+	 * wimp_get_rectangle() overwrite redraw.box with SCREEN coordinates,
+	 * while plot_pawn()'s icon extent is in WORK AREA coordinates.
+	 * Comparing the two directly makes the crop check false-positive on
+	 * literally every pawn, triggering debug_log() on every single draw
+	 * call. */
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
-	 * per live user report it neither fixed the crop nor was worth its
-	 * own cost ("the wide repaint increases the flicker"). The actual
-	 * fix for the crop is PAWN_SIZE's own reduction (see its doc
-	 * comment) -- giving the icon more margin inside its cell rather
-	 * than trying to precisely track whatever the last few OS units of
-	 * clip/erase-scoping edge case was. Back to the plain, tight
-	 * col0..col1/row0..row1 range here, matching round 7.21-7.26. */
+	/* The repaint uses the plain, tight col0..col1/row0..row1 range,
+	 * not a wider one -- widening the repaint by an extra cell was tried
+	 * and made flicker worse without fixing pawn cropping. The actual
+	 * fix for cropping is PAWN_SIZE's own sizing (see its doc comment),
+	 * giving the icon more margin inside its cell. */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1483,15 +1377,11 @@ static void update_move_animation_area(void)
 
 		/* Erase whatever the previous tick left here first -- see
 		 * fill_window_background()'s doc comment for why this is
-		 * necessary with Wimp_UpdateWindow specifically. Round 7.21:
-		 * this used to erase redraw.box, not redraw.clip -- see
-		 * update_dice_area()'s doc comment for why that's wrong
-		 * (.box is the window's WHOLE visible area, not the small
-		 * region actually being updated), which meant every single
-		 * tick of this animation wiped the *entire visible window* to
-		 * background colour, not just this small few-cell patch --
-		 * exactly the "everything on screen redraws" symptom reported
-		 * live. */
+		 * necessary with Wimp_UpdateWindow specifically. Erases
+		 * redraw.clip, not redraw.box -- see update_dice_area()'s doc
+		 * comment for why that distinction matters (.box is the
+		 * window's WHOLE visible area, not the small region actually
+		 * being updated). */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
@@ -1503,9 +1393,9 @@ static void update_move_animation_area(void)
  * Summary: Synchronously redraw just the die face's box via
  *          Wimp_UpdateWindow -- used instead of a full redraw_now() on
  *          every STEP_ROLLING tick. See update_move_animation_area()'s
- *          doc comment for the full history of why Wimp_UpdateWindow
- *          (not Wimp_ForceRedraw, not a direct Wimp_RedrawWindow call)
- *          and exactly how it needs to be called.
+ *          doc comment for why Wimp_UpdateWindow (not Wimp_ForceRedraw,
+ *          not a direct Wimp_RedrawWindow call) and exactly how it
+ *          needs to be called.
  */
 static void update_dice_area(void)
 {
@@ -1518,7 +1408,7 @@ static void update_dice_area(void)
 	redraw.w = window_handle;
 	redraw.box.x0 = DICE_CENTRE_X - DICE_SIZE / 2;
 	redraw.box.y0 = DICE_CENTRE_Y - DICE_SIZE / 2;
-	/* +4/+8 padding on the upper bounds only (round 7.21) -- per the PRM
+	/* +4/+8 padding on the upper bounds only -- per the PRM
 	 * (wimp.html's Wimp_UpdateWindow entry), the request block's maximum
 	 * x/y are EXCLUSIVE ("work area maximum x coordinate (exclusive)"),
 	 * unlike fill_rect()'s os_PLOT_RECTANGLE, which treats its own x1/y1
@@ -1608,8 +1498,8 @@ static void draw_highlights(int origin_x, int origin_y)
  *          redrawn every single call, flash on or off, since
  *          Wimp_UpdateWindow doesn't clear anything -- this is what
  *          erases the previous frame's ring when the flash switches off
- *          (see docs/ARCHITECTURE.md's Round 7.10 for why
- *          Wimp_UpdateWindow is used this way at all).
+ *          (see docs/ARCHITECTURE.md's redraw/animation architecture
+ *          section for why Wimp_UpdateWindow is used this way at all).
  */
 static void update_highlight_area(void)
 {
@@ -1669,16 +1559,16 @@ static void update_highlight_area(void)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
-	/* Round 7.26: from the local work-area x0/y0/x1/y1, not read back
+	/* From the local work-area x0/y0/x1/y1, not read back
 	 * from redraw.box after the call -- see
 	 * update_move_animation_area()'s doc comment for why. */
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
-	 * see update_move_animation_area()'s doc comment for why (didn't fix
-	 * the crop, cost extra flicker; PAWN_SIZE's own reduction is the
-	 * actual fix). Back to the plain, tight range. */
+	/* Uses the plain, tight range, not a wider one -- see
+	 * update_move_animation_area()'s doc comment for why (widening the
+	 * repaint was tried and cost extra flicker without fixing cropping;
+	 * PAWN_SIZE's own sizing is the actual fix). */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
@@ -1687,7 +1577,7 @@ static void update_highlight_area(void)
 		/* See fill_window_background()'s doc comment -- the ring's own
 		 * radius extends past the marker/pawn underneath it, so without
 		 * this a thin remnant of the "on" phase ring could survive an
-		 * "off" phase. Round 7.21: erase redraw.clip, not redraw.box --
+		 * "off" phase. Erases redraw.clip, not redraw.box --
 		 * see update_dice_area()'s doc comment; .box is the whole
 		 * window's visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
@@ -1738,11 +1628,10 @@ static void snapshot_pawn_positions(void)
  *          per-tick animation already left the board showing the
  *          correct final state, and status/name/Throw-button text is
  *          handled separately by refresh_status()'s own small per-icon
- *          redraws. Added in round 7.15 specifically so the common case
- *          needs no board redraw whatsoever -- per explicit user report
- *          that a full-window redraw on every single turn transition was
- *          itself visibly flickering, independent of whatever it was
- *          redrawing.
+ *          redraws. This means the common case needs no board redraw
+ *          whatsoever, avoiding a visibly flickering full-window redraw
+ *          on every single turn transition, independent of whatever it
+ *          was redrawing.
  */
 static void update_settle_diff_area(int skip_player, int skip_pawn)
 {
@@ -1803,21 +1692,20 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 	redraw.box.x1 = x1;
 	redraw.box.y1 = y1;
 
-	/* Round 7.26: from the local work-area x0/y0/x1/y1, not read back
+	/* From the local work-area x0/y0/x1/y1, not read back
 	 * from redraw.box after the call -- see
 	 * update_move_animation_area()'s doc comment for why. */
 	dbg_request_x0 = x0; dbg_request_y0 = y0;
 	dbg_request_x1 = x1; dbg_request_y1 = y1;
 
-	/* Round 7.29: reverted round 7.28's one-extra-cell-wider repaint --
-	 * see update_move_animation_area()'s doc comment for why. Back to
-	 * the plain, tight range. */
+	/* Uses the plain, tight range, not a wider one -- see
+	 * update_move_animation_area()'s doc comment for why. */
 	more = wimp_update_window(&redraw);
 	while (more) {
 		int origin_x = redraw.box.x0 - redraw.xscroll;
 		int origin_y = redraw.box.y1 - redraw.yscroll;
 
-		/* Round 7.21: erase redraw.clip, not redraw.box -- see
+		/* Erases redraw.clip, not redraw.box -- see
 		 * update_dice_area()'s doc comment; .box is the whole window's
 		 * visible area, not this small region. */
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
@@ -1884,14 +1772,13 @@ static void draw_full_window_content(int origin_x, int origin_y)
  *
  *          Uses Wimp_UpdateWindow, not Wimp_RedrawWindow (i.e. does
  *          *not* delegate to game_view_redraw(), despite drawing the
- *          exact same content via the same draw_full_window_content())
- *          -- per explicit user report ("after animation is done, there
- *          is still a full redraw, is that needed?"). It wasn't:
- *          Wimp_RedrawWindow's auto-clear-then-repaint is a visible
- *          flash regardless of how small or large the redrawn area is
- *          (see docs/ARCHITECTURE.md's Round 7.10), and this function
+ *          exact same content via the same draw_full_window_content()).
+ *          Wimp_RedrawWindow's auto-clear-then-repaint would be a
+ *          visible flash regardless of how small or large the redrawn
+ *          area is (see docs/ARCHITECTURE.md's redraw/animation
+ *          architecture section), and this function
  *          runs at the end of essentially every game action, so that
- *          flash was happening constantly. Wimp_UpdateWindow doesn't
+ *          flash would be happening constantly. Wimp_UpdateWindow doesn't
  *          clear, but draw_full_window_content() already repaints every
  *          marker/pawn/panel element unconditionally on every call
  *          regardless of what changed, so nothing is lost by skipping
@@ -1915,7 +1802,7 @@ static void redraw_now(void)
 	redraw.w = window_handle;
 	redraw.box.x0 = 0;
 	redraw.box.y0 = -WINDOW_HEIGHT;
-	/* +8/+8 padding (round 7.22) -- see cell_range_to_work_box()'s doc
+	/* +8/+8 padding -- see cell_range_to_work_box()'s doc
 	 * comment for why: Wimp_UpdateWindow's request box treats its
 	 * maximum x/y as exclusive, so requesting exactly the window's own
 	 * true edge can crop content flush against it by a pixel. Harmless
@@ -1924,7 +1811,7 @@ static void redraw_now(void)
 	redraw.box.x1 = WINDOW_WIDTH + 8;
 	redraw.box.y1 = 8;
 
-	/* Round 7.26: from the same literal work-area values just assigned
+	/* From the same literal work-area values just assigned
 	 * above, not read back from redraw.box after the call -- see
 	 * update_move_animation_area()'s doc comment for why (wimp_update_
 	 * window()/wimp_get_rectangle() overwrite redraw.box with SCREEN
@@ -2028,7 +1915,7 @@ static board_cell preview_destination(int player, int pawn_index)
  *          Continue click -- per explicit user request), otherwise
  *          STEP_IDLE for ordinary human play.
  *
- *          Round 7.35: also where a fresh win first gets noticed -- if
+ *          Also where a fresh win first gets noticed -- if
  *          game.winner is set and not yet acknowledged (see
  *          win_acknowledged's own doc comment), this is always the FIRST
  *          call after the winning move/roll settled (every caller runs
@@ -2053,7 +1940,7 @@ static void after_settle(void)
 	else
 		step = STEP_IDLE;
 	refresh_status();
-	/* No board redraw here (round 7.15) -- unlike the name/status/Throw
+	/* No board redraw here -- unlike the name/status/Throw
 	 * text refresh_status() just did, whether the *board* needs
 	 * repainting varies by caller (an ordinary move's board content is
 	 * already correct from the per-tick animation; a capture/release
@@ -2083,7 +1970,7 @@ static void start_move_animation(int player, int pawn_index)
 	                             * another roll) before this can log it */
 	int to_steps, i;
 
-	/* Round 7.54: clear any movable-pawn highlight rings BEFORE anything
+	/* Clear any movable-pawn highlight rings BEFORE anything
 	 * else changes, while step/current_player/last_roll are all still
 	 * exactly what they were when those rings were drawn (see
 	 * draw_highlights()'s own movable-pawn-ring condition) -- this is
@@ -2093,14 +1980,13 @@ static void start_move_animation(int player, int pawn_index)
 	 * moves on to STEP_MOVING below, update_move_animation_area()'s own
 	 * per-tick redraw only ever touches the CHOSEN pawn's own path
 	 * cells -- the OTHER candidate pawns that also had a ring (and are
-	 * not moving at all) are never touched by anything again, leaving
-	 * their rings on screen as a permanent ghost until some unrelated
-	 * full redraw happens to paint over them. Found from a live report
-	 * ("a left over highlight artifact") on a pawn nowhere near the one
-	 * actually just moved. Forcing highlight_flash_on off first (rather
-	 * than leaving it as whatever phase the flash cycle happened to be
-	 * in) guarantees this call actually erases rather than just
-	 * re-confirming whatever was already showing; update_highlight_area()
+	 * not moving at all) would otherwise never be touched by anything
+	 * again, leaving their rings on screen as a permanent ghost until
+	 * some unrelated full redraw happens to paint over them. Forcing
+	 * highlight_flash_on off first (rather than leaving it as whatever
+	 * phase the flash cycle happened to be in) guarantees this call
+	 * actually erases rather than just re-confirming whatever was
+	 * already showing; update_highlight_area()
 	 * is a no-op if nothing was highlighted to begin with (e.g. the
 	 * AI/single-choice callers of this same function), so this is safe
 	 * unconditionally regardless of which path called this function. */
@@ -2109,11 +1995,11 @@ static void start_move_animation(int player, int pawn_index)
 
 	/* Snapshot every pawn's position before the move so
 	 * update_settle_diff_area() can later tell whether this move also
-	 * captured/displaced some *other* pawn (see round 7.15). */
+	 * captured/displaced some *other* pawn. */
 	snapshot_pawn_positions();
 
 	{
-		/* Round 7.60: SFX -- captured/became-finished/won state, all
+		/* SFX -- captured/became-finished/won state, all
 		 * checked around the single ludo_move_pawn() call every pawn
 		 * move (release included, see the zero-distance branch below)
 		 * passes through, so this covers every path uniformly (human
@@ -2138,12 +2024,8 @@ static void start_move_animation(int player, int pawn_index)
 	}
 
 	/* The single funnel every pawn move passes through (human click,
-	 * human auto-move, and every AI move) -- unlike the old MOVED/MOVING
-	 * log line in try_move_pawn() (human clicks only), this captures
-	 * every move regardless of path, which is exactly what was missing
-	 * when investigating the "moved 1 place instead of being rejected"
-	 * report (see docs/ARCHITECTURE.md's Round 7.8 -- the actual move
-	 * involved never went through a human click at all). */
+	 * human auto-move, and every AI move), so this captures
+	 * every move regardless of path. */
 	debug_log("start_move_animation: player=%d %s pawn=%d roll=%d steps %d -> %d\n",
 	          player, player_is_ai[player] ? "AI" : "human", pawn_index,
 	          roll, from_steps, to_steps);
@@ -2158,25 +2040,16 @@ static void start_move_animation(int player, int pawn_index)
 	 * settles it exactly like the mandatory six-release already does
 	 * (resolve_roll()'s own `just_released` branch): a plain diff
 	 * redraw comparing the snapshot taken above against the new state.
-	 * Critically, that diff uses board_pawn_cell() (round 7.15), which
+	 * Critically, that diff uses board_pawn_cell(), which
 	 * is in_play-aware and so correctly finds the pawn's TRUE previous
 	 * on-screen position -- its home base slot (board_home_base_cell(),
 	 * keyed by pawn_index, nothing to do with steps) -- and erases it.
-	 *
-	 * Round 7.48's fix (duplicating move_anim_path[0] into [1] so the
-	 * animation had two matching points instead of reading
-	 * uninitialised array data) treated this as a *stationary*
-	 * animation sitting at the ring entry cell -- which stopped the
-	 * "drawn at a random garbage position" symptom, but never touched
-	 * the home base cell at all, since cell_for_steps() has no way to
-	 * express "home base slot N" (it only understands ring/home-column
-	 * indices). The true previous position was simply never included
-	 * in any redraw region, so it was never erased -- left as a
-	 * permanent duplicate/ghost pawn sitting in the home base corner
-	 * forever after, on top of the real pawn now correctly shown on the
-	 * ring. Round 7.52, found from a live report ("more than four
-	 * pawns" visible after a release) -- this replaces round 7.48's
-	 * approach for this case entirely rather than patching it further. */
+	 * This matters because cell_for_steps() has no way to express "home
+	 * base slot N" (it only understands ring/home-column indices), so an
+	 * animation path built purely from steps can never reference the
+	 * true previous position at all -- board_pawn_cell()'s in_play
+	 * awareness is what makes the home-base slot reachable for erasing
+	 * here. */
 	if (to_steps == from_steps) {
 		qtm_play_sfx(QTM_SFX_RELEASE);
 		update_settle_diff_area(-1, -1);
@@ -2238,9 +2111,7 @@ static void resolve_move(void)
  *          ludo_roll() silently call ludo_end_turn() *internally*,
  *          which advances game.current_player to a genuinely different
  *          player and resets game.last_roll to 0 (a fresh, not-yet-
- *          thrown state for them) before returning. Found via
- *          tests/test_game_logic.c's headless full-game simulation
- *          (see docs/ARCHITECTURE.md's Round 7.8): without this check,
+ *          thrown state for them) before returning. Without this check,
  *          ludo_movable_pawns() gets evaluated against the *new*
  *          player's board with last_roll==0 -- and since adding zero
  *          steps can never overshoot, every one of their in-play pawns
@@ -2267,10 +2138,10 @@ static void resolve_roll(void)
 	if (game.just_released) {
 		/* The mandatory release moved a pawn from its home base onto the
 		 * ring entry square, entirely inside ludo_roll() -- no move
-		 * animation covers this, so it's the diff redraw's job alone
-		 * (round 7.15). No pawn to skip: nothing here already painted
+		 * animation covers this, so it's the diff redraw's job alone.
+		 * No pawn to skip: nothing here already painted
 		 * its own final position the way an animated move does.
-		 * Round 7.60: SFX -- same release sound as start_move_animation()'s
+		 * SFX: same release sound as start_move_animation()'s
 		 * own zero-distance (optional-release) branch. Doesn't separately
 		 * check for a capture-on-release here (ludo_roll() doesn't expose
 		 * one) -- a mandatory release landing exactly on an unprotected
@@ -2317,8 +2188,8 @@ static void resolve_roll(void)
 	highlight_next_flash = os_read_monotonic_time() + HIGHLIGHT_FLASH_CS;
 	refresh_status();
 	/* No pawn moved this step -- only the movable-pawn highlight rings
-	 * are new content, so a scoped update covers it exactly (round
-	 * 7.15), same as every later flash toggle already uses. */
+	 * are new content, so a scoped update covers it exactly, same as
+	 * every later flash toggle already uses. */
 	update_highlight_area();
 }
 
@@ -2338,7 +2209,7 @@ static void start_roll_animation(void)
 	roll_anim_player = game.current_player;
 	/* Snapshot every pawn's position before the roll so
 	 * update_settle_diff_area() can later tell whether a six's mandatory
-	 * release happened (see round 7.15). */
+	 * release happened. */
 	snapshot_pawn_positions();
 	ludo_roll(&game, 0);
 	roll_anim_ticks_done = 0;
@@ -2490,7 +2361,7 @@ void game_view_new_game(void)
 	/* after_settle() itself calls refresh_status() -- see its doc comment.
 	 * If the very first player is AI-controlled, their first action
 	 * still waits for a Continue click. A brand new game is a genuinely
-	 * full board reset (round 7.15's scoped diff redraw has no "before"
+	 * full board reset (the scoped diff redraw has no "before"
 	 * state to compare against here), so this is one of the few places
 	 * that still needs an explicit, unscoped redraw_now(). */
 	after_settle();
@@ -2539,10 +2410,10 @@ const char *game_view_app_dir(void)
  * serialize_game()/deserialize_game()) is used instead, the same way
  * network/file formats normally are. See src/save_view.c for the
  * Save/Load dialogue windows -- 5 fixed, renamable save slots inside the
- * app directory (round 7.59), replacing an earlier free-form path/drag-
- * and-drop design that never reliably worked live (see
- * docs/ARCHITECTURE.md's round 7.58 notes) -- built on top of these
- * functions, per explicit user request for GEOS-parity save/load.
+ * app directory, built on top of these functions. An earlier free-form
+ * pathname/drag-and-drop design was tried first and abandoned since it
+ * never reliably worked live (see docs/ARCHITECTURE.md's "Decisions
+ * made and not revisited" section).
  */
 #define SAVE_FILE_SIZE GAME_VIEW_SAVE_FILE_SIZE
 
@@ -2565,7 +2436,7 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 
 	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '3';
 
-	/* Round 7.59: the slot's own display name travels WITH the save data
+	/* The slot's own display name travels WITH the save data
 	 * itself (not just the fixed "SlotN" filename) so src/save_view.c's
 	 * Save/Load dialogues can show a real label without needing to fully
 	 * deserialise the game -- see game_view_peek_slot_name(). Zero-padded
@@ -2578,10 +2449,9 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 	memcpy(&buf[i], slot_name, name_len);
 	i += GAME_VIEW_SLOT_NAME_LEN;
 
-	/* Round 7.57: the chosen ruleset (game.rules -- variant plus all 8
-	 * house-rule toggles, see game_logic.h) was previously not saved at
-	 * all, so loading any non-MEJN game silently reverted to MEJN
-	 * defaults. One byte per field, in struct declaration order. */
+	/* The chosen ruleset (game.rules -- variant plus all 8
+	 * house-rule toggles, see game_logic.h). One byte per field, in
+	 * struct declaration order. */
 	buf[i++] = (unsigned char) game.rules.variant;
 	buf[i++] = (unsigned char) game.rules.mandatory_six_release;
 	buf[i++] = (unsigned char) game.rules.own_pawn_capture;
@@ -2635,7 +2505,7 @@ static void deserialize_game(const unsigned char *buf)
 	 * which slot to load, so this just skips past it. */
 	i += GAME_VIEW_SLOT_NAME_LEN;
 
-	/* Round 7.57: read back the rules block written by serialize_game()
+	/* Read back the rules block written by serialize_game()
 	 * and apply it to BOTH game.rules (via ludo_set_rules(), the normal
 	 * API rather than poking the struct directly) and the static
 	 * `configured_rules` -- setup_view_open() reads configured_rules
@@ -2717,10 +2587,10 @@ int game_view_load_from_path(const char *path)
 	fclose(f);
 
 	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '3') {
-		/* Round 7.59: magic bumped "ALS2" -> "ALS3" for the new slot-name
-		 * block -- an older-format save is deliberately rejected here
-		 * rather than partially loaded, since it has a different byte
-		 * layout the rest of this function assumes it can rely on. */
+		/* An older-format save (a different magic) is deliberately
+		 * rejected here rather than partially loaded, since it has a
+		 * different byte layout the rest of this function assumes it
+		 * can rely on. */
 		debug_log("game_view_load_from_path: \"%s\" is not a valid ArchiLudo save "
 		          "(%lu bytes read, expected %d)\n", path, (unsigned long) got, SAVE_FILE_SIZE);
 		return 0;
@@ -2728,7 +2598,7 @@ int game_view_load_from_path(const char *path)
 
 	deserialize_game(buf);
 	game_started = 1;
-	/* Round 7.35: a loaded game's own winner (if any -- the save format
+	/* A loaded game's own winner (if any -- the save format
 	 * doesn't record whether it had already been acknowledged) always
 	 * needs a fresh acknowledgement -- after_settle() below will open
 	 * src/win_view.c's dialogue again if game.winner != -1, which is a
@@ -2744,7 +2614,7 @@ int game_view_load_from_path(const char *path)
 	 * the loaded game's current player is AI-controlled, matching
 	 * game_view_new_game()'s own "every AI action waits for Continue"
 	 * rule) and refreshes the status text. A loaded save is a wholesale
-	 * board replacement (round 7.15's scoped diff redraw has no "before"
+	 * board replacement (the scoped diff redraw has no "before"
 	 * state to compare against here), so an explicit, unscoped
 	 * redraw_now() is still needed, same as game_view_new_game(). */
 	after_settle();
@@ -2932,15 +2802,14 @@ void game_view_redraw(wimp_draw *redraw)
 		int origin_x = redraw->box.x0 - redraw->xscroll;
 		int origin_y = redraw->box.y1 - redraw->yscroll;
 
-		/* Round 7.25/7.26: record the requested box for plot_pawn()'s
+		/* Record the requested box for plot_pawn()'s
 		 * own crop check -- see dbg_request_x0's doc comment. `.box`
 		 * here is the window's own true extent in SCREEN coordinates
 		 * (Wimp_RedrawWindow's OUTPUT), but plot_pawn()'s icon extents
-		 * are WORK AREA coordinates (round 7.18) -- converted the same
+		 * are WORK AREA coordinates -- converted the same
 		 * way origin_x/origin_y above already do (work area = screen -
 		 * origin), rather than comparing screen against work-area
-		 * directly, which made the round 7.25 version of this check
-		 * false-positive on every single pawn. */
+		 * directly, which would false-positive on every single pawn. */
 		dbg_request_x0 = redraw->box.x0 - origin_x; dbg_request_y0 = redraw->box.y0 - origin_y;
 		dbg_request_x1 = redraw->box.x1 - origin_x; dbg_request_y1 = redraw->box.y1 - origin_y;
 		draw_full_window_content(origin_x, origin_y);
@@ -3035,10 +2904,10 @@ void game_view_click(wimp_pointer *pointer)
 	          ICON_THROW, ICON_NAME, ICON_STATUS, (int) wimp_ICON_WINDOW);
 
 	if (pointer->i == ICON_THROW) {
-		/* Round 7.35: no longer a "play again" button once won -- see
+		/* Not a "play again" button once won -- see
 		 * refresh_status()'s throw_active (shaded whenever paused,
 		 * matching this guard). src/win_view.c's dialogue owns the
-		 * Continue/New Game choice now. */
+		 * Continue/New Game choice. */
 		if (game_paused())
 			return;
 
