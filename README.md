@@ -55,6 +55,18 @@ ARCULATOR_HOSTFS = /mnt/d/Retro/Acorn/Arculator_V2.2_Windows/hostfs
 | `make docs` | regenerate `README.pdf` via pandoc |
 | `make asm` | emit generated ARM assembly for the current sources |
 
+`make zip`/`make disk` deliberately keep the full version+timestamp in
+their filenames (e.g. `ArchiLudo-v0.1.0-20260830-1503.zip`) so multiple
+builds can be told apart in `build/`. **Before copying either onto real
+classic-Econet hardware (a real PiEconetBridge, or any other old-style
+Level 3/4 fileserver), rename it to 10 characters or fewer with no dot**
+-- e.g. `ArchiZip` for the zip, `ArchiADF` for the disc image. Longer
+names are silently truncated by such fileservers in a way that makes
+the file unreadable, not just renamed (see `docs/ARCHITECTURE.md`'s
+round 7.88 for the underlying cause). Arculator's hostfs and a plain
+download/extract on Windows/Mac/Linux have no such limit -- this only
+matters for genuine old-style Econet-served hardware.
+
 Testing: boot `configs/ArchiLudo-ARM3-4MB.cfg` (matches real ARM3/4MB
 hardware) or `configs/ArchiLudo-ARM2-1MB.cfg` (stock ARM2/1MB compatibility
 check) in Arculator with the RISC OS 3.10 ROM, then double-click `!ArchiLudo`
