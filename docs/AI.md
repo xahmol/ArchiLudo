@@ -4,7 +4,7 @@
 player should move, given the set of currently-legal choices from
 `ludo_movable_pawns()`. Pure C, no OSLib/WIMP dependency, host-testable
 exactly like `game_logic.c` and `board_layout.c` -- see
-`tests/test_ai.c` (9 tests).
+`tests/test_ai.c`.
 
 ## Why this is a separate module from `game_logic.c`
 
@@ -12,64 +12,57 @@ exactly like `game_logic.c` and `board_layout.c` -- see
 ever picks among moves `game_logic.c` has already approved (via the
 `movable` bitmask passed in) -- it never bypasses or duplicates a rule
 check itself. This mirrors the existing `game_logic.c`/`board_layout.c`
-split: each module has exactly one job, and none of them know about the
-WIMP shell at all.
+split: each module has exactly one job, and none of them know about
+the WIMP shell at all.
 
 ## Assessed from GeoLudo, not a literal port
 
-Per explicit instruction ("Assess my GEOS original one, but feel free to
-improve"), `computerchoosepawn()` in
-`/home/xahmol/git/ludo/GEOS/src/main.c` was read in full before writing
-anything here. Same overall shape carried over: score every currently
-movable pawn, pick the highest score. What changed, and why:
+`computerchoosepawn()` in `/home/xahmol/git/ludo/GEOS/src/main.c` was
+read in full before writing this module. Same overall shape carried
+over: score every currently movable pawn, pick the highest score. What
+changed, and why:
 
 - **Board position bookkeeping.** GEOS tracks each pawn as
   `(track, raw-position-within-that-player's-own-lap)` and has to
   un-wrap that into an absolute board square by hand, once per player,
-  via four near-identical `if` blocks (`if(turnofplayernr==0 && nn>39 &&
-  vn<40) { nn-=36; nr=1; }` etc). This project's `game_logic.c` already
-  has a single unified `steps` counter (`0..LUDO_TOTAL_STEPS`) and
-  `board_layout.c`-style ring-square arithmetic, so `ai.c` just
-  duplicates a small `ring_square()` helper (the same formula as
-  `game_logic.c`'s own private one, and `board_layout.c`'s
-  `board_ring_cell()` dispatch) instead of needing any of that
-  unwrapping.
+  via four near-identical `if` blocks. This project's `game_logic.c`
+  already has a single unified `steps` counter and `board_layout.c`-
+  style ring-square arithmetic, so `ai.c` just duplicates a small
+  `ring_square()` helper (the same formula as `game_logic.c`'s own
+  private one) instead of needing any of that unwrapping.
 - **Danger/escape scoring, recomputed correctly.** GEOS's heuristic for
   "is this pawn currently threatened, or would moving it create a
   threat" compares raw same-lap position numbers *across different
-  players* directly (`vn - playerpos[y][z][1]`). This isn't actually a
-  valid board distance except by coincidence -- each player's lap starts
-  at a different absolute ring square, so subtracting two different
-  players' own lap-relative numbers doesn't generally mean what it looks
-  like it means. Recomputed properly here via `ring_distance_behind()`,
-  real absolute-ring-square distance. Also corrected the reachable-in-
-  one-throw range from GEOS's `< 6` (i.e. 1-5) to the actual `<= 6` a die
-  can roll (1-6) -- GEOS's version misses the exact-6 case.
+  players* directly. This isn't actually a valid board distance except
+  by coincidence -- each player's lap starts at a different absolute
+  ring square, so subtracting two different players' own lap-relative
+  numbers doesn't generally mean what it looks like it means.
+  Recomputed properly here via `ring_distance_behind()`, real absolute-
+  ring-square distance. Also corrected the reachable-in-one-throw range
+  from GEOS's `< 6` (i.e. 1-5) to the actual `<= 6` a die can roll
+  (1-6) -- GEOS's version misses the exact-6 case.
 - **Own-pawn collision, changed to match this project's actual rule.**
   GEOS scores landing on one of its own pawns at -8000 (strongly
   avoided, reflecting that game's rule that this is illegal/blocked).
-  ArchiLudo's rule is different (see `game_logic.c`'s `capture_at()`,
-  round 6.5 in `docs/ARCHITECTURE.md`'s Phase 1 notes): landing on your
-  own pawn is legal and sends the earlier one home. Scored here as a
-  real but *scaled* penalty (`WEIGHT_OWN_COLLISION_BASE +
-  WEIGHT_OWN_COLLISION_PER_STEP * that pawn's steps`) rather than a
-  near-absolute one -- losing a pawn that had barely moved barely
-  matters; losing one that was almost home matters a lot -- since for
-  ArchiLudo this is sometimes the only legal, or even the objectively
-  best, move (e.g. a forced pawn has no alternative at all), not
-  something that "never happens" the way GEOS's -8000 effectively
-  assumes.
-- **Winning-move detection, made exact.** GEOS approximates "is this the
-  move that wins the game" via `playerdata[player][1]==1` ("only one
-  pawn not yet at its destination", a running counter updated
-  elsewhere). `ai.c` checks directly: are the other three pawns actually
-  `finished` right now? No assumption about a separately-maintained
-  counter staying accurate through every code path.
+  ArchiLudo's Own capture rule can instead be off, in which case
+  landing on your own pawn is legal and sends the earlier one home (or
+  forms a blockade -- see below). Scored here as a real but *scaled*
+  penalty rather than a near-absolute one -- losing a pawn that had
+  barely moved barely matters; losing one that was almost home matters
+  a lot -- since for ArchiLudo this is sometimes the only legal, or
+  even the objectively best, move (e.g. a forced pawn has no
+  alternative at all), not something that "never happens" the way
+  GEOS's -8000 effectively assumes.
+- **Winning-move detection, made exact.** GEOS approximates "is this
+  the move that wins the game" via a separately-maintained running
+  counter. `ai.c` checks directly: are the other three pawns actually
+  `finished` right now? No assumption about that counter staying
+  accurate through every code path.
 
 ## Scoring weights
 
-All named constants at the top of `ai.c`, roughly in descending order of
-influence:
+All named constants at the top of `ai.c`, roughly in descending order
+of influence:
 
 | Weight | Value | What it rewards/penalises |
 |---|---|---|
@@ -82,152 +75,86 @@ influence:
 | `WEIGHT_DANGER_STILL_IN` | -300 | After this move, an opponent pawn could reach the new square with one throw next turn. |
 | `WEIGHT_DANGER_ESCAPE` | +400 | The pawn was in that kind of danger *before* the move, and this move gets it out of range. |
 | `WEIGHT_DANGER_APPROACH_OPPONENT` | +150 | This move puts the pawn within one throw of an opponent -- sets up a capture opportunity next turn. |
-| `WEIGHT_OWN_COLLISION_BASE` / `_PER_STEP` | -500, -50/step | Sends one of the player's own other pawns home (see above) -- scaled by how far that pawn had progressed. Only applied when `g->rules.own_pawn_capture` is on (Round 7.45). |
-| `WEIGHT_BLOCKADE_FORM` | +800 | Landing on the player's own other pawn when `own_pawn_capture` is off but `g->rules.blockade` is on -- forms/reinforces a blockade instead of a collision. Round 7.45, deliberately modest (blockade strategy is a stretch goal, not v1). |
-| `WEIGHT_RELEASE_BASE` / `_PER_PAWN_ALREADY_OUT` | +3000, -300/pawn | Releasing a home pawn into play (only ever a scored choice when `g->rules.mandatory_six_release` is off) -- Round 7.45, a first-pass heuristic, scaled down slightly for each pawn already racing. |
-| `WEIGHT_HOME_COLUMN_ADVANCE_BASE` / `_PER_STEP` | +2000, +100/step | The move places the pawn in its home column (already there, or crossing in from the ring this move) without finishing it -- risk-free, no capture/danger heuristic can ever apply there, so this rewards it explicitly rather than letting it compete only on `WEIGHT_PROGRESS_PER_STEP`. Added round 7.14, see below. |
+| `WEIGHT_OWN_COLLISION_BASE` / `_PER_STEP` | -500, -50/step | Sends one of the player's own other pawns home (see above) -- scaled by how far that pawn had progressed. Only applied when the Own capture toggle is on. |
+| `WEIGHT_BLOCKADE_FORM` | +800 | Landing on the player's own other pawn when Own capture is off but Blockade is on -- forms/reinforces a blockade instead of a collision. Deliberately modest (blockade strategy is a stretch goal, not deep tactics). |
+| `WEIGHT_RELEASE_BASE` / `_PER_PAWN_ALREADY_OUT` | +3000, -300/pawn | Releasing a home pawn into play (only ever a scored choice when the Six-release toggle is Optional) -- a first-pass heuristic, scaled down slightly for each pawn already racing. |
+| `WEIGHT_HOME_COLUMN_ADVANCE_BASE` / `_PER_STEP` | +2000, +100/step | The move places the pawn in its home column (already there, or crossing in from the ring this move) without finishing it -- risk-free, no capture/danger heuristic can ever apply there, so this rewards it explicitly rather than letting it compete only on `WEIGHT_PROGRESS_PER_STEP` (see below; a home-column advance used to lose out to unrelated ring-tactic bonuses on some other movable pawn before this weight was added). |
 | `WEIGHT_PROGRESS_PER_STEP` | 5 | Small, deliberately minor tie-breaker: prefer the pawn that ends up furthest along. |
 
-`score_move()` in `ai.c` computes and sums these for one candidate move;
-`ludo_ai_choose_pawn()` calls it for every bit set in the `movable` mask
-and returns whichever pawn scored highest (first one seen wins ties).
+`score_move()` in `ai.c` computes and sums these for one candidate
+move; `ludo_ai_choose_pawn()` calls it for every bit set in the
+`movable` mask and returns whichever pawn scored highest (first one
+seen wins ties). `score_landing_at()` is a shared helper for exactly
+what happens when a move lands on an occupied square (own-pawn
+collision, blockade formation, or an opponent capture), used by both
+an ordinary move and a release from home, so the two can never
+disagree about the rules currently in effect
+(`g->rules.own_pawn_capture`/`g->rules.blockade`).
 
-## Round 7.14: home-column advances were getting drowned out
+A pawn's destination is computed via `game_logic.c`'s own
+`ludo_resolve_move_destination()`, not a naive `steps + roll` sum --
+under the Overshoot=Bounce toggle the true landing square can bounce
+backward off the end of the home column, and a naive sum well past the
+board's total step count could make `score_move()` think a move
+finishes (or even wins) the game when it actually bounces back into an
+ordinary position.
 
-Per explicit user report ("AI does not seem to prioritise moving pawns
-in destination home area further to the end"): a pawn already safely in
-its home column has no capture/danger heuristic that can ever apply to
-it (the home column is single-file and off-limits to every other
-player's pawns), so before this round such a move only ever earned the
-same flat `WEIGHT_PROGRESS_PER_STEP` (5/step) as any other move. That's
-easily dwarfed by unrelated ring-tactic bonuses on some *other*
-currently-movable pawn -- `WEIGHT_ENTRY_SQUARE_LEAVE` (1500) alone
-already outweighs a typical few-step home-column advance's ~200-215
-points of pure progress. The AI would therefore often move a ring pawn
-for a minor tactical gain instead of a risk-free, directly
-win-relevant home-column advance, even with both available for the
-same roll.
-
-Fixed by adding `WEIGHT_HOME_COLUMN_ADVANCE_BASE`/`_PER_STEP`, applied
-whenever a move ends with the pawn off the ring but not yet finished
-(the finishing case already returns early with `WEIGHT_FINISH`/
-`WEIGHT_WIN`, so this is specifically "safely closer to winning, not
-there yet"). Sized to clearly beat the ring-tactic bonuses
-(`WEIGHT_ENTRY_SQUARE_LEAVE`, `WEIGHT_DANGER_ESCAPE`/
-`APPROACH_OPPONENT`) but still lose to an actual capture
-(`WEIGHT_CAPTURE` alone already exceeds it) -- see
-`test_prefers_home_column_advance_over_ring_tactic` and
-`test_capture_still_beats_home_column_advance` in `tests/test_ai.c` for
-the exact worked-out scoring these weights were chosen against.
-
-## Round 7.45: adapting to the multi-rule-set system (Phase 3)
-
-`game_logic.c` grew a configurable `g->rules` (see `docs/GAME_LOGIC.md`'s
-"Rule-set variants" section) during Rounds 7.43-7.44, ahead of this
-project's original single, fixed ruleset. Three assumptions baked into
-`score_move()` from when there was only ever one ruleset needed fixing:
-
-- **Own-pawn collision was scored as a real setback unconditionally.**
-  Only true when `g->rules.own_pawn_capture` is on. Extracted into a new
-  shared helper, `score_landing_at()` (used by both `score_move()` for
-  an ordinary move and the new `score_release()` below, so the two can
-  never disagree) -- gated on the rule, with a small new
-  `WEIGHT_BLOCKADE_FORM` bonus instead when `g->rules.blockade` is also
-  on (own_pawn_capture off is a precondition for a blockade to even form
-  in the first place).
-- **A pawn's destination was a naive `p->steps + roll`.** Wrong under
-  `g->rules.overshoot_bounce`, where the true landing square can bounce
-  backward off the end of the home column -- a naive sum well past
-  `LUDO_TOTAL_STEPS` could make `score_move()` think a move finishes (or
-  even wins) the game when it actually bounces back into an ordinary
-  position. Fixed by calling `game_logic.c`'s own new
-  `ludo_resolve_move_destination()` rather than duplicating that math
-  (and risking it drifting out of sync) a second time. See
-  `test_ai_scores_bounced_destination_not_naive_overshoot` in
-  `tests/test_ai.c` for the exact scenario this fixes.
-- **Releasing a pawn from home was never a scored move at all.** Under
-  the original mandatory six-release, `ludo_roll()` always released
-  automatically before the AI (or a human) ever got a choice --
-  `score_move()` had nothing to say about it. Now, whenever
-  `pawn_index` refers to a pawn still at home (`in_play == 0`, only
-  possible when `g->rules.mandatory_six_release` is off), `score_move()`
-  delegates entirely to the new `score_release()`: a first-pass
-  heuristic (`WEIGHT_RELEASE_BASE`, scaled down slightly per pawn
-  already racing) plus the same `score_landing_at()`/danger scoring any
-  other move onto the player's own entry square would get, since
-  releasing lands there and can capture (or be captured, or blockaded)
-  exactly like an ordinary move there would.
-
-**Backward movement** (`g->rules.backward_movement`) is deliberately
-**not** deeply scored -- per the multi-rule-set plan, real strategic
-sophistication for backward movement (and blockade formation beyond the
-one small term above) is an explicit stretch goal, not a v1 requirement.
-A new, parallel, much simpler function pair handles it instead:
-`ludo_ai_choose_pawn_backward()`/`score_move_backward()`, meant to be
-called only as a fallback when `ludo_ai_choose_pawn()`'s own forward
-`movable` bitmask is empty but a legal backward move exists (otherwise a
-player who can only move backward would incorrectly look stuck). It
+**Backward movement** (the Backward toggle) is deliberately **not**
+deeply scored -- real strategic sophistication for it (and for
+blockade formation beyond the one term above) is an explicit stretch
+goal, not core scope. A separate, much simpler function pair handles
+it: `ludo_ai_choose_pawn_backward()`/`score_move_backward()`, meant to
+be called only as a fallback when `ludo_ai_choose_pawn()`'s own forward
+`movable` bitmask is empty but a legal backward move exists (otherwise
+a player who can only move backward would incorrectly look stuck). It
 still reuses `score_landing_at()` for a real capture-on-landing bonus,
 then just prefers retreating the least distance as a tie-breaker -- no
 attempt at real backward-movement strategy.
 
 **`src/game_view.c`'s `advance_ai_turns()` does not call
-`ludo_ai_choose_pawn_backward()` yet** -- wiring the fallback into the
-actual AI-turn driver is Phase 4 (UI) work, once there's a way to
-actually select a non-MEJN ruleset in a real game. Until then, an
-AI-controlled game only ever runs under `LUDO_VARIANT_MEJN` (today's
-only reachable ruleset from the WIMP shell), which never activates
-`backward_movement`, so this gap has no live effect yet -- but it must
-be addressed as part of Phase 4, or an AI game under a ruleset with
-backward movement on could livelock on a roll where only a backward
-move is legal.
-
-New tests in `tests/test_ai.c` covering all of the above:
-`test_no_own_collision_avoidance_when_capture_off`,
-`test_ai_can_choose_optional_release`,
-`test_ai_scores_bounced_destination_not_naive_overshoot`,
-`test_ai_backward_fallback_picks_legal_pawn`, and a second headless
-four-AI-game simulation, `test_headless_four_ai_games_pachisi_variant`,
-exercising every rule toggle together in combination the way
-`test_headless_four_ai_games` already does for MEJN.
+`ludo_ai_choose_pawn_backward()` yet** -- the fallback exists in `ai.c`
+but isn't wired into the actual AI-turn driver. Any preset with the
+Backward toggle on (`Pachisi-style` is the only built-in one) is fully
+selectable from the Rule Options dialogue today, so an AI-controlled
+game playing under it could hit a roll where only a backward move is
+legal and currently just settle as stuck rather than taking the
+backward option -- the same gap `docs/ARCHITECTURE.md`'s "Known gaps"
+section describes for the human/board-click side of the same feature.
 
 ## Difficulty levels
 
 Only `LUDO_AI_NORMAL` (the weighted heuristic above) is implemented.
-`LUDO_AI_EASY` and `LUDO_AI_HARD` are declared in `ai.h` and accepted by
-`ludo_ai_choose_pawn()`, but both currently fall through to the same
-`NORMAL` behaviour (`difficulty` is read but not yet branched on) --
-they exist so the WIMP shell's eventual difficulty selection (not built
-yet) has somewhere to point without needing another API change later.
-Intended design, not yet built:
+`LUDO_AI_EASY` and `LUDO_AI_HARD` are declared in `ai.h` and accepted
+by `ludo_ai_choose_pawn()`, but both currently fall through to the same
+`NORMAL` behaviour -- they exist so a future difficulty picker has
+somewhere to point without needing another API change later. Intended
+design, not yet built:
 
 - **Easy**: something a human can find genuinely easier to beat --
   candidates: ignore capture/danger scoring entirely and just prefer
-  advancing the frontmost pawn, or pick uniformly at random among legal
-  moves.
-- **Hard**: a deeper search (e.g. minimax over the next few rolls) rather
-  than this purely greedy single-move scoring -- a bigger undertaking,
-  not scoped in detail yet.
+  advancing the frontmost pawn, or pick uniformly at random among
+  legal moves.
+- **Hard**: a deeper search (e.g. minimax over the next few rolls)
+  rather than this purely greedy single-move scoring -- a bigger
+  undertaking, not scoped in detail yet.
 
 ## How an AI turn actually plays out
 
 `src/game_view.c`'s `advance_ai_turns()` is the loop that drives this:
-while the current player is AI-controlled (per
-`game_view_configure_players()`, set from `src/setup_view.c`'s "New
-Game" dialogue) and nobody's won yet, it calls `ludo_roll()`, then (if
-that wasn't a mandatory six-release with nothing to pick)
+while the current player is AI-controlled (set from `src/setup_view.c`'s
+"New Game" dialogue) and nobody's won yet, it calls `ludo_roll()`, then
+(if that wasn't a mandatory six-release with nothing to pick)
 `ludo_ai_choose_pawn()` + `ludo_move_pawn()`, redrawing and pausing
 briefly after each one so a human watching can actually follow what
 happened, rather than only ever seeing the final state once several
-consecutive AI turns (chained sixes, or multiple AI players in a row in
-a mixed human/AI game) have already finished. See that function's doc
-comment, and `docs/ARCHITECTURE.md`'s Phase 1 notes ("Round 6.8"), for
-why it calls a direct `redraw_now()` rather than `wimp_force_redraw()`
-for this.
+consecutive AI turns (chained sixes, or multiple AI players in a row
+in a mixed human/AI game) have already finished. It calls a direct
+redraw function rather than the Wimp's own deferred force-redraw for
+this, since the latter only schedules a redraw for the next
+`Wimp_Poll` and wouldn't show anything until the whole AI loop
+finished.
 
 ## Updating this file
 
 Add a note here whenever a weight changes, a difficulty level actually
-gets implemented, or a new rule variant (see `docs/ARCHITECTURE.md`'s
-"Future: multiple Pachisi/Ludo/Mens Erger Je Niet variants" note) needs
-its own scoring differences.
+gets implemented, or a rule variant needs its own scoring differences.

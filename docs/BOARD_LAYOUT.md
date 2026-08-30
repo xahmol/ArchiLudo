@@ -11,15 +11,14 @@ C, no OSLib/WIMP dependency (like `game_logic.c`), so it's host-testable
 `src/game_view.c` (the WIMP shell) needs to turn a pawn's `steps`/`in_play`/
 `finished` state into an actual place on screen. `board_layout.c` is the
 translation layer between the two -- kept separate so `game_logic.c` stays
-free of any notion of "board shape" (a future alternate board skin, or a
-different board entirely for one of the future rule variants noted in
-`docs/ARCHITECTURE.md`'s Roadmap, would only touch this module and
+free of any notion of "board shape" (an alternate board skin, or a
+different board entirely, would only touch this module and
 `game_view.c`, never the rules engine).
 
 ## Geometry: ported from the GEOS edition, not invented
 
-The first Phase 1 draft of this module used an invented square-ring
-layout. After seeing it running in Arculator, the user pointed out it
+This module's first draft used an invented square-ring layout. After
+seeing it running in Arculator, the user pointed out it
 didn't look like Mens Erger Je Niet at all, and asked to use exactly the
 same board as this game's own GEOS port instead -- so the geometry here
 is now a direct conversion of
@@ -58,26 +57,29 @@ with `player_rgb`/`player_name` in `src/game_view.c` and
 - **Home base** (4 slots per player): a 2x2 block in one of the four
   outer corners -- `board_home_base_cell()`, lookup into
   `home_base_cells[player][slot]`.
-- **Finished**: pawns that have completed their home column are drawn
-  stacked at the centre cell (5,5) -- see `board_finished_cell()`. This is
-  the point all four home columns converge on but that none of them
-  actually stores as one of their 4 cells, so it doesn't collide with
-  anything.
+- **Finished**: a pawn that has completed its home column simply stays
+  parked on its own home column's last free cell rather than moving
+  anywhere else -- there is no separate shared "finished" cell. Each
+  successive pawn that finishes gets pushed one cell earlier in the
+  same home column (see [GAME_LOGIC.md](GAME_LOGIC.md)'s "Position
+  model" for how `finish_threshold_for()` computes which cell that is),
+  so `board_home_column_cell()` already covers this case -- no fourth
+  lookup table is needed. An earlier design routed finished pawns to
+  an invented shared centre cell instead; this was a real bug (that
+  cell doesn't exist in the original board this game ports from) and
+  was removed.
 
 `board_pawn_cell(g, player, pawn_index)` is the one function
 `src/game_view.c` actually calls per pawn each redraw -- it dispatches to
-whichever of the above matches that pawn's current state. This function's
-signature and behaviour are unchanged from the original invented layout,
-which is exactly why swapping the geometry underneath it didn't require
-any changes to `game_view.c`'s rendering code.
+whichever of the above matches that pawn's current state.
 
 ## How it's rendered (in `src/game_view.c`)
 
 `game_view.c` builds a one-time lookup table (`build_cell_kinds()`) by
 calling `board_ring_cell()`/`board_home_column_cell()`/
-`board_home_base_cell()`/`board_finished_cell()` for every index, marking
-each of the 121 grid cells as ring/home-column/home-base/centre/empty
-(plus owning player, for the coloured ones). The Redraw_Window handler
+`board_home_base_cell()` for every index, marking each of the 121 grid
+cells as ring/home-column/home-base/empty (plus owning player, for the
+coloured ones). The Redraw_Window handler
 then just walks that table each time, filling each non-empty cell with a
 flat colour, and plots each pawn's sprite at its `board_pawn_cell()`
 position on top. See `docs/GRAPHICS_TOOLING.md` for the pawn sprites

@@ -15,9 +15,12 @@ reference for this project, kept up to date as development progresses:
 | Doc | Covers |
 |---|---|
 | `docs/ARCHITECTURE.md` | Layering (`game_logic.c` vs WIMP shell), directory structure, GeoLudo→Wimp porting map |
+| `docs/RULES.md` | Full player-facing rules manual: base rules, all house-rule toggles, the 3 presets |
 | `docs/BUILDCHAIN.md` | ArchieSDK toolchain, Makefile targets, confirmed compiler defaults/gotchas |
 | `docs/GAME_LOGIC.md` | Rules engine data model and API |
 | `docs/BOARD_LAYOUT.md` | Board geometry (grid cells, ring/home-column/home-base mapping) |
+| `docs/AI.md` | AI opponent scoring/design |
+| `docs/QTM.md` | Music/SFX manual (player-facing) and QTM SWI wrapper reference |
 | `docs/OSLIB.md` | How this project uses OSLib, where to look up anything it doesn't cover |
 | `docs/LIBARCHIE.md` | ArchieSDK's bundled helper library |
 | `docs/GRAPHICS_TOOLING.md` | The PNG->Sprite converter in `tools/`, RISC OS sprite file format |
@@ -66,14 +69,15 @@ OSLib/WIMP dependency and are unit tested with `make test` using the host
 compiler. Window/icon definitions are built directly in C as OSLib
 structures rather than a Wimp template file.
 
-**Current status**: Phase 1 (see `docs/ARCHITECTURE.md`'s Roadmap) — a
-playable core loop, first-round Arculator feedback already applied (real
-board layout ported from the GEOS edition instead of an invented one;
-`Open_Window_Request`/`Close_Window_Request` were unhandled, which is why
-the window couldn't be dragged/closed; icons had no explicit fg/bg colour
-so text was invisible; `wimp_WINDOW_AUTO_REDRAW` was missing, which is
-likely why it felt slow). Still needs another round of manual Arculator
-verification.
+**Current status**: feature-complete and live-confirmed, both in
+Arculator and on the maintainer's real A305 hardware (via a
+PiEconetBridge deploy). Playable core loop, real board ported from the
+GEOS edition, a full multi-rule-set/house-rule variant system (3
+presets, 8 toggles, see `docs/RULES.md`), AI opponents, 5-slot save/
+load, QTM background music + SFX, and a distribution pipeline (`make
+zip`/`make disk`/`make deploy-pibridge`) — see `docs/ARCHITECTURE.md`'s
+"Current state" table for the full breakdown and "Known gaps" for what
+isn't done yet (no backward-movement UI, no AI difficulty picker).
 
 Porting source: `/home/xahmol/git/ludo`, specifically `GEOS/` — see
 `docs/ARCHITECTURE.md`'s GeoLudo→Wimp mapping table.
@@ -85,11 +89,13 @@ binaries, which cannot run on ARM2/ARM3 or real 26-bit RISC OS at all).
 Cloned+built at `~/riscos-dev/archiesdk`. `.env` (gitignored, copy from
 `.env.example`) sets `ARCHIESDK` and `ARCULATOR_HOSTFS`.
 
-- `make` / `make all` — cross-compiles to `build/ArchiLudo,ff8`
+- `make` / `make all` — cross-compiles to the `build/!ArchiLudo` application directory
 - `make test` — builds and runs the game-logic unit tests with the **host**
   compiler; needs no ArchieSDK, no Arculator, no RISC OS at all
-- `make deploy` — copies the built app to the Arculator hostfs folder
-- `make zip` — versioned, filetype-preserving release archive
+- `make deploy` / `make deploy-pibridge` — copies the built app to Arculator's
+  hostfs folder, or to a real PiEconetBridge over SSH
+- `make zip` / `make disk` — versioned, filetype-preserving release archive,
+  or an ADFS disc image containing it
 - `make docs` — regenerates `README.pdf` via pandoc
 
 ## Testing
@@ -112,21 +118,17 @@ rendering option, unrelated to the RISC OS screen mode; confirmed by
 reading Arculator's own source). **Mode 15 has non-square pixels** — per
 the RISC OS 3 PRM's mode table (`~/riscos-dev/prm-mirror/modes.html`) it's
 640x256 pixels at 1280x1024 OS units, i.e. 2x4 OS units per pixel (pixels
-twice as TALL as wide). Mode 13 is the square-pixel (4x4 OS units)
-256-colour alternative and was tried instead of 15 for one round, but
-wasn't even selectable under the user's Arculator monitor-type setup, and
-mode 15 is simply the normal RISC OS desktop mode anyway — so ArchiLudo
-targets mode 15 and compensates for the non-square pixels in its **sprite
-art** instead of the screen mode: window/icon layout and all custom
-`os_plot` drawing (board cell fills, etc.) already use OS units directly,
-which are mode-independent, so only sprites (which store raw pixel data)
-need the compensation — `assets/generate_placeholder_art.py` draws its
-source art on a canvas pre-squished by the inverse of mode 15's pixel
-aspect (half as many rows as columns) so the mode's own stretch brings it
-back to the intended shape. See `docs/GRAPHICS_TOOLING.md`'s "Round 6
-correction" for the full writeup and `tools/riscos_sprite.py`'s
-`MODES_BY_BPP` for the mode-15-matching old-style sprite mode per bpp
-(1bpp=0, 2bpp=8, 4bpp=12, 8bpp=15).
+twice as TALL as wide). ArchiLudo targets mode 15 as its primary
+day-to-day mode but supports 12/15/27/39 (all four Arculator's Mode
+selector offers for this project's profile). Window/icon layout and all
+custom `os_plot` drawing (board cell fills, etc.) already use OS units
+directly, which are mode-independent; sprites (pawns/dice) are drawn
+**square** and tagged mode 27 (the square-pixel exception), letting
+`Wimp_PlotIcon`'s automatic scaling compensate for every mode's own
+aspect rather than pre-squishing source art for one specific mode. See
+`docs/GRAPHICS_TOOLING.md`'s "Current rendering approach" section for
+the full writeup and its mode table for the old-style sprite mode per
+bpp.
 
 **Multi-mode requirement**: per a real screenshot of Arculator's own
 Mode selector, only modes 12, 15, 27, and 39 are available for this
@@ -136,9 +138,9 @@ day-to-day dev/test mode, but spot-check at least one other mode
 (ideally 27, the square-pixel one, since 12/39 share mode 15's own
 non-square aspect and wouldn't catch the same class of bug) before
 considering any graphics-affecting change done. See
-`docs/ARCHITECTURE.md`'s "Resume here" section (while it exists) or its
-Round 7.16-era history for the full mode-geometry table and how this
-interacts with the sprite-pivot work in progress. Debugging
+`docs/GRAPHICS_TOOLING.md`'s "Sprite file format" and "Current
+rendering approach" sections for the full mode-geometry table and how
+sprites are tagged to work correctly across all four. Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory
 view, disassembly) is the primary tool, since nothing like the Reporter
 module is assumed present on stock RISC OS 3.10; file-based logging via

@@ -112,11 +112,9 @@ build/ArchiLudo.elf --(arm-archie-objcopy -O binary)-->  build/!ArchiLudo/!RunIm
 ```
 
 `arm-archie-objcopy -O binary` strips the ELF wrapper down to the raw
-loadable image RISC OS expects. Round 7.36 (see
-[ARCHITECTURE.md](ARCHITECTURE.md)) moved the output from a bare
-`build/ArchiLudo,ff8` into a real application directory,
-`build/!ArchiLudo/` -- see "Application directory" below for the full
-structure. The `,ff8`/`,feb`/`,ff9` suffixes are the standard convention
+loadable image RISC OS expects. The output lands in a real application
+directory, `build/!ArchiLudo/` -- see "Application directory" below for
+the full structure. The `,ff8`/`,feb`/`,ff9` suffixes are the standard convention
 for representing a RISC OS filetype (`&FF8` = Absolute executable,
 `&FEB` = Obey, `&FF9` = Sprite) on a non-RISC-OS filesystem -- see
 `riscos_wimp_reference.md`'s "Filetypes" section.
@@ -148,10 +146,10 @@ no cross-compiler, no emulator. This is the whole point of keeping
 
 | Target | Effect |
 |---|---|
-| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any pre-Round-7.36 flat `ArchiLudo,ff8`/`PawnSprite,ff9`/`Sprites,ff9` left over in hostfs from an older deploy |
-| `make deploy-pibridge` | Round 7.85-7.87: deploys to the real hardware target -- a PiEconetBridge (Econet-over-IP bridge on a Raspberry Pi) at `PIBRIDGE_USER@PIBRIDGE_HOST:PIBRIDGE_PATH`, all four connection details (including `PIBRIDGE_PASS`) from `.env`. Password auth via `sshpass` (matching how the user already connects with FileZilla over SFTP -- needs `sudo apt install sshpass`), not SSH keys; `check-pibridge` checks `sshpass` is installed and the Pi is reachable first. Before rsyncing, `tools/prepare_pibridge_deploy.py` converts `$(APPDIR)`'s `,xxx`-suffixed files into PiFS's own expected format (plain filenames + a `.inf` sidecar per file carrying filetype/date as a RISC OS "stamped" load/exec address) into `build/pibridge-stage/` -- PiFS does NOT understand the `,xxx` convention Arculator's hostfs uses, confirmed by reading PiFS's own source after a live deploy lost every file's type (round 7.87; see that script's own doc comment for the full format detail). The deploy itself is `rsync -av --delete` over SSH (via `sshpass`) of that staged directory, rather than `deploy`'s local `cp` of `$(APPDIR)` directly -- a genuinely separate/independent target from the Arculator emulator deploy above, not a replacement for it |
-| `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`) with the `-,` flag (round 7.89 -- required for RISC OS filetype preservation, see "Round 7.89" in ARCHITECTURE.md; a plain host `zip` preserves nothing regardless), bundling `README.pdf` and a plain-text, CR-line-ended `ReadMe,fff` (via `tools/riscos_readme.py`, round 7.90) instead of the raw Markdown |
-| `make disk` | round 7.91: an ADFS "D" format (800KB) disc image (`build/ArchiLudo-vX.Y.Z-<timestamp>.adf`) containing just `make zip`'s output, filetyped `&A91` (Zip). Written from scratch by `tools/build_adfs_disk.py` -- no third-party disc-image tool -- ground-truthed against Gerald Holdsworth's DiscImageManager source (GPL-3.0) and independently verified (see that script's own doc comment and ARCHITECTURE.md's round 7.91 notes) |
+| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any legacy flat `ArchiLudo,ff8`/`PawnSprite,ff9`/`Sprites,ff9` left over in hostfs from an older application-directory-less deploy |
+| `make deploy-pibridge` | deploys to a real-hardware target -- a PiEconetBridge (Econet-over-IP bridge on a Raspberry Pi) at `PIBRIDGE_USER@PIBRIDGE_HOST:PIBRIDGE_PATH`, all four connection details (including `PIBRIDGE_PASS`) from `.env`. Password auth via `sshpass` (matching how the user already connects with FileZilla over SFTP -- needs `sudo apt install sshpass`), not SSH keys; `check-pibridge` checks `sshpass` is installed and the Pi is reachable first. Before rsyncing, `tools/prepare_pibridge_deploy.py` converts `$(APPDIR)`'s `,xxx`-suffixed files into PiFS's own expected format (plain filenames + a `.inf` sidecar per file carrying filetype/date as a RISC OS "stamped" load/exec address) into `build/pibridge-stage/` -- PiFS does NOT understand the `,xxx` convention Arculator's hostfs uses (confirmed by reading PiFS's own source; see that script's own doc comment for the full format detail). The deploy itself is `rsync -av --delete` over SSH (via `sshpass`) of that staged directory, rather than `deploy`'s local `cp` of `$(APPDIR)` directly -- a genuinely separate/independent target from the Arculator emulator deploy above, not a replacement for it |
+| `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`) with the `-,` flag (required for RISC OS filetype preservation -- a plain host `zip` preserves nothing regardless), bundling `README.pdf` and a plain-text, LF-line-ended `ReadMe,fff` (via `tools/riscos_readme.py`) instead of the raw Markdown. `make zip`/`make disk` keep the full version+timestamp in their output filenames so multiple builds can be told apart in `build/` -- before copying either onto real classic-Econet hardware (a PiEconetBridge or similar old-style fileserver), rename it to 10 characters or fewer with no dot, since such fileservers silently truncate longer names in a way that makes the file unreadable (Arculator's hostfs and a plain download/extract elsewhere have no such limit) |
+| `make disk` | an ADFS "D" format (800KB) disc image (`build/ArchiLudo-vX.Y.Z-<timestamp>.adf`) containing just `make zip`'s output, filetyped `&A91` (Zip). Written from scratch by `tools/build_adfs_disk.py` -- no third-party disc-image tool -- ground-truthed against Gerald Holdsworth's DiscImageManager source (GPL-3.0) and independently verified (see that script's own doc comment) |
 | `make asm` | emits generated ARM assembly (`arm-archie-gcc -S`) for inspection |
 | `make assets` | regenerates `assets/PawnSprite` and `assets/!Sprites`/`!Sprites22` (the app icon) from their Python generators -- see "Application directory" below |
 | `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) |
@@ -200,7 +198,7 @@ structure.
 
 ## Application directory
 
-Round 7.36, per explicit user request, following Steve Fryatt's wimp-prog
+Following Steve Fryatt's wimp-prog
 tutorial, Chapter 17 ("Creating an Application Directory",
 <https://www.stevefryatt.org.uk/risc-os/wimp-prog/creating-an-application-directory>,
 local mirror at
@@ -219,15 +217,13 @@ build/!ArchiLudo/
                         modes (12/15/39)
   !Sprites22,ff9      -- the same icon, square-pixel (90x90dpi, mode 27)
                          for mode 27
-  PawnSprite,ff9       -- moved inside the app directory from hostfs
-                           root (round 7.17-7.34's old flat-file layout)
-                           -- resource_path()'s argv0-derived app_dir
-                           (src/game_view.c) needed no code change at
-                           all for this: it already just truncates
-                           argv0 at the last "." separator, which lands
-                           on "HostFS:$.!ArchiLudo" regardless of
-                           whether the program was invoked as a bare
-                           file or as an app directory's own !RunImage
+  PawnSprite,ff9       -- pawn sprite pool, found via resource_path()'s
+                           argv0-derived app_dir (src/game_view.c),
+                           which truncates argv0 at the last "."
+                           separator to get "HostFS:$.!ArchiLudo"
+                           regardless of whether the program was
+                           invoked as a bare file or as an app
+                           directory's own !RunImage
 ```
 
 **Deliberately does NOT include** the tutorial's own `*RMEnsure` block for
@@ -243,27 +239,22 @@ kept -- that's a genuine requirement of this project's real hardware
 target (RISC OS 3.10), not a DDE toolchain artefact.
 
 **Icon design**: a red pawn beside a die (`assets/generate_app_icon.py`,
-`make assets` to regenerate) -- per explicit user request ("suggested
-icon is one red pawn and a die"). Drawn once at a square `WORK=320`
+`make assets` to regenerate). Drawn once at a square `WORK=320`
 supersample canvas (same anti-aliasing technique as
 `generate_icon_sprites.py`'s pawn art -- solid masks, RGB/alpha resized
-separately to avoid the round 6.3 transparent-edge colour-bleed bug),
-bold and simplified (no dither/shading detail, which would be lost at
-these sizes anyway) since the final sizes are tiny: 34x34/17x17 for the
+separately to avoid a transparent-edge colour-bleed artifact), bold and
+simplified (no dither/shading detail, which would be lost at these
+sizes anyway) since the final sizes are tiny: 34x34/17x17 for the
 square-pixel `!Sprites22`, 34x17/17x9 for the rectangular-pixel
 `!Sprites` (Fryatt's Table 17.1's standard "full size"/"half size"
 dimensions). The rectangular-pixel version is generated by squishing the
-same WORK canvas 2:1 vertically before downsampling -- the same
-"pre-squish the source" trick this project used for its own mode-15
-placeholder art before the round 7.16 mode-27 pivot (see
-`tools/riscos_sprite.py`'s `MODES_BY_BPP` doc comment) -- so mode 12's
-own 2x4-OS-units/pixel stretch brings it back to the right proportions
-on screen, rather than looking squashed. Packed at 4bpp against the
-fixed Wimp palette (`--wimp-palette`, mode 12 for `!Sprites`, mode 27 for
+same WORK canvas 2:1 vertically before downsampling, so mode 12's own
+2x4-OS-units/pixel stretch brings it back to the right proportions on
+screen rather than looking squashed. Packed at 4bpp against the fixed
+Wimp palette (`--wimp-palette`, mode 12 for `!Sprites`, mode 27 for
 `!Sprites22` -- `tools/riscos_sprite.py`'s `MODES_BY_BPP[4]` gives 12 as
-the mode-15-aspect non-square 4bpp mode, matching this project's other
-established mode conventions), matching every other icon-plotted sprite
-in this project.
+the non-square 4bpp mode matching mode 15's own aspect), matching every
+other icon-plotted sprite in this project.
 
 **Not done**: formal resource allocation (Fryatt's tutorial, "A note
 about allocation" -- registering the `ArchiLudo` name/sprite/system-

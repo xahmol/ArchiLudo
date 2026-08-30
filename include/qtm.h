@@ -6,30 +6,28 @@
  * ============================
  *
  * Wraps the QTM (QTheMusic) relocatable module's own SWIs -- background
- * ProTracker-format music playback plus one-shot sample effects -- per
- * explicit user request for a music/SFX layer, see docs/QTM.md for the
- * full writeup (SWI numbers/registers, the sample-format research behind
- * this, and what's confirmed vs assumed). Round 7.60.
+ * ProTracker-format music playback plus one-shot sample effects -- see
+ * docs/QTM.md for the full writeup (SWI numbers/registers, why SFX are
+ * embedded as MOD instrument samples rather than played via a raw-sample
+ * SWI, and the player-facing manual).
  *
  * This library, not the caller, owns whether QTM is actually present:
  * every function here is always safe to call regardless of
  * qtm_available()'s answer -- if QTM isn't loaded, everything is a silent
  * no-op, matching this project's established "the game must stay
- * playable if an extra falls through" principle (see docs/ARCHITECTURE.md's
- * round 6.3/6.4 notes on the same convention for pawn sprites).
+ * playable if an extra falls through" principle.
  *
  * QTM itself is bundled in the app directory (`QTMModule`, see app/!Run)
  * -- freeware, see CREDITS.md -- rather than assumed present on a stock
  * machine.
  */
 
-/* One-shot sample effects -- see qtm_play_sfx(). Each maps to one file
- * bundled in the app directory (`Sfx<Name>`, see build_sfx_path() in
- * lib/qtm.c) -- raw 16-bit signed mono PCM at 11025Hz on disk, converted
- * once at qtm_initialise() time to the 8-bit VIDC-log format
- * QTM_PlayRawSample actually needs (see docs/QTM.md's "Sample format"
- * section for why this conversion happens at runtime via Sound_SoundLog
- * rather than being baked into the shipped file). */
+/* One-shot sample effects -- see qtm_play_sfx(). Each maps to one sample
+ * pre-embedded into every bundled MOD's own sample table at build time
+ * (tools/mod_embed_sfx.py) -- see sfx_slot[][]/sfx_channel[] in lib/qtm.c
+ * and docs/QTM.md's "How SFX actually work" section for the full
+ * mechanism (QTM_PlaySample against that sample table, not a raw-sample
+ * SWI). */
 typedef enum {
 	QTM_SFX_DICE = 0,    /* dice thrown */
 	QTM_SFX_RELEASE,     /* a pawn released from its home base */
