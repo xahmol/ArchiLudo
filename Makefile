@@ -103,7 +103,7 @@ RUNIMAGE  = $(APPDIR)/!RunImage,ff8
 # QTM's own format at runtime, see lib/qtm.c) files, all ,ffd (Data) like
 # this project's own save files -- see docs/QTM.md.
 APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
-            $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprites,ff9 \
+            $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprite,ff9 \
             $(APPDIR)/QTMModule,ffa $(APPDIR)/Music1,ffd $(APPDIR)/Music2,ffd \
             $(APPDIR)/Music3,ffd \
             $(APPDIR)/SfxDice,ffd $(APPDIR)/SfxRelease,ffd $(APPDIR)/SfxMove,ffd \
@@ -130,10 +130,17 @@ build/%.o: lib/%.c | build
 
 # Static application-directory files -- checked into the repo (app/!Run)
 # or pre-built and checked in (assets/!Sprites, assets/!Sprites22,
-# assets/PawnSprites -- see the `assets` target to regenerate them),
+# assets/PawnSprite -- see the `assets` target to regenerate them),
 # just copied into place here with their RISC OS filetype suffix added,
-# matching how PawnSprites,ff9 was already handled before this app-
-# directory restructuring.
+# matching how PawnSprite,ff9 was already handled before this app-
+# directory restructuring. PawnSprite is deliberately kept to 10
+# characters or fewer, like every other filename in this list -- round
+# 7.88 found that PiEconetBridge's PiFS (see `deploy-pibridge` below)
+# truncates BOTH the listed name and the name it actually opens on disk
+# to 10 characters by default (classic-Econet compatibility,
+# `FS_DEFAULT_NAMELEN` in its own `utilities/fs.c`), so the old 11-
+# character "PawnSprites" silently became unopenable over that deploy
+# path (worked fine locally/in Arculator, since neither enforces this).
 $(APPDIR)/!Run,feb: app/!Run | $(APPDIR)
 	cp "$<" "$@"
 
@@ -143,7 +150,7 @@ $(APPDIR)/!Sprites,ff9: assets/!Sprites | $(APPDIR)
 $(APPDIR)/!Sprites22,ff9: assets/!Sprites22 | $(APPDIR)
 	cp "$<" "$@"
 
-$(APPDIR)/PawnSprites,ff9: assets/PawnSprites | $(APPDIR)
+$(APPDIR)/PawnSprite,ff9: assets/PawnSprite | $(APPDIR)
 	cp "$<" "$@"
 
 $(APPDIR)/QTMModule,ffa: assets/audio/QTMModule | $(APPDIR)
@@ -208,6 +215,10 @@ deploy: check-hostfs $(APPFILES)
 	# actually runs now (the app directory above).
 	rm -f "$(ARCULATOR_HOSTFS)/$(APPNAME),ff8" "$(ARCULATOR_HOSTFS)/PawnSprites,ff9" \
 	      "$(ARCULATOR_HOSTFS)/Sprites,ff9"
+	# Round 7.88: PawnSprites,ff9 -> PawnSprite,ff9 (see APPFILES comment
+	# above) -- remove the old 11-character name from inside the app
+	# directory itself so a stale copy doesn't linger alongside the new one.
+	rm -f "$(ARCULATOR_HOSTFS)/!$(APPNAME)/PawnSprites,ff9"
 
 # Password auth via sshpass (matching how the user already connects with
 # FileZilla over SFTP, rather than SSH keys) -- SSHPASS is passed as an

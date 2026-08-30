@@ -73,6 +73,19 @@ def riscos_load_exec(filetype: int, when: float) -> tuple[int, int]:
     return load, low32
 
 
+PIFS_MAX_FILENAME_LENGTH = 10
+"""Round 7.88: PiFS's default `FS_DEFAULT_NAMELEN` (cr12925/PiEconetBridge,
+utilities/fs.c) is 10 -- classic-Econet-client compatibility. It truncates
+not just the name it *reports* for a file over this length but the name
+it actually opens on disk, so an 11+ character plain filename (the ,xxx
+suffix doesn't count -- that's stripped before this check) silently
+becomes unreadable over this deploy path even though every other target
+(Arculator hostfs, a plain zip) handles it fine. Caught live: `PawnSprites`
+(11 chars) -- renamed to `PawnSprite` project-wide rather than special-
+cased here, but this check exists so any FUTURE asset breaks the build
+instead of failing silently on real hardware."""
+
+
 def stage_file(src: Path, dest_dir: Path, when: float) -> None:
     """Copy one ",xxx"-suffixed build file into dest_dir as a plain-named
     file plus its matching .inf sidecar."""
@@ -81,6 +94,13 @@ def stage_file(src: Path, dest_dir: Path, when: float) -> None:
         raise ValueError(f"{src.name}: expected a NAME,xxx filetype-suffixed "
                           f"filename (see app/!Run's own RMEnsure lines for "
                           f"the filetypes this project's build produces)")
+    if len(name) > PIFS_MAX_FILENAME_LENGTH:
+        raise ValueError(
+            f"{src.name}: name '{name}' is {len(name)} characters, over "
+            f"PiFS's default {PIFS_MAX_FILENAME_LENGTH}-character limit -- "
+            f"it would silently fail to open once deployed (see this "
+            f"script's PIFS_MAX_FILENAME_LENGTH comment). Rename the asset "
+            f"to {PIFS_MAX_FILENAME_LENGTH} characters or fewer.")
     filetype = int(filetype_hex, 16)
 
     dest = dest_dir / name

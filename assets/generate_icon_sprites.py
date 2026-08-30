@@ -62,7 +62,7 @@ Output:  assets/pawn_icon0.png .. assets/pawn_icon3.png (per player,
          kept for reference/regeneration -- deliberately NOT named
          pawn0.png..pawn3.png, which are assets/generate_placeholder_art.py's
          own output files; the two generators must not collide) and
-         assets/PawnSprites (a packed RISC OS sprite file, filetype &FF9).
+         assets/PawnSprite (a packed RISC OS sprite file, filetype &FF9).
 """
 
 import subprocess
@@ -451,12 +451,12 @@ def main():
                          "--mask-alpha-threshold", "128"], check=True)
         spr_paths.append(spr_path)
 
-    packed = HERE / "PawnSprites"
+    packed = HERE / "PawnSprite"
     subprocess.run([sys.executable, str(TOOL), "pack", str(packed)] +
                     [str(p) for p in spr_paths], check=True)
     for p in spr_paths:
         p.unlink()
-    print(f"wrote {packed} (RISC OS filetype &FF9 -- rename to PawnSprites,ff9 on RISC OS/hostfs)")
+    print(f"wrote {packed} (RISC OS filetype &FF9 -- rename to PawnSprite,ff9 on RISC OS/hostfs)")
 
 
 if __name__ == "__main__":

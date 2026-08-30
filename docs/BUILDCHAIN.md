@@ -148,11 +148,11 @@ no cross-compiler, no emulator. This is the whole point of keeping
 
 | Target | Effect |
 |---|---|
-| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any pre-Round-7.36 flat `ArchiLudo,ff8`/`PawnSprites,ff9`/`Sprites,ff9` left over in hostfs from an older deploy |
+| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any pre-Round-7.36 flat `ArchiLudo,ff8`/`PawnSprite,ff9`/`Sprites,ff9` left over in hostfs from an older deploy |
 | `make deploy-pibridge` | Round 7.85-7.87: deploys to the real hardware target -- a PiEconetBridge (Econet-over-IP bridge on a Raspberry Pi) at `PIBRIDGE_USER@PIBRIDGE_HOST:PIBRIDGE_PATH`, all four connection details (including `PIBRIDGE_PASS`) from `.env`. Password auth via `sshpass` (matching how the user already connects with FileZilla over SFTP -- needs `sudo apt install sshpass`), not SSH keys; `check-pibridge` checks `sshpass` is installed and the Pi is reachable first. Before rsyncing, `tools/prepare_pibridge_deploy.py` converts `$(APPDIR)`'s `,xxx`-suffixed files into PiFS's own expected format (plain filenames + a `.inf` sidecar per file carrying filetype/date as a RISC OS "stamped" load/exec address) into `build/pibridge-stage/` -- PiFS does NOT understand the `,xxx` convention Arculator's hostfs uses, confirmed by reading PiFS's own source after a live deploy lost every file's type (round 7.87; see that script's own doc comment for the full format detail). The deploy itself is `rsync -av --delete` over SSH (via `sshpass`) of that staged directory, rather than `deploy`'s local `cp` of `$(APPDIR)` directly -- a genuinely separate/independent target from the Arculator emulator deploy above, not a replacement for it |
 | `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`), which preserves RISC OS filetypes on extraction -- a plain host `zip` would not |
 | `make asm` | emits generated ARM assembly (`arm-archie-gcc -S`) for inspection |
-| `make assets` | regenerates `assets/PawnSprites` and `assets/!Sprites`/`!Sprites22` (the app icon) from their Python generators -- see "Application directory" below |
+| `make assets` | regenerates `assets/PawnSprite` and `assets/!Sprites`/`!Sprites22` (the app icon) from their Python generators -- see "Application directory" below |
 | `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) |
 | `make clean` | removes `build/` entirely |
 
@@ -218,7 +218,7 @@ build/!ArchiLudo/
                         modes (12/15/39)
   !Sprites22,ff9      -- the same icon, square-pixel (90x90dpi, mode 27)
                          for mode 27
-  PawnSprites,ff9       -- moved inside the app directory from hostfs
+  PawnSprite,ff9       -- moved inside the app directory from hostfs
                            root (round 7.17-7.34's old flat-file layout)
                            -- resource_path()'s argv0-derived app_dir
                            (src/game_view.c) needed no code change at

@@ -1499,7 +1499,7 @@ and reviewing an inspiration set of pixel-art chess-pawn references.
 
 - **Original pawn art** (`assets/generate_icon_sprites.py`, new,
   separate from `generate_placeholder_art.py` -- deliberately different
-  output filenames, `pawn_icon0..3.png`/`PawnSprites`, so the two
+  output filenames, `pawn_icon0..3.png`/`PawnSprite`, so the two
   generators don't collide over the older `pawn0..3.png`/`Sprites`):
   a from-scratch chess-pawn silhouette (round head, neck collar,
   tapered stem, flared two-level base) rather than reusing GEOS's own
@@ -1534,7 +1534,7 @@ and reviewing an inspiration set of pixel-art chess-pawn references.
   nothing there needed smoothing in the first place.
 - **Wired into the game**: `src/game_view.c` gained
   `load_pawn_sprites()` (called once from `game_view_initialise()`,
-  loads `assets/PawnSprites` into a private, `malloc()`'d sprite area
+  loads `assets/PawnSprite` into a private, `malloc()`'d sprite area
   via `xosspriteop_load_sprite_file()` -- entirely separate from
   `wimpspriteop_AREA`, the Wimp's own shared pool, still used elsewhere
   for `def.sprite_area`) and `plot_pawn()` now plots the loaded sprite
@@ -1546,8 +1546,8 @@ and reviewing an inspiration set of pixel-art chess-pawn references.
   circles otherwise -- per this project's established "the game must
   stay playable if a sprite approach fails again" caution (round
   6.3/6.4). `Makefile`'s `deploy` target now also copies
-  `assets/PawnSprites` to the Arculator hostfs folder as
-  `PawnSprites,ff9`.
+  `assets/PawnSprite` to the Arculator hostfs folder as
+  `PawnSprite,ff9`.
 - **Not yet done**: live confirmation in Arculator (build/deploy
   succeeded cleanly, zero warnings, but the user has not yet actually
   seen this render on real Wimp_PlotIcon/PutSpriteScaled machinery --
@@ -2081,7 +2081,7 @@ question.
   7.30) and giving real margin (14 units/side) inside the 64-unit cell.
   `OUTLINE_DILATE_WORK` scaled proportionally (14 → 8) to keep the same
   relative outline thickness at the smaller final size. Sprites
-  regenerated and `assets/PawnSprites` redeployed.
+  regenerated and `assets/PawnSprite` redeployed.
 - **Documentation corrected everywhere the false claim appeared**:
   `assets/generate_icon_sprites.py`'s module docstring, `PAWN_SIZE`'s
   own comment and `plot_pawn()`'s doc comment in `src/game_view.c`, and
@@ -2294,13 +2294,13 @@ gotcha, the `*RMEnsure` toolchain-specificity point).
 - **Makefile restructured**: `make all` now builds
   `build/!ArchiLudo/!RunImage,ff8` (objcopy's output path directly,
   not a separate rename step) plus copies in `!Run,feb`/`!Sprites,ff9`/
-  `!Sprites22,ff9`/`PawnSprites,ff9` from their checked-in (no comma
+  `!Sprites22,ff9`/`PawnSprite,ff9` from their checked-in (no comma
   suffix) sources. `make deploy` now merges the whole directory into
   hostfs (`cp -r build/!ArchiLudo/. hostfs/!ArchiLudo/`, with the
   destination `mkdir -p`'d first to dodge the `cp -r` repeat-deploy
   nesting gotcha) and cleans up any pre-7.36 flat files left over from
   an older deploy. `make zip`/`make assets` updated to match.
-- **No `src/game_view.c` changes needed at all** for `PawnSprites`/the
+- **No `src/game_view.c` changes needed at all** for `PawnSprite`/the
   debug `Log` to keep resolving correctly from inside the app
   directory -- `resource_path()`'s `set_app_dir()` already just
   truncates `argv0` at its last `.` separator, which lands on
@@ -2461,7 +2461,7 @@ app-icon variants) into `assets/edit/` as native-resolution PNGs plus
 `README.md` explaining the workflow; `assets/import_edited_sprites.py`
 downscales any edited `_16x.png` back down via a majority-colour-per-
 block vote, re-quantises against the fixed Wimp palette, and rebuilds
-`assets/PawnSprites`/`assets/!Sprites`/`assets/!Sprites22` directly.
+`assets/PawnSprite`/`assets/!Sprites`/`assets/!Sprites22` directly.
 PSD export wasn't possible (Pillow can only read PSD, not write it,
 and there's no reliable pure-Python alternative) -- PNG is the normal
 working format for this kind of flat, hard-edged pixel art anyway, not
@@ -3859,6 +3859,27 @@ the real hardware. Also fixed a real security issue caught in the same
 round: the rsync recipe line wasn't prefixed with `@`, so `make
 deploy-pibridge`'s own command echo printed the SSH password in plain
 text to the terminal on every run.
+
+**Round 7.88 -- 10-character filename limit**: a real deploy-and-copy on
+the target RISC OS machine failed with "File ... PawnSprite not found"
+(note: missing the trailing "s") when copying `!ArchiLudo` off the
+PiEconetBridge. Root cause, confirmed by reading PiFS's own source
+(`cr12925/PiEconetBridge`, `utilities/fs.c`): `FS_DEFAULT_NAMELEN` is 10
+-- a classic-Econet-client compatibility default -- and PiFS truncates
+not just the *displayed* filename over that length but the name it
+actually calls `open()` with on the underlying Linux filesystem, so an
+11+ character name becomes silently unreadable even though the real file
+exists under its full name. `PawnSprites` (11 characters) was the only
+asset filename in this project over the limit; every other one (`Sfx*`,
+`Music*`, `!Sprites22`, etc.) already happened to be 10 or fewer. Fixed
+by renaming it to `PawnSprite` project-wide (Makefile, `game_view.c`,
+the three asset-generation scripts, `assets/PawnSprite` itself) rather
+than special-casing it in the pibridge staging step -- this is a
+RISC-OS-wide, not PiFS-specific, naming convention (short filenames for
+Level 3/4 fileserver compatibility long predate this project). Also
+added a length check to `tools/prepare_pibridge_deploy.py` so any future
+asset over 10 characters fails the build with a clear error instead of
+failing silently on real hardware.
 
 The Phase 1 board shape now comes directly from
 `/home/xahmol/git/ludo/GEOS/src/main.c`'s `fieldcoords[40][2]` and

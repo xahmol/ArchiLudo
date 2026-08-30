@@ -550,7 +550,7 @@ pair (see each one's own doc comment for the full detail):
   see `downscale_majority()`'s own doc comment), re-quantises against
   the fixed Wimp palette exactly as `generate_icon_sprites.py`/
   `generate_app_icon.py` already do, and rebuilds
-  `assets/PawnSprites`/`assets/!Sprites`/`assets/!Sprites22` directly
+  `assets/PawnSprite`/`assets/!Sprites`/`assets/!Sprites22` directly
   from the result -- bypassing the original Python-drawn designs
   entirely for whichever sprites were actually edited. Sprites left
   untouched in `assets/edit/` are rebuilt unchanged from their own
@@ -568,7 +568,7 @@ limits.
 
 **Verified lossless round-trip** before handing this off: ran export
 then import with zero edits made, and diffed the resulting
-`PawnSprites`/`!Sprites`/`!Sprites22` byte-for-byte against the
+`PawnSprite`/`!Sprites`/`!Sprites22` byte-for-byte against the
 originals -- identical. Also confirmed a real edit (painting one whole
 16x16 block a different flat colour) correctly propagates all the way
 through to the packed sprite file and the refreshed canonical native
@@ -851,9 +851,9 @@ for that half.)
 **Ruled out a stale/caching explanation first, with evidence, not
 assumption**: compared `assets/pawn_icon0.png` (the source PNG) against
 `tools/riscos_sprite.py to-png` run on the actual packed
-`assets/PawnSprites` file (i.e. exactly what `Wimp_PlotIcon` draws
+`assets/PawnSprite` file (i.e. exactly what `Wimp_PlotIcon` draws
 from) -- byte-for-byte identical, no data lost in packing. Also
-`md5sum`-compared the local `assets/PawnSprites` against the deployed
+`md5sum`-compared the local `assets/PawnSprite` against the deployed
 copy in the Arculator hostfs -- identical. Row-by-row pixel inspection
 of the actual PNG data showed no missing/incomplete rows either. All of
 this ruled out "stale cache" or "packing/deploy bug" as the

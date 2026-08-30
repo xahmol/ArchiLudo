@@ -10,7 +10,7 @@ hand pixel-correction in an external image editor -- per explicit user
 request ("save PNG versions... so i can try to pixel correct them").
 See assets/import_edited_sprites.py to convert whatever ends up in
 assets/edit/ back into the real packed RISC OS sprite files
-(PawnSprites/!Sprites/!Sprites22) -- the two scripts are a matched
+(PawnSprite/!Sprites/!Sprites22) -- the two scripts are a matched
 pair, see that one's own doc comment for the round-trip.
 
 Why PNG, not PSD: Pillow (the only image library available in this
@@ -107,7 +107,7 @@ directly, in place, with no second copy to go stale.
 5. Save as PNG, overwriting the same file in this folder.
 6. Run `python3 assets/import_edited_sprites.py` from the repo root.
    This re-quantises your edit against the fixed Wimp palette and
-   rebuilds `assets/PawnSprites`/`assets/!Sprites`/`assets/!Sprites22`
+   rebuilds `assets/PawnSprite`/`assets/!Sprites`/`assets/!Sprites22`
    directly from it -- bypassing the original generate_icon_sprites.py/
    generate_app_icon.py Python-drawn designs entirely for whichever
    sprites you touched. Files you didn't edit are rebuilt unchanged
@@ -145,10 +145,10 @@ folder back to a clean baseline.
 
 | Sprite | Edit this | Packed into | Sprite name(s) |
 |---|---|---|---|
-| Green pawn | `pawn0.png` | `assets/PawnSprites` | `pawn0` |
-| Red pawn | `pawn1.png` | `assets/PawnSprites` | `pawn1` |
-| Blue pawn | `pawn2.png` | `assets/PawnSprites` | `pawn2` |
-| Yellow pawn | `pawn3.png` | `assets/PawnSprites` | `pawn3` |
+| Green pawn | `pawn0.png` | `assets/PawnSprite` | `pawn0` |
+| Red pawn | `pawn1.png` | `assets/PawnSprite` | `pawn1` |
+| Blue pawn | `pawn2.png` | `assets/PawnSprite` | `pawn2` |
+| Yellow pawn | `pawn3.png` | `assets/PawnSprite` | `pawn3` |
 | App icon, square, full | `archiludo_full_sq.png` | `assets/!Sprites22` | `!archiludo` |
 | App icon, square, half | `archiludo_half_sq.png` | `assets/!Sprites22` | `sm!archiludo` |
 | App icon, rect, full | `archiludo_full_rect.png` | `assets/!Sprites` | `!archiludo` |

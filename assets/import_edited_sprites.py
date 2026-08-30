@@ -7,7 +7,7 @@ Summary: The other half of assets/export_sprites_for_editing.py's
 round-trip -- converts whatever PNGs are sitting in assets/edit/ (hand
 pixel-corrected in an external editor, or untouched exports) back into
 the real packed RISC OS sprite files this project ships:
-assets/PawnSprites, assets/!Sprites, assets/!Sprites22. Per explicit
+assets/PawnSprite, assets/!Sprites, assets/!Sprites22. Per explicit
 user request ("so you can convert the edited version back to our
 application sprites").
 
@@ -30,7 +30,7 @@ assets/edit/ folder -- sprites you didn't touch get rebuilt unchanged
 from their own existing artwork, not silently skipped or reset.
 
 Syntax:  python3 assets/import_edited_sprites.py
-Output:  assets/PawnSprites, assets/!Sprites, assets/!Sprites22 (packed
+Output:  assets/PawnSprite, assets/!Sprites, assets/!Sprites22 (packed
          RISC OS sprite files, filetype &FF9) -- also refreshes each
          sprite's own canonical native PNG (assets/pawn_icon0.png etc.)
          in place, so a later assets/export_sprites_for_editing.py run
@@ -132,8 +132,8 @@ def main():
               f"assets/export_sprites_for_editing.py first if you want to hand-edit "
               f"anything.", file=sys.stderr)
 
-    print("Pawns -> assets/PawnSprites")
-    rebuild_group(PAWN_SPRITES, HERE / "PawnSprites")
+    print("Pawns -> assets/PawnSprite")
+    rebuild_group(PAWN_SPRITES, HERE / "PawnSprite")
 
     print("App icon (square) -> assets/!Sprites22")
     rebuild_group(SQUARE_ICON_SPRITES, HERE / "!Sprites22")

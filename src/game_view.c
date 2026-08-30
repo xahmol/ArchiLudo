@@ -470,7 +470,7 @@ static void debug_log(const char *fmt, ...)
 
 /* Round 7.17 pawn icon sprites -- see load_pawn_sprites()/plot_pawn().
  * pawn_sprite_area is this program's OWN private sprite area (loaded
- * from assets/PawnSprites, malloc()'d once at startup), entirely
+ * from assets/PawnSprite, malloc()'d once at startup), entirely
  * separate from wimpspriteop_AREA (the Wimp's shared pool, still used
  * for def.sprite_area) -- one named sprite per player, "pawn0".."pawn3"
  * in game_logic.c's player-index order. pawn_sprites_loaded stays 0 if
@@ -484,7 +484,7 @@ static const char *pawn_sprite_names[LUDO_PLAYERS] = { "pawn0", "pawn1", "pawn2"
 
 /*
  * Function: load_pawn_sprites
- * Summary: Load assets/PawnSprites (see assets/generate_icon_sprites.py)
+ * Summary: Load assets/PawnSprite (see assets/generate_icon_sprites.py)
  *          into a freshly malloc()'d private sprite area, so plot_pawn()
  *          can plot each player's pawn via Wimp_PlotIcon. Called once
  *          from game_view_initialise(). Leaves pawn_sprites_loaded at 0
@@ -499,7 +499,7 @@ static void load_pawn_sprites(void)
 	long size;
 	os_error *err;
 
-	resource_path(path, sizeof(path), "PawnSprites");
+	resource_path(path, sizeof(path), "PawnSprite");
 	f = fopen(path, "rb");
 	if (f == NULL) {
 		debug_log("load_pawn_sprites: fopen failed for \"%s\"\n", path);
@@ -880,7 +880,7 @@ static void cell_centre_work(int col, int row, int *wx, int *wy)
  *          its position. The `os_plot` fallback stays in place
  *          regardless (this project's established "the game must stay
  *          playable" caution) for whenever load_pawn_sprites() didn't
- *          find/load assets/PawnSprites.
+ *          find/load assets/PawnSprite.
  */
 /*
  * Function: stack_offset
