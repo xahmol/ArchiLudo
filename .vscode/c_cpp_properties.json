@@ -2,7 +2,7 @@
     "configurations": [
         {
             "name": "Linux",
-            "compilerPath": "/home/xahmol/riscos-dev/archiesdk/tools/bin/arm-archie-gcc",
+            "compilerPath": "${env:ARCHIESDK}/tools/bin/arm-archie-gcc",
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/src"

@@ -190,6 +190,13 @@ target -- all four in `.env` rather than a Makefile default (per
 explicit user request), since password auth means there's no sensible
 non-secret default to fall back to anyway.
 
+`.env` only reaches `make` (a plain GNU Make `-include .env`, parsed
+as Makefile syntax, never sourced into the shell) -- anything that
+needs `ARCHIESDK` outside of `make` itself, such as VS Code's
+IntelliSense (`.vscode/c_cpp_properties.json`'s `compilerPath`, set to
+`${env:ARCHIESDK}/tools/bin/arm-archie-gcc`), needs `ARCHIESDK`
+exported as a genuine shell/process environment variable separately.
+
 ## Filetype/packaging conventions
 
 See `riscos_wimp_reference.md`'s "Filetypes / packaging" section for the

@@ -84,7 +84,7 @@ directories, not registry entries or system-wide installs.
 | Tool | Purpose | Install |
 |---|---|---|
 | [ArchieSDK](https://gitlab.com/_targz/archiesdk) | ARM2-targeting cross-compiler (GCC 8.5.0), bundled OSLib | `git clone https://gitlab.com/_targz/archiesdk.git ~/riscos-dev/archiesdk && cd ~/riscos-dev/archiesdk && ./build.sh` |
-| [Arculator](https://arculator.hep.org.uk/) | Acorn Archimedes emulator, for testing | already installed at `D:\Retro\Acorn\Arculator_V2.2_Windows` |
+| [Arculator](https://arculator.hep.org.uk/) | Acorn Archimedes emulator, for testing | install anywhere; point `ARCULATOR_HOSTFS` in `.env` at its `hostfs` folder (e.g. `D:\Retro\Acorn\Arculator_V2.2_Windows\hostfs` on Windows) |
 | pandoc | optional: README.md -> README.pdf | `sudo apt install pandoc texlive-xetex` |
 | Python 3 + Pillow | `tools/riscos_sprite.py`, the PNG->Sprite converter | `pip install Pillow` |
 | sshpass | optional: `make deploy-pibridge` (real-hardware deploy) | `sudo apt install sshpass` |
@@ -102,6 +102,13 @@ ARCULATOR_HOSTFS = /mnt/d/Retro/Acorn/Arculator_V2.2_Windows/hostfs
 also needed for `make deploy-pibridge` (a real PiEconetBridge target)
 -- see `.env.example` for the full set. `.env` is gitignored -- never
 commit it.
+
+`.env` is read only by `make` (a plain `-include .env` in the
+Makefile), not by your shell -- if you use VS Code, `.vscode/c_cpp_properties.json`
+points its IntelliSense `compilerPath` at `${env:ARCHIESDK}`, which
+needs `ARCHIESDK` exported as a real environment variable separately
+(e.g. `export ARCHIESDK=/path/to/archiesdk` in your shell profile, or
+launch `code .` from a shell where you've already exported it).
 
 ### Make targets
 
