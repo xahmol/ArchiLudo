@@ -5,12 +5,12 @@ directly, in place, at their real native resolution (e.g. 26x26 for a
 pawn) -- then run `assets/import_edited_sprites.py` to convert your
 edits back into the real sprite files ArchiLudo actually ships.
 
-Round 7.49: this used to also export a 16x-upscaled `_16x.png` "editing
-copy" of each sprite, meant to be edited instead of the native file.
-That indirection caused a real bug -- a native-resolution edit was
-silently ignored because the import step preferred the stale, unedited
-`_16x.png` sitting next to it -- so it's gone; edit the native file
-directly, in place, with no second copy to go stale.
+There is deliberately no upscaled "editing copy" of each sprite to edit
+instead of the native file -- an earlier version of this workflow tried
+that and it caused a real bug: a native-resolution edit was silently
+ignored because the import step preferred the stale, unedited upscaled
+copy sitting next to it. Edit the native file directly, in place, with
+no second copy that can go stale.
 
 ## Workflow
 
@@ -33,9 +33,8 @@ directly, in place, with no second copy to go stale.
    (255) alpha. Partial/soft alpha edges get thresholded at import
    time, same as full opaque/transparent, so there's no benefit to
    soft-edged alpha either. **Check your editor actually preserves
-   alpha on save** -- this is exactly what tripped up the round 7.49
-   incident (see above): MS Paint silently flattens transparency,
-   filling the background solid white instead.
+   alpha on save** -- MS Paint, for example, silently flattens
+   transparency, filling the background solid white instead.
 5. Save as PNG, overwriting the same file in this folder.
 6. Run `python3 assets/import_edited_sprites.py` from the repo root.
    This re-quantises your edit against the fixed Wimp palette and
@@ -51,7 +50,7 @@ directly, in place, with no second copy to go stale.
 **Not MS Paint** -- classic Paint has no real alpha-channel support at
 all: it silently flattens any transparency to solid white on open/save,
 and doesn't offer a genuinely hard-edged 1px pencil in every tool mode
-either. Both of those are exactly what caused the round 7.49 incident.
+either.
 
 - **[Piskel](https://www.piskelapp.com/)** (free, web or downloadable)
   -- purpose-built for pixel art: hard-edged pencil by default (nothing

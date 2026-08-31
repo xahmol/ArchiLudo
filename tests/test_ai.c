@@ -536,7 +536,7 @@ static void test_headless_four_ai_games(void)
 			CHECK(roll >= 1 && roll <= 6);
 
 			/* See test_game_logic.c's test_headless_full_games_invariants()
-			 * for the full reasoning (round 7.20) -- a player's finished
+			 * for the full reasoning -- a player's finished
 			 * pawns, as a *set*, must occupy exactly the topmost N
 			 * distinct home-column squares; checking each pawn's steps
 			 * against a threshold retroactively recomputed from the

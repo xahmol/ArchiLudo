@@ -269,7 +269,7 @@ static void test_winner_detected_when_all_pawns_finish(void)
 
 	ludo_init(&g);
 	/* Three pawns already finished, each at its own dynamic threshold
-	 * (round 7.20 -- see game_logic.h) -- LUDO_TOTAL_STEPS,
+	 * (see game_logic.h) -- LUDO_TOTAL_STEPS,
 	 * LUDO_TOTAL_STEPS-1, LUDO_TOTAL_STEPS-2, matching the order they'd
 	 * actually queue into the home column in real play, not all three
 	 * stacked on the same square (no longer a reachable state at all). */
@@ -612,11 +612,10 @@ static void test_blockade_blocks_landing_and_passing_through(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
 }
 
-/* The same stacked-pawns setup with blockade explicitly off (round 7.55
- * changed the Ludo preset's own default to ON, so this test forces it
- * off rather than relying on any preset -- see the CHECK below):
- * landing on or passing through the square is fine when the rule
- * genuinely isn't active. */
+/* The same stacked-pawns setup with blockade explicitly off (the Ludo
+ * preset's own default is ON, so this test forces it off rather than
+ * relying on any preset -- see the CHECK below): landing on or passing
+ * through the square is fine when the rule genuinely isn't active. */
 static void test_blockade_off_allows_landing_and_passing(void)
 {
 	ludo_game g;
@@ -769,7 +768,7 @@ static void test_three_sixes_forfeit_turn(void)
 	ludo_rules r;
 
 	ludo_init(&g);
-	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* three_sixes_forfeit_turn on by default (round 7.55) */
+	r = ludo_default_rules(LUDO_VARIANT_LUDO); /* three_sixes_forfeit_turn on by default */
 	ludo_set_rules(&g, &r);
 
 	g.players[0].pawns[0].in_play = 1;

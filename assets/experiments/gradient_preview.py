@@ -17,8 +17,7 @@ worth pursuing. This script produces that preview only -- it does NOT
 wire into the running game. Doing that for real would need a materially
 bigger implementation than the shipped 4bpp/Wimp_PlotIcon path: 8bpp
 icon sprites don't go through Wimp_PlotIcon's automatic colour
-translation at all (see docs/ARCHITECTURE.md's "Resume here"/round 7.16
-point 4), so it would need a hand-built ColourTrans_SelectTable
+translation at all, so it would need a hand-built ColourTrans_SelectTable
 translation table plus OS_SpriteOp 52 (PutSpriteScaled) called directly
 in plot_pawn(), not Wimp_PlotIcon. That work has NOT been started --
 this script is preview/decision-support only, kept here (not deleted)

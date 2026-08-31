@@ -208,7 +208,7 @@ narrative version.
   This is ArchiLudo's own direct porting source: its board geometry and
   ring/home-column layout, its pawn and die-face artwork, and its first
   AI opponent all trace back to GeoLudo specifically (see
-  `docs/ARCHITECTURE.md`'s GeoLudo→ArchiLudo mapping table), even
+  `docs/ARCHITECTURE.md`'s GeoLudo-to-ArchiLudo mapping table), even
   though ArchiLudo's own rules engine (`src/game_logic.c`) is a clean
   reimplementation rather than a line-for-line port (see
   `docs/GAME_LOGIC.md` for why).

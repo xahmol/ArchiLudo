@@ -175,9 +175,9 @@ produces a nonsense "rectangle" and the SWI reports nothing to redraw —
 loop never runs at all, which reads exactly like "nothing happens," not
 an obvious "wrong input" error.
 
-**A second, easy-to-miss field mistake, found the hard way (ArchiLudo
-round 7.21) after the pattern above had already been "working" for
-several rounds**: `wimp_draw`'s `.box` field means something **different
+**A second, easy-to-miss field mistake, found the hard way in ArchiLudo
+after the pattern above had already appeared to be "working"**:
+`wimp_draw`'s `.box` field means something **different
 on output than the paragraph above's INPUT use might suggest** — per the
 PRM (`wimp.html`'s `Wimp_RedrawWindow` entry, whose block format
 `Wimp_UpdateWindow` explicitly shares): once inside the `while (more)`
@@ -234,7 +234,7 @@ while (more) {
 }
 ```
 
-**A third, related subtlety, also from round 7.21**: the PRM states the
+**A third, related subtlety**: the PRM states the
 *input* box's maximum x/y ("work area maximum x coordinate") are
 **exclusive**, unlike `OS_Plot`'s own rectangle-fill (`os_PLOT_RECTANGLE`),
 which treats its own x1/y1 as *inclusive* (paints through that
@@ -328,7 +328,7 @@ current animation happens to touch.
    logic for every kind of side effect a move can have, and — critically
    — costs nothing at all in the common case where nothing else changed.
    See ArchiLudo's `snapshot_pawn_positions()`/`update_settle_diff_area()`
-   (`src/game_view.c`, round 7.15) for a worked example: one generic
+   (`src/game_view.c`) for a worked example: one generic
    diff against every game piece's position, used identically whether
    the triggering event was a capture, an own-piece collision, or a
    piece newly entering play.
@@ -409,16 +409,16 @@ currently_shaded = want_shaded;
 Worth reaching for whenever a UI has one button whose meaning changes
 by state (a combined "Throw"/"Continue" action button, say) and isn't
 always the actual next required action — shading it the rest of the
-time (per ArchiLudo round 7.15) keeps the affordance honest about
-what's clickable right now, without needing a second icon or hiding/
+time (as ArchiLudo does) keeps the affordance honest about what's
+clickable right now, without needing a second icon or hiding/
 recreating the icon outright.
 
 **Building a "radio button" pair/group with plain text icons (no sprite
 needed).** The PRM's own "Radio icons" recipe (`wimp.html`) describes a
 sprite+text form (`Sradiooff,radioon`), but a plain bordered text icon
 works exactly as well and needs no extra sprites — confirmed working in
-ArchiLudo's `rules_view.c` (round 7.46, its first-ever ESG use): give
-every icon in the group button type 11 (`wimp_BUTTON_RADIO`) and the
+ArchiLudo's `rules_view.c`: give every icon in the group button type 11
+(`wimp_BUTTON_RADIO`) and the
 SAME non-zero ESG number (bits 16-19, `wimp_ICON_ESG_SHIFT`/`<< that
 shift>` — 0 is reserved for "toggles independently, doesn't affect
 siblings", so start numbering real groups at 1). Selecting one via a
@@ -440,7 +440,7 @@ group numbers used stay under 16, which is normally plenty).
 **A per-icon "click here to open a drop-down" pop-up menu.** No special
 Wimp mechanism exists for a combo-box — the standard idiom (already used
 for this project's own iconbar/window menu in `src/main.c`, reused for
-`rules_view.c`'s variant picker in round 7.46) is: a non-writable
+`rules_view.c`'s variant picker) is: a non-writable
 indirected text icon showing the current value, whose click handler
 builds/refreshes a small `wimp_MENU(N)` and calls `wimp_create_menu()`
 positioned at the click point (`pointer->pos.x`/`.y`) rather than at a
@@ -577,9 +577,9 @@ literally.
   instead, or every icon plots at the wrong absolute screen location
   (silently — no error, it just doesn't appear where expected, which
   can look exactly like "nothing renders at all" if the true location
-  ends up off-window). ArchiLudo hit this for real (round 7.18): pawns
-  stopped rendering entirely on first live test of a
-  `Wimp_PlotIcon`-based pawn sprite for exactly this reason.
+  ends up off-window). ArchiLudo hit this for real: pawns stopped
+  rendering entirely on first live test of a `Wimp_PlotIcon`-based pawn
+  sprite for exactly this reason.
 - 8bpp (256-colour) sprites don't work through `Wimp_PlotIcon`'s
   *automatic* colour translation — per the PRM's sprite-bpp table
   (`wimp.html`), that auto-translation (onto the 16 fixed Wimp colours)
@@ -620,8 +620,8 @@ literally.
   the native size happens to already look "about right" (e.g. it
   matches a grid cell almost exactly) changing the extent to try to
   resize it will visibly do *nothing* — which is exactly how ArchiLudo
-  caught this (round 7.31): three different icon-extent values in a row
-  produced an *identical* on-screen sprite size, because the sprite's
+  caught this: three different icon-extent values in a row produced an
+  *identical* on-screen sprite size, because the sprite's
   own 32×32-pixel mode-27 source was always rendering at a fixed
   64×64-OS-unit native footprint regardless. The actual fix for wanting
   a smaller/larger on-screen sprite is regenerating the source sprite
@@ -685,10 +685,10 @@ existence without spelling out its rasterization guarantee. If a native
 outline-stroked shape is ever reported as patchy or partially invisible,
 don't assume it's automatically safe — check it the same way.
 
-Found the hard way in ArchiLudo (see that project's `docs/ARCHITECTURE.md`
-"Round 7.7" notes and its own auto-memory for the full incident
-writeup): a player-colour swatch's outline using a 2-unit thickness was
-invisible specifically on its top/bottom
+Found the hard way in ArchiLudo (see that project's
+`docs/GRAPHICS_TOOLING.md` for the full writeup): a player-colour
+swatch's outline using a 2-unit thickness was invisible specifically on
+its top/bottom
 edges (below the 4-unit vertical minimum) while its left/right edges
 still showed (2 units meets the smaller horizontal minimum) — this
 asymmetry, a border showing on some edges but not others, is the

@@ -20,10 +20,10 @@ to -- this file consolidates all of it in one place.
   maintainers. `https://ro-oslib.sourceforge.io/`
 - **FFmpeg** -- used host-side (not shipped with ArchiLudo) for two
   audio asset-prep tasks: converting the bundled SFX source recordings
-  to raw 16-bit PCM (`docs/QTM.md`'s "Sample format" section, round
-  7.60), and, via `ffprobe`'s bundled `libopenmpt` demuxer, validating
+  to raw 16-bit PCM (`docs/QTM.md`'s "Asset preparation" section), and,
+  via `ffprobe`'s bundled `libopenmpt` demuxer, validating
   `tools/mod_embed_sfx.py`'s rewritten `.mod` files still parse as
-  correct tracker modules (round 7.76). `https://ffmpeg.org/`
+  correct tracker modules. `https://ffmpeg.org/`
 
 ## Emulation
 
@@ -48,13 +48,13 @@ to -- this file consolidates all of it in one place.
   under ArchieSDK -- see `docs/BUILDCHAIN.md`), and specifically Chapter
   17 ("Creating an Application Directory") as the direct structural
   template for `build/!ArchiLudo/`'s `!Run`/`!Sprites`/`!Sprites22`
-  layout (round 7.36 -- see `docs/BUILDCHAIN.md`'s "Application
-  directory" section for what was adapted vs. followed as-is).
+  layout (see `docs/BUILDCHAIN.md`'s "Application directory" section
+  for what was adapted vs. followed as-is).
   `https://www.stevefryatt.org.uk/risc-os/wimp-prog`. Full local mirror:
   `~/riscos-dev/wimp-prog-mirror/`.
 - **DiscImageManager** -- Gerald Holdsworth's disc-image utility
   (GPL-3.0). Ground truth for `tools/build_adfs_disk.py`'s ADFS "D"
-  format disc-image writer (round 7.91): every byte offset, field width,
+  format disc-image writer: every byte offset, field width,
   and checksum algorithm was read directly from its
   `DiscImage_ADFS.pas`/`DiscImage_Private.pas` source rather than
   reconstructed from the PRM's prose. No DiscImageManager code is
@@ -69,23 +69,21 @@ to -- this file consolidates all of it in one place.
   `docs/QTM.md`). By Steve Harrison ("Phoenix"/"Quantum"), 1993-2023,
   freeware; 32-bit RISC OS support by Jeffrey Lee.
   `http://www.pi-star.co.uk/qtm/`
-- **QTMModule binary (v1.49c, was v1.49b through round 7.76)** --
-  bundled directly in ArchiLudo's own app directory
-  (`assets/audio/QTMModule`, see `app/!Run`'s `RMEnsure` line) rather
-  than assumed present, per this project's established "stay playable
-  if an extra isn't there" principle. Round 7.77: swapped v1.49b (19 Mar
-  2023) for v1.49c (03 Apr 2023, two weeks later) -- confirmed
+- **QTMModule binary (v1.49c)** -- bundled directly in ArchiLudo's own
+  app directory (`assets/audio/QTMModule`, see `app/!Run`'s `RMEnsure`
+  line) rather than assumed present, per this project's established
+  "stay playable if an extra isn't there" principle. v1.49c (03 Apr
+  2023) was chosen over the older v1.49b originally bundled -- confirmed
   byte-identical (MD5) across all three of `kieranhj/arc-django-2`,
   `bitshifters/aklang`, and `bitshifters/mikroreise`'s own bundled
   copies, i.e. the actual module version this project's `QTM_PlaySample`
-  SWI number was confirmed against (round 7.74), not the older one
-  ArchiLudo happened to already have. See `docs/QTM.md`'s "Round 7.77"
-  section for whether this was the fix. Original v1.49b copied from a
-  real, working ArchieSDK example project's own bundled copy,
+  SWI number was confirmed against, not the older one ArchiLudo happened
+  to already have. Original v1.49b copied from a real, working ArchieSDK
+  example project's own bundled copy,
   `examples/bydctc/data/QTMModule,ffa` in the local ArchieSDK checkout
   (`~/riscos-dev/archiesdk`) -- also where `lib/qtm.c`'s own QTM SWI
   numbers (QTM_Load/QTM_Start/QTM_Clear) were confirmed against real,
-  working code (`examples/bydctc/main.c`), not guessed. Round 7.60.
+  working code (`examples/bydctc/main.c`), not guessed.
 - **`lin2LOG` (linear-to-VIDC-log sample converter with a
   `QTM_PlayRawSample` playback test)** -- by Steve Harrison himself
   (QTM's own author, posting as "steve3000"), shared as a BASIC source
@@ -96,29 +94,28 @@ to -- this file consolidates all of it in one place.
   `QTM_SoundControl`'s existence and calling convention (undocumented
   anywhere else this project found), and the correct repeat-length value
   for `QTM_PlayRawSample` -- directly corrected two wrong guesses made
-  earlier in this project's own round 7.60-7.66 debugging (see
-  `docs/QTM.md`'s "Round 7.67" section). Round 7.67.
-  `https://stardot.org.uk/forums/viewtopic.php?t=27420`
+  during this project's own earlier debugging (see `docs/QTM.md`'s "SWI
+  reference" section). `https://stardot.org.uk/forums/viewtopic.php?t=27420`
 - **`kieranhj/arc-django-2`** (GitHub) -- a real, shipped Archimedes
   game, checked for a working `QTM_SoundControl`/`QTM_PlayRawSample`
-  reference (round 7.74, per direct user request). Its `lib/swis.h.asm`
-  gave a larger confirmed QTM SWI table (including `QTM_Stop`, never
-  confirmed before), and its own working `QTM_SoundControl` calls
-  corrected a real misunderstanding this project had held since round
-  7.67 (R1 is a behaviour-flags bitmask, not a channel-reservation
-  count) -- see `docs/QTM.md`'s "Round 7.74" section. Read-only
-  reference, no code copied. `https://github.com/kieranhj/arc-django-2`
+  reference. Its `lib/swis.h.asm` gave a larger confirmed QTM SWI table
+  (including `QTM_Stop`, never confirmed before), and its own working
+  `QTM_SoundControl` calls corrected a real misunderstanding this
+  project had held (R1 is a behaviour-flags bitmask, not a
+  channel-reservation count) -- see `docs/QTM.md`'s "SWI reference"
+  section. Read-only reference, no code copied.
+  `https://github.com/kieranhj/arc-django-2`
 - **`bitshifters/aklang`** (GitHub, "ArchieKlang Announcetro") -- a real
-  Bitshifters demo generating sample data at runtime, checked the same
-  round for a `QTM_PlayRawSample`/sample-playback reference. Revealed
+  Bitshifters demo generating sample data at runtime, checked for a
+  `QTM_PlayRawSample`/sample-playback reference. Revealed
   `QTM_PlaySample` and `QTM_RegisterSample`'s SWI numbers (previously
   unknown to this project) via its own SWI table, but the demo itself
   doesn't call any of the three sample-playing SWIs -- its samples
   become embedded MOD instruments instead. Read-only reference, no code
   copied. `https://github.com/bitshifters/aklang`
 - **`bitshifters/mikroreise`** (GitHub) -- another real Bitshifters
-  production on the same demo toolchain, checked for completeness the
-  same round; confirmed the same pattern (only music-level QTM calls,
+  production on the same demo toolchain, checked for completeness at
+  the same time; confirmed the same pattern (only music-level QTM calls,
   no sample-playing SWIs used). Read-only reference, no code copied.
   `https://github.com/bitshifters/mikroreise`
 - **"digital innovation1"** (`Music1`) -- background music track 1, by
@@ -128,7 +125,7 @@ to -- this file consolidates all of it in one place.
   ProTracker `.mod`, same terms as above.
   `https://modarchive.org/index.php?request=view_by_moduleid&query=105208`
 - **"on the run"** (`Music3`) -- background music track 3, by Anders
-  Lundqvist. ProTracker `.mod`, same terms as above. Round 7.65.
+  Lundqvist. ProTracker `.mod`, same terms as above.
   `https://modarchive.org/index.php?request=view_by_moduleid&query=157927`
 
 ## Sound effects
@@ -164,9 +161,10 @@ to -- this file consolidates all of it in one place.
   game (Colin Granville's RISC OS front-end for GNU Chess), consulted
   for design inspiration (per explicit request) on WIMP board-game UI
   patterns -- confirmed its `Wimp_UpdateWindow` usage as the working
-  precedent behind `docs/ARCHITECTURE.md`'s "Round 7.10" flicker fix,
+  precedent behind the flicker-free animation approach described in
+  `docs/ARCHITECTURE.md`'s "Redraw and animation architecture" section,
   and its `hilite_do()` selected-square flash directly inspired
-  ArchiLudo's own flashing movable-pawn/hover rings ("Round 7.11").
+  ArchiLudo's own flashing movable-pawn/hover rings.
   Not used as code (different toolchain and licence -- CHESS GPL, not
   code shared with ArchiLudo), read purely as a reference.
   `https://github.com/marutan/ro-chess`
@@ -175,17 +173,17 @@ to -- this file consolidates all of it in one place.
 
 - **YM Imports -- "How to Play Ludo"** -- one of two independent external
   Ludo rules references consulted to audit this engine's own rule set
-  against mainstream Ludo (round 7.55, per explicit user request) --
-  see `docs/GAME_LOGIC.md`'s "Round 7.55" note for what the audit found
-  and changed. Read-only reference, no code/text reproduced.
+  against mainstream Ludo (per explicit user request) -- see
+  `docs/RULES.md`'s "Where these rules come from" section for what the
+  audit found and changed. Read-only reference, no code/text reproduced.
   `https://www.ymimports.com/pages/how-to-play-ludo`
 - **Ludo Ghar -- "Rules"** -- the second of the two references for the
-  same round 7.55 audit. Two of its claims (a blockade "moving as one
-  unit, splitting the die roll," and a requirement to capture an
-  opponent before entering the home column) were checked and
-  deliberately NOT adopted, for lack of corroboration from the other
-  source above or general Ludo knowledge -- see `docs/GAME_LOGIC.md`.
-  `https://www.ludoghar.co/pages/rules`
+  same audit. Two of its claims (a blockade "moving as one unit,
+  splitting the die roll," and a requirement to capture an opponent
+  before entering the home column) were checked and deliberately NOT
+  adopted, for lack of corroboration from the other source above or
+  general Ludo knowledge -- see `docs/RULES.md`'s "Where these rules
+  come from" section. `https://www.ludoghar.co/pages/rules`
 
 ## Porting source
 

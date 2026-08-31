@@ -36,8 +36,8 @@ alongside an inline credit comment at the point of use (see the global
 CLAUDE.md's "Code Attribution" section).
 
 **Every library this project creates or wraps gets its own `docs/<NAME>.md`
-manual** (not just header docstrings) — e.g. `docs/QTM.md` once the QTM
-wrapper library exists. SWI-based APIs get wrapped in a dedicated C
+manual** (not just header docstrings) — e.g. `docs/QTM.md` for the QTM
+wrapper library (`lib/qtm.c`/`include/qtm.h`). SWI-based APIs get wrapped in a dedicated C
 library (`lib/<name>.c`/`include/<name>.h`) rather than called via raw
 `_swi()`/`_swix()` inline — this project's preference, matching how OSLib
 and `libarchie` already work.
@@ -77,7 +77,7 @@ presets, 8 toggles, see `docs/RULES.md`), AI opponents, 5-slot save/
 load, QTM background music + SFX, and a distribution pipeline (`make
 zip`/`make disk`/`make deploy-pibridge`) — see `docs/ARCHITECTURE.md`'s
 "Current state" table for the full breakdown and "Known gaps" for what
-isn't done yet (no backward-movement UI, no AI difficulty picker).
+isn't done yet (no backward-movement UI).
 
 Porting source: `/home/xahmol/git/ludo`, specifically `GEOS/` — see
 `docs/ARCHITECTURE.md`'s GeoLudo→Wimp mapping table.
