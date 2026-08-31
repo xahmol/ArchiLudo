@@ -14,7 +14,7 @@ reference for this project, kept up to date as development progresses:
 
 | Doc | Covers |
 |---|---|
-| `docs/ARCHITECTURE.md` | Layering (`game_logic.c` vs WIMP shell), directory structure, GeoLudo→Wimp porting map |
+| `docs/ARCHITECTURE.md` | Layering (`game_logic.c` vs WIMP shell), directory structure, GeoLudo→Wimp porting map, RISC OS sprite file format and rendering approach |
 | `docs/RULES.md` | Full player-facing rules manual: base rules, all house-rule toggles, the 3 presets |
 | `docs/BUILDCHAIN.md` | ArchieSDK toolchain, Makefile targets, confirmed compiler defaults/gotchas |
 | `docs/GAME_LOGIC.md` | Rules engine data model and API |
@@ -23,7 +23,7 @@ reference for this project, kept up to date as development progresses:
 | `docs/QTM.md` | Music/SFX manual (player-facing) and QTM SWI wrapper reference |
 | `docs/OSLIB.md` | How this project uses OSLib, where to look up anything it doesn't cover |
 | `docs/LIBARCHIE.md` | ArchieSDK's bundled helper library |
-| `docs/GRAPHICS_TOOLING.md` | The PNG->Sprite converter in `tools/`, RISC OS sprite file format |
+| `docs/TOOLS.md` | Every standalone `tools/`/`assets/*.py` script: usage, requirements, gotchas |
 
 `riscos_wimp_reference.md` (project root) is the curated WIMP/SWI/message
 reference; `~/riscos-dev/prm-mirror/` and
@@ -126,7 +126,7 @@ directly, which are mode-independent; sprites (pawns/dice) are drawn
 **square** and tagged mode 27 (the square-pixel exception), letting
 `Wimp_PlotIcon`'s automatic scaling compensate for every mode's own
 aspect rather than pre-squishing source art for one specific mode. See
-`docs/GRAPHICS_TOOLING.md`'s "Current rendering approach" section for
+`docs/ARCHITECTURE.md`'s "Current rendering approach" section for
 the full writeup and its mode table for the old-style sprite mode per
 bpp.
 
@@ -138,7 +138,7 @@ day-to-day dev/test mode, but spot-check at least one other mode
 (ideally 27, the square-pixel one, since 12/39 share mode 15's own
 non-square aspect and wouldn't catch the same class of bug) before
 considering any graphics-affecting change done. See
-`docs/GRAPHICS_TOOLING.md`'s "Sprite file format" and "Current
+`docs/ARCHITECTURE.md`'s "Sprite file format" and "Current
 rendering approach" sections for the full mode-geometry table and how
 sprites are tagged to work correctly across all four. Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory

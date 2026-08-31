@@ -5,18 +5,16 @@ ArchiLudo icon sprite generator (Wimp_PlotIcon pivot)
 
 Summary: Generates the pawn sprites for ArchiLudo, plotted via
 Wimp_PlotIcon rather than os_plot primitives (see
-docs/GRAPHICS_TOOLING.md's "Current rendering approach" section for the
-full background and the sprite-tool validation this relies on). Unlike
-assets/generate_placeholder_art.py (which
-reuses/recolours GeoLudo's own GEOS bitmaps), this draws an original
-chess-pawn-style silhouette from scratch -- per explicit user request,
-inspired by classic pixel-art chess-pawn icon references (round head/
-finial, thin neck collar, tapered body, flared two-level base; black
-outline; flat-hue fill with a white highlight band/dot and a grey
-shadow patch to fake roundness within a limited palette).
+docs/ARCHITECTURE.md's "Current rendering approach" section for the
+full background and the sprite-tool validation this relies on). Draws
+an original chess-pawn-style silhouette from scratch -- per explicit
+user request, inspired by classic pixel-art chess-pawn icon references
+(round head/finial, thin neck collar, tapered body, flared two-level
+base; black outline; flat-hue fill with a white highlight band/dot and
+a grey shadow patch to fake roundness within a limited palette).
 
-Design constraints this follows (see docs/GRAPHICS_TOOLING.md's
-"Current rendering approach" section for the full reasoning):
+Design constraints this follows (see docs/ARCHITECTURE.md's "Current
+rendering approach" section for the full reasoning):
 - Drawn SQUARE and tagged mode 27 (not the older mode-15-specific
   pre-squished-canvas convention) -- mode 27 is square-pixel (2 OS
   units/pixel in both axes, confirmed against the PRM's mode table),
@@ -45,7 +43,8 @@ SEPARATELY at the very end and recombining -- avoids a real
 Image.paste()/resize() pitfall (blending RGB toward a fully-transparent
 destination's (0,0,0) colour at
 partially-covered edge pixels, washing colours toward grey/black; see
-docs/GRAPHICS_TOOLING.md). The background RGB behind the whole
+docs/ARCHITECTURE.md's "Lasting gotchas for hand-drawn pixel art"
+section). The background RGB behind the whole
 silhouette is set to the SAME colour as the outline, so there's no RGB
 seam at the true edge either -- the alpha channel (from a separately
 dilated+resized copy of the plain silhouette mask) does all the actual
@@ -53,10 +52,8 @@ shape-cutout work.
 
 Syntax:  python3 assets/generate_icon_sprites.py
 Output:  assets/pawn_icon0.png .. assets/pawn_icon3.png (per player,
-         kept for reference/regeneration -- deliberately NOT named
-         pawn0.png..pawn3.png, which are assets/generate_placeholder_art.py's
-         own output files; the two generators must not collide) and
-         assets/PawnSprite (a packed RISC OS sprite file, filetype &FF9).
+         kept for reference/regeneration) and assets/PawnSprite (a
+         packed RISC OS sprite file, filetype &FF9).
 """
 
 import subprocess
@@ -271,7 +268,8 @@ def build_pawn_image(fill_rgb):
              Implementation: unlike the flat-colour parts of the design
              (composited as colour blocks at WORKxWORK and downsampled
              with NEAREST to avoid blending artefacts -- see
-             docs/GRAPHICS_TOOLING.md), the dither pattern must be
+             docs/ARCHITECTURE.md's "Lasting gotchas for hand-drawn
+             pixel art" section), the dither pattern must be
              chosen at the FINAL pixel grid, not the supersampled one --
              a checkerboard drawn at WORK resolution and then
              downsampled would either alias into a solid colour or an

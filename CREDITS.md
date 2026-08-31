@@ -209,15 +209,17 @@ to -- this file consolidates all of it in one place.
   `docs/ARCHITECTURE.md`'s GeoLudo->Wimp mapping table); ArchiLudo's rules
   engine (`src/game_logic.c`) is a clean reimplementation of the rules
   documented there, not a line-for-line port (see `docs/GAME_LOGIC.md`
-  for why). Its board geometry (`src/board_layout.c`) and its **actual
-  pawn/die-face artwork** are direct reuses, not just references:
-  `assets/geos_source/*.gbm` are local copies of `GEOS/assets/bm_pawn.gbm`
-  and `dice1..6.gbm`, recoloured and resized for RISC OS by
-  `assets/generate_placeholder_art.py` -- see `docs/GRAPHICS_TOOLING.md`'s
-  "Current rendering approach" section. (The board-entry direction
-  markers, `bm_{g,r,b,y}start.gbm`, were also tried this way but are
-  drawn programmatically instead -- see that same section for why.)
-  ArchiLudo's AI opponent
+  for why). Its board geometry (`src/board_layout.c`) is a direct reuse,
+  not just a reference. Its pawn/die-face artwork is NOT a reuse of
+  GeoLudo's own bitmaps -- an earlier version recoloured/resized
+  GeoLudo's `bm_pawn.gbm`/`dice1..6.gbm` directly, but the shipped
+  pawns are now an original silhouette (`assets/generate_icon_sprites.py`,
+  see [ARCHITECTURE.md](docs/ARCHITECTURE.md)'s "Current rendering
+  approach" section) and dice are drawn with `os_plot` pips, not a
+  sprite at all; `assets/geos_source/*.gbm` (including the board-entry
+  direction markers, `bm_{g,r,b,y}start.gbm`, also superseded by
+  programmatically-drawn markers) are kept only for reference, not
+  currently used to generate anything shipped. ArchiLudo's AI opponent
   (`src/ai.c`) is likewise assessed from, not a literal port of,
   GeoLudo's `computerchoosepawn()` (`GEOS/src/main.c`) -- see
   `docs/AI.md` for exactly what carried over and what changed.

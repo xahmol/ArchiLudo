@@ -45,7 +45,7 @@ bases in the four corners.
 "Player 3 - Blue", "Player 4 - Yellow" for 0-indexed array entries 0-3):
 player 0 = green, 1 = red, 2 = blue, 3 = yellow. This must stay in sync
 with `player_rgb`/`player_name` in `src/game_view.c` and
-`PLAYER_COLOURS` in `assets/generate_placeholder_art.py`.
+`PLAYER_WIMP_COLOUR`/`PLAYER_NAMES` in `assets/generate_icon_sprites.py`.
 
 - **Ring** (40 cells, `LUDO_RING_LENGTH`): the cross's outer track --
   `board_ring_cell()` is now a plain lookup into a fixed 40-entry table
@@ -82,8 +82,8 @@ cells as ring/home-column/home-base/empty (plus owning player, for the
 coloured ones). The Redraw_Window handler
 then just walks that table each time, filling each non-empty cell with a
 flat colour, and plots each pawn's sprite at its `board_pawn_cell()`
-position on top. See `docs/GRAPHICS_TOOLING.md` for the pawn sprites
-themselves.
+position on top. See `docs/ARCHITECTURE.md`'s "Board and game
+rendering" section for the pawn sprites themselves.
 
 ## Updating this file
 

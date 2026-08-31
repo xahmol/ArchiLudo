@@ -2,8 +2,12 @@
 
 Everything about ArchiLudo's cross-compilation toolchain, Makefile, and
 deployment pipeline. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
-source-code layering this build chain serves, and [OSLIB.md](OSLIB.md) /
-[LIBARCHIE.md](LIBARCHIE.md) for the libraries it links against.
+source-code layering this build chain serves, [OSLIB.md](OSLIB.md) /
+[LIBARCHIE.md](LIBARCHIE.md) for the libraries it links against, and
+[TOOLS.md](TOOLS.md) for the standalone usage/requirements/gotchas of
+every Python script this pipeline invokes (`tools/*.py` and
+`assets/*.py`) -- this file covers the `make` targets that call them,
+not the scripts' own internals.
 
 ## Why ArchieSDK, not mainline GCCSDK
 
@@ -159,12 +163,13 @@ no cross-compiler, no emulator. This is the whole point of keeping
 
 | Target | Effect |
 |---|---|
-| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any legacy flat `ArchiLudo,ff8`/`PawnSprite,ff9`/`Sprites,ff9` left over in hostfs from an older application-directory-less deploy |
-| `make deploy-pibridge` | deploys to a real-hardware target -- a PiEconetBridge (Econet-over-IP bridge on a Raspberry Pi) at `PIBRIDGE_USER@PIBRIDGE_HOST:PIBRIDGE_PATH`, all four connection details (including `PIBRIDGE_PASS`) from `.env`. Password auth via `sshpass` (matching how the user already connects with FileZilla over SFTP -- needs `sudo apt install sshpass`), not SSH keys; `check-pibridge` checks `sshpass` is installed and the Pi is reachable first. Before rsyncing, `tools/prepare_pibridge_deploy.py` converts `$(APPDIR)`'s `,xxx`-suffixed files into PiFS's own expected format (plain filenames + a `.inf` sidecar per file carrying filetype/date as a RISC OS "stamped" load/exec address) into `build/pibridge-stage/` -- PiFS does NOT understand the `,xxx` convention Arculator's hostfs uses (confirmed by reading PiFS's own source; see that script's own doc comment for the full format detail). The deploy itself is `rsync -av --delete` over SSH (via `sshpass`) of that staged directory, rather than `deploy`'s local `cp` of `$(APPDIR)` directly -- a genuinely separate/independent target from the Arculator emulator deploy above, not a replacement for it |
-| `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`) with the `-,` flag (required for RISC OS filetype preservation -- a plain host `zip` preserves nothing regardless), bundling `README.pdf` and a plain-text, LF-line-ended `ReadMe,fff` (via `tools/riscos_readme.py`) instead of the raw Markdown. `make zip`/`make disk` keep the full version+timestamp in their output filenames so multiple builds can be told apart in `build/` -- before copying either onto real classic-Econet hardware (a PiEconetBridge or similar old-style fileserver), rename it to 10 characters or fewer with no dot, since such fileservers silently truncate longer names in a way that makes the file unreadable (Arculator's hostfs and a plain download/extract elsewhere have no such limit) |
-| `make disk` | an ADFS "D" format (800KB) disc image (`build/ArchiLudo-vX.Y.Z-<timestamp>.adf`) containing just `make zip`'s output, filetyped `&A91` (Zip). Written from scratch by `tools/build_adfs_disk.py` -- no third-party disc-image tool -- ground-truthed against Gerald Holdsworth's DiscImageManager source (GPL-3.0) and independently verified (see that script's own doc comment) |
+| `make deploy` | `check-hostfs` (verifies `$(ARCULATOR_HOSTFS)` exists) then copies the whole `build/!ArchiLudo/` directory there (contents merged into an already-existing `hostfs/!ArchiLudo/` via `cp -r SRC/. DEST/`, not nested a level deeper on repeat deploys -- the classic `cp -r` gotcha), and removes any legacy files left over in hostfs from an older layout (a pre-application-directory flat deploy; standalone `Sfx*,ffd` files from before SFX were embedded into the MOD files) |
+| `make deploy-pibridge` | deploys to a real-hardware target -- a PiEconetBridge (Econet-over-IP bridge on a Raspberry Pi) at `PIBRIDGE_USER@PIBRIDGE_HOST:PIBRIDGE_PATH`, all four connection details (including `PIBRIDGE_PASS`) from `.env`. Password auth via `sshpass` (matching how the user already connects with FileZilla over SFTP -- needs `sudo apt install sshpass`), not SSH keys; `check-pibridge` checks `sshpass` is installed and the Pi is reachable first. Before rsyncing, stages `$(APPDIR)` into PiFS's own expected format via `tools/prepare_pibridge_deploy.py` (see [TOOLS.md](TOOLS.md)) into `build/pibridge-stage/`, then `rsync -av --delete`s that staged directory over SSH -- a genuinely separate/independent target from the Arculator emulator deploy above, not a replacement for it |
+| `make zip` | versioned release archive via `$(ARCHIEZIP)` (`arm-archie-zip`) with the `-,` flag (required for RISC OS filetype preservation -- a plain host `zip` preserves nothing regardless), bundling `README.pdf` and a plain-text `ReadMe,fff` (via `tools/riscos_readme.py`, see [TOOLS.md](TOOLS.md)) instead of the raw Markdown. `make zip`/`make disk` keep the full version+timestamp in their output filenames so multiple builds can be told apart in `build/` -- before copying either onto real classic-Econet hardware (a PiEconetBridge or similar old-style fileserver), rename it to 10 characters or fewer with no dot, since such fileservers silently truncate longer names in a way that makes the file unreadable (Arculator's hostfs and a plain download/extract elsewhere have no such limit) |
+| `make disk` | an ADFS "D" format (800KB) disc image (`build/ArchiLudo-vX.Y.Z-<timestamp>.adf`) containing just `make zip`'s output, filetyped `&A91` (Zip). Written by `tools/build_adfs_disk.py` -- see [TOOLS.md](TOOLS.md) |
 | `make asm` | emits generated ARM assembly (`arm-archie-gcc -S`) for inspection |
-| `make assets` | regenerates `assets/PawnSprite` and `assets/!Sprites`/`!Sprites22` (the app icon) from their Python generators -- see "Application directory" below |
+| `make assets` | regenerates `assets/PawnSprite` and `assets/!Sprites`/`!Sprites22` (the app icon) via `assets/generate_icon_sprites.py`/`generate_app_icon.py` -- see [TOOLS.md](TOOLS.md) and "Application directory" below |
+| `make export-sprites` / `make import-sprites` | hand pixel-editing round-trip for the shipped sprites -- see [TOOLS.md](TOOLS.md)'s "Editing sprites by hand" section |
 | `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) |
 | `make clean` | removes `build/` entirely |
 
@@ -259,22 +264,12 @@ kept -- that's a genuine requirement of this project's real hardware
 target (RISC OS 3.10), not a DDE toolchain artefact.
 
 **Icon design**: a red pawn beside a die (`assets/generate_app_icon.py`,
-`make assets` to regenerate). Drawn once at a square `WORK=320`
-supersample canvas (same anti-aliasing technique as
-`generate_icon_sprites.py`'s pawn art -- solid masks, RGB/alpha resized
-separately to avoid a transparent-edge colour-bleed artifact), bold and
-simplified (no dither/shading detail, which would be lost at these
-sizes anyway) since the final sizes are tiny: 34x34/17x17 for the
-square-pixel `!Sprites22`, 34x17/17x9 for the rectangular-pixel
-`!Sprites` (Fryatt's Table 17.1's standard "full size"/"half size"
-dimensions). The rectangular-pixel version is generated by squishing the
-same WORK canvas 2:1 vertically before downsampling, so mode 12's own
-2x4-OS-units/pixel stretch brings it back to the right proportions on
-screen rather than looking squashed. Packed at 4bpp against the fixed
-Wimp palette (`--wimp-palette`, mode 12 for `!Sprites`, mode 27 for
-`!Sprites22` -- `tools/riscos_sprite.py`'s `MODES_BY_BPP[4]` gives 12 as
-the non-square 4bpp mode matching mode 15's own aspect), matching every
-other icon-plotted sprite in this project.
+`make assets` to regenerate -- see [TOOLS.md](TOOLS.md) for the
+generator itself). Sized to Fryatt's Table 17.1's standard "full
+size"/"half size" dimensions: 34x34/17x17 for the square-pixel
+`!Sprites22`, 34x17/17x9 for the rectangular-pixel `!Sprites` (mode 12,
+matching mode 15's own non-square aspect). Bold and simplified (no
+dither/shading detail, which would be lost at these tiny sizes anyway).
 
 **Not done**: formal resource allocation (Fryatt's tutorial, "A note
 about allocation" -- registering the `ArchiLudo` name/sprite/system-

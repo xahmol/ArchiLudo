@@ -58,7 +58,7 @@ have to share that limitation.
 |---|---|
 | `game_logic.c` | Complete rules engine, including the full multi-rule-set/house-rule system (3 presets, 8 toggles -- see [RULES.md](RULES.md) for the player-facing manual, [GAME_LOGIC.md](GAME_LOGIC.md) for the API). Fully unit tested, exhaustive coverage of all 128 toggle combinations |
 | `board_layout.c` | The real Mens Erger Je Niet board (see [BOARD_LAYOUT.md](BOARD_LAYOUT.md)), ported from the GEOS edition's own coordinate tables, not invented -- fully unit tested |
-| Graphics | Pawns/dice are real sprites (`Wimp_PlotIcon`), board cells and start markers are `os_plot` primitives -- see [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) |
+| Graphics | Pawns/dice are real sprites (`Wimp_PlotIcon`), board cells and start markers are `os_plot` primitives -- see "Board and game rendering" below |
 | `main.c` / `game_view.c` | Playable, extensively refined WIMP game: iconbar icon, game window with animated pawn movement, dice roll animation, movable-pawn highlight rings, capture/win detection, Continue-gated AI turns |
 | `rules_view.c`/`setup_view.c`/`save_view.c`/`win_view.c`/`splash_view.c` | Rule Options dialogue (preset picker + all 8 house-rule toggles), New Game/player setup, 5-slot save/load, win/continue dialogue, About/splash screen -- all done |
 | Audio (QTM) | Done and live-confirmed on real hardware: 3 selectable background tracks, 6 one-shot SFX embedded as MOD instrument samples, independently switchable On/SFX toggles -- see [QTM.md](QTM.md) |
@@ -117,7 +117,7 @@ ArchiLudo/
     BOARD_LAYOUT.md  -- board geometry manual
     AI.md            -- AI opponent manual
     QTM.md           -- audio manual (SWI reference, SFX mechanism, player manual)
-    GRAPHICS_TOOLING.md -- the sprite converter and RISC OS sprite format
+    TOOLS.md         -- every standalone asset/build tool: usage, requirements, gotchas
     BUILDCHAIN.md    -- ArchieSDK/Makefile/toolchain/distribution manual
     OSLIB.md         -- how this project uses OSLib
     LIBARCHIE.md     -- ArchieSDK's bundled helper library
@@ -251,11 +251,19 @@ for this project's profile -- 12, 15, 27, and 39 -- not just 15. Modes
 the square-pixel exception (2x2). Window/icon layout and all custom
 `os_plot` drawing already work in OS units directly (mode-independent
 by construction); only sprites, which store raw pixel data, need any
-mode-aware handling at all -- see
-[GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) for the full detail (why
-sprites are drawn square and tagged mode 27 rather than pre-squished
-for one specific mode) and for the "manually filled rectangles need
->=4 OS units of thickness on mode 15's Y axis" gotcha.
+mode-aware handling at all -- see "Sprite file format" and "Current
+rendering approach" below for the full detail (why sprites are drawn
+square and tagged mode 27 rather than pre-squished for one specific
+mode).
+
+**A manually filled rectangle border needs >=4 OS units of thickness
+on mode 15's Y axis to reliably render at all** -- thinner can land
+entirely between two pixel-centre sample points and paint nothing.
+This bound already covers the largest of ArchiLudo's four supported
+modes' pixel spacings, so it stays safe on mode 27's smaller 2-unit
+spacing too. See `riscos_wimp_reference.md`'s "Screen modes:
+non-square pixels and thin manually-drawn lines" section for the full
+underlying PRM-sampling explanation.
 
 ## Board and game rendering
 
@@ -268,8 +276,163 @@ circle for on-track pawns), with an `os_plot`-circle fallback if
 sprite loading ever fails. Two or more pawns of the same colour
 sharing one cell (a ring blockade, or free home-column manoeuvring)
 are nudged into 4 corner slots keyed by pawn index, not draw order, so
-all remain visible. See [GRAPHICS_TOOLING.md](GRAPHICS_TOOLING.md) for
-the sprite pipeline itself.
+all remain visible.
+
+### Current rendering approach
+
+**Pawns and dice are real sprites**, plotted via `Wimp_PlotIcon`
+(`assets/PawnSprite`) -- not `os_plot` primitives, and not a bare
+`osspriteop` call. Source art for these is drawn **square** and tagged
+mode 27 (`--mode 27` in `tools/riscos_sprite.py`, see
+[TOOLS.md](TOOLS.md)), rather than pre-squished for one specific
+non-square mode. `Wimp_PlotIcon`'s automatic `PutSpriteScaled` computes
+its scale factors from a sprite's own declared mode against whatever
+mode is actually live, so one correctly-tagged square sprite displays
+correctly under all four of ArchiLudo's supported modes (12/15/27/39)
+without needing per-mode art variants -- this is why mode 27 is the
+right choice for any *new* hand-drawn sprite in this project, not the
+non-square 12/15 family.
+
+**The app's own persistent Filer/iconbar icon** follows a different,
+narrower convention than in-game sprites: `!Sprites` (old-style mode
+15) and `!Sprites22` (old-style mode 21 or 27 depending on the asset,
+exactly double linear resolution of the base to compensate for the
+aspect difference) -- **not** `!Sprites11`, which uses new-style
+sprite mode encoding (RISC OS Select-era, well past 3.10, and not
+understood by genuine RISC OS 3.10). This convention applies only to
+the app's own icon, not to any in-game runtime-plotted sprite, which
+already auto-scales via `Wimp_PlotIcon` with no stored variants needed.
+
+### Sprite file format (RISC OS <=3.1 "old-style")
+
+Source: RISC OS 3 PRM, Volume 1, Chapter 22 "Sprites"
+(`~/riscos-dev/prm-mirror/sprites.html`).
+
+**File header (12 bytes)**:
+
+| Offset | Field |
+|---|---|
+| 0 | number of sprites |
+| 4 | offset to first sprite |
+| 8 | offset to first free byte |
+
+**Gotcha**: a saved sprite *file* is the in-memory sprite-area layout
+with its leading 4-byte "total size" word omitted -- but every offset
+inside the file is still expressed as if that word were present. So
+`real_file_offset = stored_offset - 4`. The PRM states this in prose
+but doesn't spell out the off-by-4 consequence for the two offset
+fields directly -- confirmed byte-for-byte against real sprite files
+(see "How the format was verified" below).
+
+**Sprite control block (44 bytes, then palette, then image, then mask)**:
+
+| Offset (from CB start) | Field |
+|---|---|
+| 0 | offset to next sprite (0 for the last one) |
+| 4-15 | name, up to 12 ASCII characters, zero-padded |
+| 16 | width in words, minus 1 |
+| 20 | height in scan lines, minus 1 |
+| 24 | first bit used (always 0 in this tool's output) |
+| 28 | last bit used (right end of the last row-word) |
+| 32 | offset to image data |
+| 36 | offset to mask data (equals the image offset if there's no mask) |
+| 40 | mode number (old-style; see below) |
+| 44... | palette, if bpp <= 8 |
+
+**Palette size is genuinely variable, not always `1 << bpp` entries.**
+Real 8bpp sprites (confirmed against several of Steve Fryatt's own
+app-icon sprites) very often have **zero** embedded palette entries at
+all, relying on the mode's own default. The correct way to determine
+palette entry count is to derive it from how many 8-byte entries
+actually fit between the fixed 44-byte header and the image-data offset
+(`(image_off - 44) // 8`) -- this also correctly handles the documented
+256-entry special case with no separate marker check needed. A
+palette-less sprite decodes to solid black by design (the documented
+"no colour information available" fallback), not a bug.
+
+Each palette entry is two identical 4-byte words (the format
+`OS_ReadPalette` returns), each `&BBGGRR00` (blue, green, red, then an
+unused low byte) -- **not** `&00RRGGBB`; getting this backwards
+produces a blue-tinted image.
+
+Image/mask data is stored row-by-row, top to bottom, each row padded to
+a whole number of 32-bit words. Within a word, the **least significant
+bits are the left-most pixel** -- pixel 0 goes in bits `0..bpp-1` of
+byte 0, pixel 1 in the next `bpp` bits, and so on.
+
+**Old-style mode numbers this project actually uses** (PRM Volume 4
+Chapter 95 "Table B: Modes", `~/riscos-dev/prm-mirror/modes.html`):
+
+| Mode | bpp | Pixels | OS units | OS units/pixel |
+|---|---|---|---|---|
+| 12 | 4 | 640x256 | 1280x1024 | 2x4 (non-square) |
+| 15 | 8 | 640x256 | 1280x1024 | 2x4 (non-square) |
+| 27 | 4 | 640x480 | 1280x960 | 2x2 (square) |
+| 39 | 4 | 896x352 | 1792x1408 | 2x4 (non-square, higher-res) |
+
+Arculator's own Mode selector for this project's profile only offers
+modes 12, 15, 27, and 39 -- ArchiLudo supports all four, not just 15.
+Modes 12/15/39 share the same non-square 2x4 OS-unit-per-pixel
+geometry; 27 is the square-pixel exception. `mode_to_bpp()`'s fallback
+table also recognises the square-pixel VGA family generally (modes
+25-28, 2x2 OS units/pixel: 25=1bpp, 26=2bpp, 27=4bpp, 28=8bpp) and the
+matching 2x4-family modes 20/21, since real external sprite files
+(ro-chess's shipped app) use these too.
+
+**How the format was verified**: rather than trust the PRM's prose
+alone for the trickier parts (the offset-minus-4 convention, palette
+word byte order, pixel bit order, variable palette size, and old-style
+mode numbers), this was checked against **real sprite files**: QTM
+v1.49's own distribution zip (`!QTMmini/Sprites`, 14 real iconbar icon
+sprites, parsed by hand in a Python REPL -- this is what exposed the
+offset-minus-4 convention concretely, and confirmed the palette
+byte-order and pixel-bit-order fixes); and Steve Fryatt's own
+`wimp-prog` tutorial example downloads (`WindowSpriteArea.zip`,
+`AppSprite.zip`, `ShapeChooser.zip`, `SpriteIcon.zip`,
+`TextAndSpriteIcon.zip`) plus ro-chess's real, shipped
+`!Chess/Sprites,ff9` -- every sprite in all five zips and the real
+ro-chess file parses without error, several non-trivial ones (multi-
+colour palettes, text, masked chess-piece artwork) round-tripped with
+**zero pixel differences**, and non-word-aligned widths were
+specifically checked for row-boundary artifacts (none found). This
+second pass is what found the variable-palette-size and missing-mode
+issues already folded into the format description above. Permanent
+regression coverage: `tools/test_riscos_sprite.py` (see
+[TOOLS.md](TOOLS.md)) reproduces both bug patterns with small
+hand-built synthetic sprite files, plus the non-word-aligned round-trip
+check.
+
+### Lasting gotchas for hand-drawn pixel art
+
+- **Dither/texture patterns must key on `y // 2`, not `y`**, for any
+  pixel art meant to look right on both square (mode 27) and non-square
+  (2x4, modes 12/15/39) screens -- RISC OS drops every other source row
+  when scaling between a sprite's tagged mode and a coarser live mode,
+  so a texture alternating per raw row can lose half its pattern
+  silently on the non-square modes. A checkerboard (50/50) dither for
+  pawn highlight regions read as solid diagonal stripes rather than a
+  blend at small icon sizes for a related reason -- see "Decisions made
+  and not revisited" below.
+- **Resizing hand-drawn pixel art must use `Image.NEAREST`**, not
+  `Image.BOX`/`LANCZOS`, for icon-sized hard-edged art -- smoothing
+  resizes produce halos, off-hue speckling at flat-colour boundaries,
+  and unpredictable per-output-size shape variance. Decide any dither
+  pattern at the *final* pixel grid, never a supersampled working
+  resolution.
+- **Leave real margin inside the working canvas before any outline
+  dilation runs**, or the dilated edge clips against the canvas
+  boundary itself (a flat/missing edge on whichever side has the least
+  margin). Handled generally via a `CONTENT_SCALE` shrink-toward-centre
+  applied to every drawn coordinate, not per-coordinate hand-tuning.
+- Fine graphic elements (dice pips, outlines) must be drawn **directly
+  at each output's own native resolution**, not drawn once at a shared
+  working resolution and resampled per output -- resampling ties the
+  exact rendered shape to each output's specific resize ratio.
+
+See [TOOLS.md](TOOLS.md) for the tools that produce and edit this
+project's sprite assets (`tools/riscos_sprite.py`, the `assets/
+generate_*.py` generators, and the `make export-sprites`/`import-
+sprites` hand-editing round-trip).
 
 ## AI design
 
@@ -279,9 +442,9 @@ highest, adapted from the original GeoLudo edition's own
 scoring, danger/escape distance math, and the win-check were all
 recomputed to be correct under this project's own rules rather than
 reusing the original's coincidentally-valid shortcuts. See
-[AI.md](AI.md) for the scoring weights in detail. Only
-`LUDO_AI_NORMAL` has real strategy; `EASY`/`HARD` are declared
-placeholders with no UI to select them per player.
+[AI.md](AI.md) for the scoring weights in detail. Three real
+difficulty tiers (Low/Medium/High, `LUDO_AI_EASY`/`NORMAL`/`HARD`),
+picked per AI-controlled player in the New Game dialogue.
 
 ## Save/load system
 
@@ -356,6 +519,28 @@ pipeline (`make zip`/`make disk`/`make deploy`/`make deploy-pibridge`).
   general RISC OS conventions should be checked against a real,
   already-working file on the actual test setup before being trusted
   for new build tooling.
+- **Pre-squished-canvas source art for one specific non-square mode**
+  (e.g. drawing at half height for mode 15, relying on that mode's own
+  2x/4x stretch) -- superseded by drawing square and tagging mode 27,
+  which lets `Wimp_PlotIcon` handle aspect compensation for every
+  supported mode automatically instead of committing to one (see
+  "Current rendering approach" above).
+- **A checkerboard (50/50) dither** for pawn highlight regions --
+  replaced with a sparser staggered dot grid for highlights
+  specifically, after the checkerboard read as solid diagonal stripes
+  rather than a blend at small icon sizes. The shadow region keeps the
+  full checkerboard, which was never reported as a problem there.
+- **A 16x-upscaled copy for hand-editing** the shipped sprites --
+  dropped as a footgun (edits to the native-resolution file were
+  silently discarded in favour of a stale upscaled copy). Editing is
+  native-resolution only -- see [TOOLS.md](TOOLS.md).
+- **Monochrome/high-contrast pawn rendering** for 1-bit-per-pixel
+  displays (pattern-filled pawns, matching the original GEOS edition's
+  own `monochromeflag` convention) -- proposed, not implemented,
+  deferred indefinitely.
+- **Reusing the original GEOS edition's own board-entry-marker
+  bitmaps** -- replaced with programmatically drawn circle+arrow
+  markers instead.
 
 ## Porting source: GeoLudo -> ArchiLudo
 

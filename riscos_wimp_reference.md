@@ -686,7 +686,7 @@ outline-stroked shape is ever reported as patchy or partially invisible,
 don't assume it's automatically safe — check it the same way.
 
 Found the hard way in ArchiLudo (see that project's
-`docs/GRAPHICS_TOOLING.md` for the full writeup): a player-colour
+`docs/ARCHITECTURE.md` for the full writeup): a player-colour
 swatch's outline using a 2-unit thickness was invisible specifically on
 its top/bottom
 edges (below the 4-unit vertical minimum) while its left/right edges

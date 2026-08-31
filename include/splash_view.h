@@ -16,7 +16,7 @@
  * The logo itself is drawn as a small grid of coloured `os_plot`
  * rectangles (see splash_view.c's `logo_rects[]`), not a sprite --
  * unlike the pawn/dice/icon art elsewhere in this project (see
- * `docs/GRAPHICS_TOOLING.md`'s "Current rendering approach" section),
+ * `docs/ARCHITECTURE.md`'s "Current rendering approach" section),
  * this logo is flat-colour blocky pixel art with no per-pixel detail a
  * primitive can't express, so there was no need to switch it over. The
  * rectangle data

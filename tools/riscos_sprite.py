@@ -5,9 +5,9 @@ ArchiLudo sprite tool
 
 Summary: A from-scratch CLI for converting between PNG images and old-style
 (RISC OS <=3.1) Sprite files, since no existing PC-side tool for this was
-found (see docs/GRAPHICS_TOOLING.md) and RISC OS's own PNG-aware module
-(ConvertPNG) postdates RISC OS 3.10 and isn't available on this project's
-real target hardware.
+found (see docs/ARCHITECTURE.md's "Board and game rendering" section) and
+RISC OS's own PNG-aware module (ConvertPNG) postdates RISC OS 3.10 and
+isn't available on this project's real target hardware.
 
 Sprite file/area and sprite control block layout is taken from the RISC OS
 3 Programmer's Reference Manual, Volume 1, Chapter 22 "Sprites" (local
@@ -17,7 +17,8 @@ virtual 4-byte-earlier position" quirk documented there (a sprite FILE
 omits the in-memory area header's leading "total size" word, but every
 offset inside the file is still expressed as if that word were present)
 was additionally verified byte-for-byte against real sprite files bundled
-with QTM v1.49 (c) Steve Harrison -- see tools/README.md for how.
+with QTM v1.49 (c) Steve Harrison -- see docs/ARCHITECTURE.md's "How the
+format was verified" section for how.
 
 Syntax:
     riscos_sprite.py info <spritefile>
@@ -27,8 +28,8 @@ Syntax:
                      [--wimp-palette]
     riscos_sprite.py pack <output-spritefile> <input-spritefile>...
 
-See docs/GRAPHICS_TOOLING.md for the full writeup of the format and the
-tool's design.
+See docs/TOOLS.md for full usage and docs/ARCHITECTURE.md for the
+sprite format/rendering-approach writeup this tool's design follows.
 """
 
 import argparse
@@ -41,22 +42,24 @@ try:
 except ImportError:
     sys.exit("This tool needs Pillow: pip install Pillow")
 
-# Old-style RISC OS screen/sprite mode numbers, by bits-per-pixel.
+# Old-style RISC OS screen/sprite mode numbers, by bits-per-pixel --
+# used as this tool's own --mode DEFAULT when --mode isn't given
+# explicitly, not a hard restriction (any old-style mode number is
+# still accepted via --mode).
 #
 # Picked from Volume 4 Chapter 95 "Table B: Modes" (local mirror:
-# ~/riscos-dev/prm-mirror/modes.html): all four are 640x256 pixels at
-# 1280x1024 OS units -- 2x4 OS units per pixel, i.e. pixels twice as TALL
-# as wide, non-square. ArchiLudo targets mode 15 (this project's chosen
-# 256-colour screen mode -- it's the normal RISC OS desktop mode, and mode
-# 13's square pixels turned out not to be worth chasing: it wasn't even
-# selectable under the user's Arculator monitor-type setup). These modes
-# all have non-square (2x4 OS units/pixel) geometry; a sprite tagged with
-# one of them must either be drawn on a pre-squished canvas to compensate
-# (see assets/generate_placeholder_art.py's MODE15_OS_UNITS_PER_PIXEL) or,
-# this project's current preferred approach for new sprite art, be drawn
-# square and tagged mode 27 instead, letting Wimp_PlotIcon's own scaling
-# handle the aspect automatically -- see docs/GRAPHICS_TOOLING.md's
-# "Current rendering approach" section.
+# ~/riscos-dev/prm-mirror/modes.html): these default modes are all
+# 640x256 pixels at 1280x1024 OS units -- 2x4 OS units per pixel, i.e.
+# pixels twice as TALL as wide, non-square. ArchiLudo itself supports
+# all four modes Arculator's own Mode selector offers for its profile
+# (12, 15, 27, 39, see docs/ARCHITECTURE.md's "Screen modes and
+# non-square pixels" section) and, for any *new* hand-drawn sprite,
+# prefers drawing square art and passing --mode 27 explicitly (the one
+# square-pixel mode in that set) rather than relying on one of these
+# non-square defaults -- letting Wimp_PlotIcon's own scaling handle
+# every mode's aspect automatically instead of pre-squishing for one
+# specific mode. See docs/ARCHITECTURE.md's "Current rendering
+# approach" section for the full reasoning.
 MODES_BY_BPP = {
     1: 0,   # 2 colours,   2x4 OS units
     2: 8,   # 4 colours,   2x4 OS units
@@ -394,7 +397,7 @@ def write_sprite_file(path, name, image, bpp, mode, mask_alpha_threshold,
         cb += bytes(mask_bytes)
 
     # File header: count=1, offsets stored relative to the omitted 4-byte
-    # "total size" word (see module docstring / docs/GRAPHICS_TOOLING.md).
+    # "total size" word (see module docstring / docs/ARCHITECTURE.md).
     header = struct.pack("<3I", 1, 12 + 4, 12 + len(cb) + 4)
     Path(path).write_bytes(header + cb)
 

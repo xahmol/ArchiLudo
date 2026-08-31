@@ -492,7 +492,7 @@ int main(int argc, char *argv[])
 	 * (see ArchieSDK's crt0.s) hands back the full pathname the program was
 	 * invoked as (e.g. "HostFS:$.ArchiLudo"), unlike Unix where a bare
 	 * relative command name is common. game_view_initialise() uses this to
-	 * build absolute paths for "Sprites" and its debug log, rather than
+	 * build absolute paths for "PawnSprite" and its debug log, rather than
 	 * relying on the current selected directory (CSD) at launch time,
 	 * which is not reliable here -- see docs/ARCHITECTURE.md's "WIMP
 	 * conventions and gotchas" section. */

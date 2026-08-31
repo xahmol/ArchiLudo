@@ -54,12 +54,9 @@
  *
  * The WIMP-side board window: creation, redraw (board cells + pawns),
  * and mouse click handling, all driven by src/game_logic.c's state via
- * src/board_layout.c's grid mapping. This is the Phase 1 placeholder
- * presentation (see docs/ARCHITECTURE.md's Roadmap) -- board cells are
- * plotted as flat colour-filled rectangles and pawns as the small
- * placeholder sprites from assets/Sprites (see
- * assets/generate_placeholder_art.py); Phase 2 replaces the art without
- * needing to change this module's structure.
+ * src/board_layout.c's grid mapping. Board cells are `os_plot`
+ * primitives; pawns are real sprites (`assets/PawnSprite`, see
+ * docs/ARCHITECTURE.md's "Current rendering approach" section).
  *
  * Kept separate from src/main.c so main.c stays the thin task-lifecycle
  * shell (Wimp_Initialise / Wimp_Poll loop / iconbar / Message_Quit) while
@@ -73,7 +70,7 @@
  * Syntax:  void game_view_initialise(const char *argv0);
  * Input:   argv0 - main()'s argv[0], the full RISC OS pathname the
  *                  program was invoked as (e.g. "HostFS:$.ArchiLudo").
- *                  Used to build absolute paths for "Sprites" and the
+ *                  Used to build absolute paths for "PawnSprite" and the
  *                  debug log, since the current selected directory at
  *                  launch isn't reliable -- see docs/ARCHITECTURE.md's
  *                  "WIMP conventions and gotchas" section.

@@ -193,7 +193,8 @@ typedef enum {
 
 /* Player order/colours match /home/xahmol/git/ludo/GEOS/src/main.c's
  * startfieldgraphics comments exactly (see docs/BOARD_LAYOUT.md) -- must
- * also match PLAYER_COLOURS in assets/generate_placeholder_art.py. */
+ * also match PLAYER_WIMP_COLOUR/PLAYER_NAMES in
+ * assets/generate_icon_sprites.py. */
 static const int player_rgb[LUDO_PLAYERS][3] = {
 	{ 30, 160, 60 },   /* 0: green */
 	{ 220, 30, 30 },   /* 1: red */
@@ -562,7 +563,7 @@ static void load_pawn_sprites(void)
 
 	/* +4: the in-memory area control block has a leading "total size"
 	 * word the sprite FILE itself omits -- see tools/riscos_sprite.py's
-	 * module docstring / docs/GRAPHICS_TOOLING.md for the same
+	 * module docstring / docs/ARCHITECTURE.md for the same
 	 * offset-minus-4 convention on the reading side. */
 	pawn_sprite_area = malloc((size_t) size + 4);
 	if (pawn_sprite_area == NULL) {
@@ -683,7 +684,7 @@ static void fill_window_background(int x0, int y0, int x1, int y1)
  * Summary: Plot a filled or outline circle in the current foreground
  *          colour, centred at (cx, cy) with the given radius, all in OS
  *          units -- mode-independent, unlike sprite plotting (see
- *          docs/GRAPHICS_TOOLING.md's "Sprite file format" section on
+ *          docs/ARCHITECTURE.md's "Sprite file format" section on
  *          non-square pixel modes). Per the RISC
  *          OS 3 PRM's os_plot summary (~/riscos-dev/prm-mirror/vdu.html):
  *          "Move to centre. Plot circle to point on the circumference."

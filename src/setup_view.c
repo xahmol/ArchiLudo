@@ -69,7 +69,7 @@
  * only use this fixed palette for their fill colour, unlike the custom
  * os_plot/colourtrans drawing game_view.c's board uses. Must stay in the
  * same green/red/blue/yellow order as game_view.c's player_rgb and
- * assets/generate_placeholder_art.py's PLAYER_COLOURS. */
+ * assets/generate_icon_sprites.py's PLAYER_WIMP_COLOUR. */
 static const wimp_colour swatch_colour[LUDO_PLAYERS] = {
 	wimp_COLOUR_DARK_GREEN,
 	wimp_COLOUR_RED,

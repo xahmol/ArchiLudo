@@ -12,8 +12,8 @@ Two of these tests lock in bugs found and fixed by hand-validating this
 tool against real, genuine RISC OS sprite files (Steve Fryatt's wimp-prog
 tutorial example downloads, and ro-chess's actual Sprites,ff9), per
 explicit user request to verify the tool bitwise-correctly before trusting
-it for the sprite pivot -- see docs/GRAPHICS_TOOLING.md's write-up of that
-session for the full story. Those external files aren't vendored into
+it -- see docs/ARCHITECTURE.md's "How the format was verified" section
+for the full story. Those external files aren't vendored into
 this repo (third-party downloads), so the regressions are reproduced here
 with small hand-built synthetic sprite files that exercise the exact same
 structural pattern instead.

@@ -359,7 +359,6 @@ build/ReadMe,fff: README.md tools/riscos_readme.py | build
 	python3 tools/riscos_readme.py README.md "$@"
 
 assets:
-	python3 assets/generate_placeholder_art.py
 	python3 assets/generate_icon_sprites.py
 	python3 assets/generate_app_icon.py
 

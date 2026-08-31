@@ -145,14 +145,23 @@ for its structure).
 ArchiLudo hasn't cut discrete numbered releases yet -- this is a
 milestone-level history of what's been built, newest first.
 
-- **Cleanup**: removed dead code (a vestigial, never-actually-used
-  sample-format conversion path in `lib/qtm.c`, and the 6 one-shot SFX
+- **Documentation restructuring**: a new [`TOOLS.md`](docs/TOOLS.md)
+  manual now covers every standalone `tools/`/`assets/*.py` script
+  (usage, requirements, gotchas) in one place; `GRAPHICS_TOOLING.md`'s
+  sprite-format/rendering-approach content moved into
+  [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) instead of staying a
+  separate file, and `BUILDCHAIN.md` now points to `TOOLS.md` rather
+  than duplicating each script's own mechanics.
+- **Cleanup**: removed dead code -- a vestigial, never-actually-used
+  sample-format conversion path in `lib/qtm.c` and the 6 one-shot SFX
   files it was the only reason to ship separately in the app directory
-  -- they're embedded into the music tracks' own MOD sample tables
-  now, not shipped standalone). Debug file-logging (`debug_log()`) is
-  now an opt-in build flag (`make DEBUG_LOG=1`) rather than always
-  compiled in, so a default build carries none of its tracing strings
-  or per-call file I/O.
+  (embedded into the music tracks' own MOD sample tables now, not
+  shipped standalone); and a whole superseded pawn/dice art generator
+  (`assets/generate_placeholder_art.py`) whose output nothing actually
+  loaded any more, found while writing `TOOLS.md`. Debug file-logging
+  (`debug_log()`) is now an opt-in build flag (`make DEBUG_LOG=1`)
+  rather than always compiled in, so a default build carries none of
+  its tracing strings or per-call file I/O.
 - **Captured-pawn animation**: a displaced pawn (capture, own-pawn
   collision) now slides back to its home base instead of teleporting
   there instantly; the capture SFX was also replaced with a more
@@ -255,8 +264,8 @@ structure, porting notes),
 [`BOARD_LAYOUT.md`](docs/BOARD_LAYOUT.md) (board geometry),
 [`AI.md`](docs/AI.md) (AI design),
 [`QTM.md`](docs/QTM.md) (music/SFX manual and audio API),
-[`GRAPHICS_TOOLING.md`](docs/GRAPHICS_TOOLING.md) (sprite converter and
-RISC OS sprite format),
+[`TOOLS.md`](docs/TOOLS.md) (every standalone asset/build tool, its
+usage, and gotchas),
 [`BUILDCHAIN.md`](docs/BUILDCHAIN.md) (toolchain, Makefile, distribution),
 [`OSLIB.md`](docs/OSLIB.md) and [`LIBARCHIE.md`](docs/LIBARCHIE.md)
 (the libraries this project builds against); plus
