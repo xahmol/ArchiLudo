@@ -334,6 +334,7 @@ build/README.pdf,adf: README.pdf | build
 	cp "$<" "$@"
 
 zip: $(APPFILES) build/README.pdf,adf build/ReadMe,fff
+	rm -f "$(ZIPFILE_ABS)"
 	cd build && $(ARCHIEZIP) -r -, "$(ZIPFILE_ABS)" "!$(APPNAME)"
 	$(ARCHIEZIP) -j -, "$(ZIPFILE_ABS)" "build/README.pdf,adf" "build/ReadMe,fff"
 
