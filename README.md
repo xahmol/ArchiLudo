@@ -145,6 +145,19 @@ for its structure).
 ArchiLudo hasn't cut discrete numbered releases yet -- this is a
 milestone-level history of what's been built, newest first.
 
+- **Cleanup**: removed dead code (a vestigial, never-actually-used
+  sample-format conversion path in `lib/qtm.c`, and the 6 one-shot SFX
+  files it was the only reason to ship separately in the app directory
+  -- they're embedded into the music tracks' own MOD sample tables
+  now, not shipped standalone). Debug file-logging (`debug_log()`) is
+  now an opt-in build flag (`make DEBUG_LOG=1`) rather than always
+  compiled in, so a default build carries none of its tracing strings
+  or per-call file I/O.
+- **Captured-pawn animation**: a displaced pawn (capture, own-pawn
+  collision) now slides back to its home base instead of teleporting
+  there instantly; the capture SFX was also replaced with a more
+  expressive sound after two earlier tries read as too quiet or too
+  flat in live testing -- see [QTM.md](docs/QTM.md).
 - **Full placement flow**: a win screen (with fanfare) now appears for
   every player who finishes, not just the first -- "WINS!" for 1st,
   "ended 2nd/3rd/4th" for the rest, each offering Continue (except the

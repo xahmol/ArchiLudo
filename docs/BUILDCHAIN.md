@@ -131,6 +131,19 @@ ifneq ($(NEEDS_ARCHIESDK),)
 endif
 ```
 
+**`make DEBUG_LOG=1`** enables `debug_log()` (`src/game_view.c`/
+`lib/qtm.c`'s "Log" file tracing, see CLAUDE.md's Testing section) by
+adding `-DARCHILUDO_DEBUG_LOG` to `CFLAGS`. Off by default -- every
+`debug_log()` call site compiles to a no-op macro that never even
+evaluates its own arguments, not just a runtime-skipped call, so a
+default build carries none of the tracing strings or per-call file
+I/O. A regular `make`/`make all` (without `DEBUG_LOG=1`) after a
+`DEBUG_LOG=1` build picks the no-logging path back up automatically,
+same as any other `-D` flag change -- just needs the usual `make
+clean` first if object files from the other configuration are still
+lying around, since neither invocation's `.o`s know the other's flags
+changed.
+
 ### Host test build (`make test`)
 
 ```

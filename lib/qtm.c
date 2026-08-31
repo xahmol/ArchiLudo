@@ -3,8 +3,7 @@
  * See include/qtm.h for the module overview and API docs, and
  * docs/QTM.md for the full research/design writeup this is built from
  * (SWI numbers confirmed against a real working ArchieSDK example and
- * the RISC OS Open forum; the sample-format handling confirmed against
- * the RISC OS 3 PRM's own Sound_SoundLog entry).
+ * the RISC OS Open forum).
  */
 
 #include <stdio.h>
@@ -15,7 +14,6 @@
 #include <kernel.h>
 
 #include "oslib/os.h"
-#include "oslib/sound.h"
 
 #include "qtm.h"
 #include "game_view.h"
@@ -35,7 +33,8 @@
 #define QTM_SWI_STOP             0x47e42
 #define QTM_SWI_CLEAR            0x47e44
 #define QTM_SWI_SOUND_CONTROL    0x47e58
-#define QTM_SWI_PLAY_RAW_SAMPLE  0x47e57
+/* QTM_PlayRawSample (0x47e57) is deliberately NOT defined here -- see
+ * the "abandoned entirely" comment below; no code calls it. */
 /* Plays a sample already embedded in the CURRENTLY LOADED MOD's own
  * sample table, by slot index -- see sfx_slot[][] below and
  * tools/mod_embed_sfx.py. Register convention confirmed against QTM's
@@ -64,27 +63,18 @@
  * program) traced the mechanism to a pitch-shifted resampling read
  * that runs unbounded past the sample buffer whenever real playback is
  * attempted, with no working parameter combination found. Do not
- * reintroduce this SWI for SFX. Sample loading/conversion
- * (load_one_sample()/load_all_samples() below) is left in place --
- * harmless, but unused by the actual playback path (qtm_play_sfx()
- * plays from the MOD-embedded samples instead). QTM_SFX_NOTE and
- * QTM_SAMPLE_PAD below are specific to this abandoned approach;
- * QTM_SFX_PERIOD is still used by the live QTM_PlaySample path. */
-#define QTM_SFX_NOTE   18  /* 3-octave note (1-36) -- QTM_PlayRawSample only */
+ * reintroduce this SWI for SFX -- the working, live mechanism is SFX
+ * embedded as MOD instrument samples, triggered via QTM_PlaySample
+ * (played from the currently-loaded MOD's own sample table, not a
+ * standalone buffer at all). The sample loading/8-bit VIDC-log
+ * conversion machinery this abandoned approach needed (reading
+ * assets/audio/Sfx* at startup, Sound_SoundLog) has been removed
+ * entirely, not just left unused -- see git history if it's ever
+ * needed for reference. */
 #define QTM_SFX_PERIOD 322 /* Amiga period for all 6 bundled SFX, which share
                              * a uniform 11025Hz sample rate:
                              * 3546895/11025 = 321.7, rounded to 322 */
-#define QTM_SAMPLE_PAD 64  /* trailing safety padding, bytes -- for the
-                             * VIDC-log conversion path (load_one_sample()),
-                             * not the live QTM_PlaySample playback */
-typedef struct {
-	unsigned char *data; /* malloc()'d 8-bit VIDC-log buffer, NULL if this
-	                       * sample failed to load (missing file, out of
-	                       * memory) -- qtm_play_sfx() silently skips it. */
-	int length;           /* bytes */
-} qtm_sample;
 
-static qtm_sample samples[QTM_SFX_COUNT];
 static int qtm_ok = 0;
 static int music_enabled = 1;
 static int music_track = 0;
@@ -146,19 +136,19 @@ static const unsigned char sfx_channel[QTM_SFX_COUNT] = {
 	6, /* QTM_SFX_WIN */
 };
 
-/* One filename per qtm_sfx value, in enum order -- see include/qtm.h's
- * own doc comment on qtm_sfx for what each maps to. */
-static const char *const sfx_leafname[QTM_SFX_COUNT] = {
-	"SfxDice", "SfxRelease", "SfxMove", "SfxCapture", "SfxHome", "SfxWin"
-};
-
 /*
  * Function: debug_log (internal)
  * Summary: Append one line to the same "Log" file game_view.c's own
  *          debug_log() writes to (this project's established
  *          non-interactive tracing convention) -- a separate copy since
  *          that one is static to game_view.c.
+ *
+ *          Compiled out entirely (to a no-op that never even evaluates
+ *          its own arguments) unless built with `make DEBUG_LOG=1` --
+ *          see the Makefile's own ARCHILUDO_DEBUG_LOG comment and
+ *          game_view.c's own debug_log() doc comment.
  */
+#ifdef ARCHILUDO_DEBUG_LOG
 static void debug_log(const char *fmt, ...)
 {
 	const char *dir = game_view_app_dir();
@@ -180,6 +170,9 @@ static void debug_log(const char *fmt, ...)
 	va_end(args);
 	fclose(f);
 }
+#else
+#define debug_log(...) ((void) 0)
+#endif
 
 /*
  * Function: build_asset_path (internal)
@@ -196,137 +189,6 @@ static void build_asset_path(const char *leaf, char *out, size_t out_size)
 		snprintf(out, out_size, "%s.%s", dir, leaf);
 	else
 		snprintf(out, out_size, "%s", leaf);
-}
-
-/*
- * Function: load_one_sample (internal)
- * Summary: Read one bundled raw 16-bit signed mono PCM file and convert
- *          it, sample by sample, to the 8-bit VIDC-logarithmic format
- *          QTM_PlayRawSample requires, via the RISC OS Sound system's own
- *          Sound_SoundLog SWI (oslib/sound.h's sound_sound_log()) -- see
- *          docs/QTM.md's "Sample format" section for why this runs at
- *          startup rather than shipping pre-converted files. Leaves
- *          samples[sfx] untouched (data stays NULL) on any failure --
- *          qtm_play_sfx() then just silently skips that effect.
- */
-static void load_one_sample(qtm_sfx sfx)
-{
-	char path[300];
-	FILE *f;
-	long size;
-	int n, i;
-	short *pcm16;
-	unsigned char *log8;
-
-	build_asset_path(sfx_leafname[sfx], path, sizeof(path));
-
-	f = fopen(path, "rb");
-	if (f == NULL) {
-		debug_log("qtm load_one_sample: sfx=%d path=\"%s\" fopen failed\n",
-		          (int) sfx, path);
-		return;
-	}
-
-	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	fseek(f, 0, SEEK_SET);
-
-	n = (int) (size / (long) sizeof(short));
-	if (n <= 0) {
-		fclose(f);
-		debug_log("qtm load_one_sample: sfx=%d path=\"%s\" empty (size=%ld)\n",
-		          (int) sfx, path, size);
-		return;
-	}
-
-	pcm16 = malloc((size_t) n * sizeof(short));
-	/* +QTM_SAMPLE_PAD bytes of trailing padding -- confirmed live via
-	 * Arculator's own debugger (breaking on the data abort and
-	 * disassembling at the exact reported fault address) that
-	 * QTM_PlayRawSample's abandoned playback path (see the top of this
-	 * file) crashed via a classic pitch-shifted resampling read past
-	 * the end of the sample buffer:
-	 *
-	 *   ADD  R1, R1, R2            ; R1 += pitch step (fixed-point pos.)
-	 *   LDRB R6, [R0, R1 ASR #12]  ; read source byte at (R1>>12) -- faults
-	 *   STRB R6, [R12], R11        ; write to output
-	 *
-	 * QTM_PlayRawSample's own internal resampler needs to read slightly
-	 * past the sample's logical end for interpolation, exactly like
-	 * Amiga ProTracker's own sample format requires -- not a bug in the
-	 * SWI call itself (the buffer was simply too short for what a
-	 * pitch-shifted player legitimately needs to read). The padding is
-	 * zero-filled below (silence) so any overshoot read stays harmless.
-	 * R2 to QTM_PlayRawSample stays the real sample length `n` --
-	 * padding is memory safety margin only, not extra audible data.
-	 * This whole code path is dead (see top of file) but left intact. */
-	log8 = malloc((size_t) n + QTM_SAMPLE_PAD);
-	if (pcm16 == NULL || log8 == NULL) {
-		debug_log("qtm load_one_sample: sfx=%d path=\"%s\" malloc failed "
-		          "(n=%d, pcm16=%s, log8=%s)\n",
-		          (int) sfx, path, n, pcm16 ? "ok" : "NULL", log8 ? "ok" : "NULL");
-		free(pcm16);
-		free(log8);
-		fclose(f);
-		return;
-	}
-
-	fread(pcm16, sizeof(short), (size_t) n, f);
-	fclose(f);
-
-	/* Shift each 16-bit sample up into the top of Sound_SoundLog's own
-	 * "32-bit signed integer" input range -- the SWI's PRM entry doesn't
-	 * give an explicit expected input scale, so this uses the full
-	 * available dynamic range rather than passing the raw 16-bit value
-	 * (which would only exercise a tiny fraction of the log curve and
-	 * come out far too quiet) -- the standard <<16 convention for
-	 * feeding a 16-bit source into this call. Worth an ear-check on real
-	 * hardware/Arculator; see docs/QTM.md. */
-	for (i = 0; i < n; i++)
-		log8[i] = (unsigned char) sound_sound_log(((int) pcm16[i]) << 16);
-
-	/* Pad with genuine VIDC-log silence -- see the QTM_SAMPLE_PAD
-	 * allocation comment above. Queried via sound_sound_log(0) rather
-	 * than assumed to be byte value 0: standard mu-law-family encodings
-	 * don't necessarily map linear silence to an all-zero byte, so any
-	 * resampler overshoot into this region plays back as genuine
-	 * silence, not a stray click from an unverified guess. */
-	memset(log8 + n, (unsigned char) sound_sound_log(0), QTM_SAMPLE_PAD);
-
-	free(pcm16);
-	samples[sfx].data = log8;
-	samples[sfx].length = n;
-
-	debug_log("qtm load_one_sample: sfx=%d path=\"%s\" n=%d data=&%08x\n",
-	          (int) sfx, path, n, (unsigned) (void *) log8);
-}
-
-/*
- * Function: load_all_samples (internal)
- * Summary: load_one_sample() for every qtm_sfx, bracketed by pinning the
- *          system sound volume to maximum and restoring it afterwards --
- *          the RISC OS 3 PRM's own Sound_SoundLog entry states its
- *          output "is scaled according to the current volume setting",
- *          so converting at a fixed, known volume keeps the resulting
- *          bytes consistent regardless of whatever the user's own system
- *          volume happens to be at startup. This conversion feeds the
- *          abandoned QTM_PlayRawSample path only (see the top of this
- *          file) -- the live SFX path's own loudness is controlled at
- *          build time instead, see docs/QTM.md's "Loudness
- *          normalization" section.
- */
-static void load_all_samples(void)
-{
-	int saved_volume;
-	int i;
-
-	saved_volume = sound_volume(0); /* R0=0 => inspect only, returns current */
-	sound_volume(127);              /* PRM: valid range is 1-127 */
-
-	for (i = 0; i < QTM_SFX_COUNT; i++)
-		load_one_sample((qtm_sfx) i);
-
-	sound_volume(saved_volume);
 }
 
 /*
@@ -444,12 +306,11 @@ void qtm_initialise(void)
 	 * 5-8 -- see QTM_SoundControl's own doc entry). R2 must be -1 per the
 	 * docs ("reserved").
 	 *
-	 * Called AFTER load_all_samples()/start_track() below, not before --
-	 * QTM_Load appears to re-derive the *active* channel count from the
-	 * loaded song's own format tag (all of ArchiLudo's MODs are
-	 * 4-channel, "M.K."), overriding a channel-count setting made
-	 * before that load; calling after start_track() avoids this. */
-	load_all_samples();
+	 * Called AFTER start_track() below, not before -- QTM_Load appears
+	 * to re-derive the *active* channel count from the loaded song's
+	 * own format tag (all of ArchiLudo's MODs are 4-channel, "M.K."),
+	 * overriding a channel-count setting made before that load; calling
+	 * after start_track() avoids this. */
 
 	/* The song is always loaded and started, regardless of
 	 * music_enabled -- see qtm_set_music_enabled()'s own comment for
@@ -467,6 +328,8 @@ void qtm_initialise(void)
 		regs.r[1] = -1;
 		regs.r[2] = -1;
 		cerr = _kernel_swi(QTM_SWI_SOUND_CONTROL, &regs, &regs);
+		(void) cerr; /* only read by debug_log() below, which compiles
+		              * away entirely in a release build */
 		debug_log("qtm_initialise: QTM_SoundControl in(r0=8 r1=-1 r2=-1) -> "
 		          "err=%s out(r0=%d r1=%d)\n",
 		          cerr ? cerr->errmess : "(none)", regs.r[0], regs.r[1]);
@@ -482,6 +345,8 @@ void qtm_initialise(void)
 		memset(&regs, 0, sizeof(regs));
 		regs.r[0] = 64;
 		verr = _kernel_swi(QTM_SWI_SAMPLE_VOLUME, &regs, &regs);
+		(void) verr; /* only read by debug_log() below, which compiles
+		              * away entirely in a release build */
 		debug_log("qtm_initialise: QTM_SampleVolume in(r0=64) -> err=%s out(r0=%d)\n",
 		          verr ? verr->errmess : "(none)", regs.r[0]);
 	}
@@ -644,6 +509,8 @@ void qtm_play_sfx(qtm_sfx sfx)
 	regs.r[2] = QTM_SFX_PERIOD;
 	regs.r[3] = 64;
 	err = _kernel_swi(QTM_SWI_PLAY_SAMPLE, &regs, &regs);
+	(void) err; /* only read by debug_log() below, which compiles away
+	             * entirely in a release build */
 	debug_log("qtm_play_sfx: QTM_PlaySample sfx=%d track=%d slot=%d "
 	          "in(r0=%d r1=%d r2=%d r3=64) -> err=%s "
 	          "out(r0=%d r1=%d r2=%d r3=%d)\n",

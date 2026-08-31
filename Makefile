@@ -81,6 +81,20 @@ CFLAGS += -Iinclude \
           -MMD -MP \
           -DVERSION="\"$(VERSION)\""
 
+# debug_log() (src/game_view.c, lib/qtm.c) writes a plain-text "Log" file
+# in the app directory on every call -- invaluable for non-interactive
+# tracing (Arculator has no other option, see CLAUDE.md's Testing
+# section) but not something a release build should ship doing by
+# default (needless disk I/O on every redraw/click/animation tick, and
+# an ever-growing Log file on the user's own machine). Off by default;
+# build with `make DEBUG_LOG=1` to enable it for a debugging session --
+# compiles debug_log() out to a no-op entirely (not just a runtime
+# check) when unset, per explicit user request that release builds not
+# ship with logging enabled.
+ifdef DEBUG_LOG
+CFLAGS += -DARCHILUDO_DEBUG_LOG
+endif
+
 # Sources: every .c under src/, plus every .c under lib/ (dedicated SWI-
 # wrapper libraries, e.g. lib/qtm.c -- see CLAUDE.md's "lib/<name>.c"
 # convention), one .o per source under build/.
@@ -106,16 +120,16 @@ ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
 APPDIR    = build/!$(APPNAME)
 RUNIMAGE  = $(APPDIR)/!RunImage,ff8
 # QTMModule (,ffa -- Module filetype) plus the bundled music
-# (Music1/Music2/Music3, ProTracker .mod data) and sample-effect (Sfx* --
-# raw 16-bit PCM, converted to
-# QTM's own format at runtime, see lib/qtm.c) files, all ,ffd (Data) like
-# this project's own save files -- see docs/QTM.md.
+# (Music1/Music2/Music3, ProTracker .mod data, ,ffd Data like this
+# project's own save files) -- see docs/QTM.md. The 6 one-shot SFX
+# (assets/audio/Sfx*) are NOT shipped as separate app-directory files --
+# they're embedded directly into Music1/2/3's own MOD sample tables at
+# build time (tools/mod_embed_sfx.py) and played from there via
+# QTM_PlaySample, so they're build-time inputs only, not runtime assets.
 APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
             $(APPDIR)/!Sprites22,ff9 $(APPDIR)/PawnSprite,ff9 \
             $(APPDIR)/QTMModule,ffa $(APPDIR)/Music1,ffd $(APPDIR)/Music2,ffd \
-            $(APPDIR)/Music3,ffd \
-            $(APPDIR)/SfxDice,ffd $(APPDIR)/SfxRelease,ffd $(APPDIR)/SfxMove,ffd \
-            $(APPDIR)/SfxCapture,ffd $(APPDIR)/SfxHome,ffd $(APPDIR)/SfxWin,ffd
+            $(APPDIR)/Music3,ffd
 
 TEST_BINS = build/test_game_logic build/test_board_layout build/test_ai
 
@@ -173,24 +187,6 @@ $(APPDIR)/Music2,ffd: assets/audio/Music2 | $(APPDIR)
 $(APPDIR)/Music3,ffd: assets/audio/Music3 | $(APPDIR)
 	cp "$<" "$@"
 
-$(APPDIR)/SfxDice,ffd: assets/audio/SfxDice | $(APPDIR)
-	cp "$<" "$@"
-
-$(APPDIR)/SfxRelease,ffd: assets/audio/SfxRelease | $(APPDIR)
-	cp "$<" "$@"
-
-$(APPDIR)/SfxMove,ffd: assets/audio/SfxMove | $(APPDIR)
-	cp "$<" "$@"
-
-$(APPDIR)/SfxCapture,ffd: assets/audio/SfxCapture | $(APPDIR)
-	cp "$<" "$@"
-
-$(APPDIR)/SfxHome,ffd: assets/audio/SfxHome | $(APPDIR)
-	cp "$<" "$@"
-
-$(APPDIR)/SfxWin,ffd: assets/audio/SfxWin | $(APPDIR)
-	cp "$<" "$@"
-
 build:
 	@$(MKDIR) build 2>$(NULLDEV) ; true
 
@@ -227,6 +223,16 @@ deploy: check-hostfs $(APPFILES)
 	# above) -- remove the old 11-character name from inside the app
 	# directory itself so a stale copy doesn't linger alongside the new one.
 	rm -f "$(ARCULATOR_HOSTFS)/!$(APPNAME)/PawnSprites,ff9"
+	# The 6 one-shot SFX used to be shipped as separate app-directory
+	# files -- now embedded into Music1/2/3's own MOD sample tables
+	# instead (see APPFILES comment above), so remove any stale copies
+	# an earlier deploy left behind.
+	rm -f "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxDice,ffd" \
+	      "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxRelease,ffd" \
+	      "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxMove,ffd" \
+	      "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxCapture,ffd" \
+	      "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxHome,ffd" \
+	      "$(ARCULATOR_HOSTFS)/!$(APPNAME)/SfxWin,ffd"
 
 # Password auth via sshpass (matching how the user already connects with
 # FileZilla over SFTP, rather than SSH keys) -- SSHPASS is passed as an

@@ -139,6 +139,15 @@
  * (start cell + up to 6 steps) -- see start_move_animation(). */
 #define MOVE_ANIM_MAX_PATH 7
 
+/* Capture/collision return-to-base animation: a single straight-line
+ * hop, not a segment-per-board-square track -- see capture_anim_count's
+ * own doc comment for why. A bit slower than one ordinary move segment
+ * (MOVE_ANIM_TICKS_PER_CELL) so it reads as its own distinct "sent
+ * home" beat rather than blurring into the tail of the move that
+ * caused it. */
+#define CAPTURE_ANIM_TICKS   6
+#define CAPTURE_ANIM_STEP_CS 4
+
 /* How often game_view_poll_idle() re-checks the pointer position for
  * hover highlighting -- cheap, but no need on literally every single
  * Null_Reason_Code poll. */
@@ -297,13 +306,17 @@ static int game_paused(void)
  * STEP_ROLLING/STEP_MOVING run a short cosmetic animation (see
  * start_roll_animation()/start_move_animation()) before the real,
  * already-determined result is revealed; both apply equally to human and
- * AI turns.
+ * AI turns. STEP_CAPTURE_MOVING is a second, shorter animation that
+ * follows STEP_MOVING when the just-completed move displaced any other
+ * pawn(s) (a capture, an own-pawn collision) -- see resolve_move() and
+ * capture_anim_count's own doc comment below.
  */
 typedef enum {
 	STEP_IDLE,
 	STEP_AWAIT_CONTINUE,
 	STEP_ROLLING,
-	STEP_MOVING
+	STEP_MOVING,
+	STEP_CAPTURE_MOVING
 } turn_step;
 
 static turn_step step = STEP_IDLE;
@@ -343,6 +356,32 @@ static os_t move_anim_next_tick;
  * redraw at every turn transition. */
 static board_cell settle_prev_cell[LUDO_PLAYERS][LUDO_PAWNS];
 static int settle_prev_in_play[LUDO_PLAYERS][LUDO_PAWNS];
+
+/* STEP_CAPTURE_MOVING animation state -- a short slide from a displaced
+ * pawn's old cell straight to its new one (home base for a capture/own-
+ * collision), run once the main mover's own STEP_MOVING animation
+ * finishes (see resolve_move()), per explicit user request ("still do
+ * not see animation of the pawn returning to base, it directly is
+ * there"). Deliberately a single straight-line hop, not a retrace of
+ * the ring path it actually travelled to get there (that path can be
+ * most of the board long and would read as a slow, confusing detour
+ * for what's meant to be a quick "sent home" cue) -- matches how
+ * capture animations read in most digital Ludo implementations.
+ *
+ * Sized for the rare but real case of more than one pawn displaced by
+ * a single move (capture_at() in game_logic.c sends home every enemy
+ * pawn sharing the landed square, not just one) -- all entries animate
+ * in lockstep on a single shared tick counter, since they're always
+ * the same single-segment length regardless of how far each pawn's
+ * real board position is from its own home base. */
+#define CAPTURE_ANIM_MAX (LUDO_PLAYERS * LUDO_PAWNS)
+static int capture_anim_count;
+static int capture_anim_player[CAPTURE_ANIM_MAX];
+static int capture_anim_pawn[CAPTURE_ANIM_MAX];
+static board_cell capture_anim_from[CAPTURE_ANIM_MAX];
+static board_cell capture_anim_to[CAPTURE_ANIM_MAX];
+static int capture_anim_tick;
+static os_t capture_anim_next_tick;
 
 /* Hover-preview state -- highlights the destination cell a movable pawn
  * under the pointer would land on, per explicit user request. Only
@@ -447,7 +486,15 @@ static void resource_path(char *out, size_t out_size, const char *leaf)
  *          (kept lean -- just sprite-load status and pawn-click tracing)
  *          since Arculator has no other non-interactive tracing option;
  *          see CLAUDE.md's Testing section.
+ *
+ *          Compiled out entirely (to a no-op that never even evaluates
+ *          its own arguments -- not just a runtime-skipped call) unless
+ *          built with `make DEBUG_LOG=1` -- see the Makefile's own
+ *          ARCHILUDO_DEBUG_LOG comment. Release builds don't ship with
+ *          this writing to disk on every redraw/click/animation tick by
+ *          default.
  */
+#ifdef ARCHILUDO_DEBUG_LOG
 static void debug_log(const char *fmt, ...)
 {
 	char path[APP_DIR_LEN + 8];
@@ -464,6 +511,9 @@ static void debug_log(const char *fmt, ...)
 	va_end(args);
 	fclose(f);
 }
+#else
+#define debug_log(...) ((void) 0)
+#endif
 
 /* Pawn icon sprites -- see load_pawn_sprites()/plot_pawn().
  * pawn_sprite_area is this program's OWN private sprite area (loaded
@@ -947,6 +997,30 @@ static void stack_offset(int player, int pawn_index, board_cell cell, int *dx, i
 	*dy = nudge_y[slot] * (PAWN_SIZE / 6);
 }
 
+/*
+ * Function: capture_anim_index_for (internal)
+ * Summary: Whether (player, pawn_index) is one of the pawns currently
+ *          running a STEP_CAPTURE_MOVING return-to-base animation -- see
+ *          capture_anim_count's own doc comment. Shared by plot_pawn()
+ *          (to interpolate its drawn position) and draw_board_region()
+ *          (to decide whether a redraw range needs to include it).
+ * Syntax:  static int capture_anim_index_for(int player, int pawn_index);
+ * Output:  index into the capture_anim_*[] arrays, or -1 if this pawn
+ *          isn't currently animating.
+ */
+static int capture_anim_index_for(int player, int pawn_index)
+{
+	int k;
+
+	if (step != STEP_CAPTURE_MOVING)
+		return -1;
+	for (k = 0; k < capture_anim_count; k++) {
+		if (capture_anim_player[k] == player && capture_anim_pawn[k] == pawn_index)
+			return k;
+	}
+	return -1;
+}
+
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
 	int wx, wy;  /* work-area coordinates -- see cell_centre_work(); the
@@ -969,31 +1043,47 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 	 * user request ("animate the pawns actually moving to the new
 	 * placement location") rather than the previous instant jump. Every
 	 * other pawn draws at its normal current cell as before. */
-	if (step == STEP_MOVING && player == move_anim_player && pawn_index == move_anim_pawn_index) {
-		int fx, fy, tx, ty;
-		int segments = move_anim_path_len - 1;
-		int tick = move_anim_tick;
-		int seg, seg_progress;
+	{
+		int cap_idx = capture_anim_index_for(player, pawn_index);
 
-		if (segments < 1)
-			segments = 1;
-		seg = tick / MOVE_ANIM_TICKS_PER_CELL;
-		if (seg >= segments)
-			seg = segments - 1;
-		seg_progress = tick - seg * MOVE_ANIM_TICKS_PER_CELL;
+		if (step == STEP_MOVING && player == move_anim_player && pawn_index == move_anim_pawn_index) {
+			int fx, fy, tx, ty;
+			int segments = move_anim_path_len - 1;
+			int tick = move_anim_tick;
+			int seg, seg_progress;
 
-		cell_centre_work(move_anim_path[seg].col, move_anim_path[seg].row, &fx, &fy);
-		cell_centre_work(move_anim_path[seg + 1].col, move_anim_path[seg + 1].row, &tx, &ty);
-		wx = fx + (tx - fx) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
-		wy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
-	} else {
-		board_cell cell = board_pawn_cell(&game, player, pawn_index);
-		int sdx, sdy;
+			if (segments < 1)
+				segments = 1;
+			seg = tick / MOVE_ANIM_TICKS_PER_CELL;
+			if (seg >= segments)
+				seg = segments - 1;
+			seg_progress = tick - seg * MOVE_ANIM_TICKS_PER_CELL;
 
-		cell_centre_work(cell.col, cell.row, &wx, &wy);
-		stack_offset(player, pawn_index, cell, &sdx, &sdy);
-		wx += sdx;
-		wy += sdy;
+			cell_centre_work(move_anim_path[seg].col, move_anim_path[seg].row, &fx, &fy);
+			cell_centre_work(move_anim_path[seg + 1].col, move_anim_path[seg + 1].row, &tx, &ty);
+			wx = fx + (tx - fx) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+			wy = fy + (ty - fy) * seg_progress / MOVE_ANIM_TICKS_PER_CELL;
+		} else if (cap_idx != -1) {
+			/* A pawn on its own STEP_CAPTURE_MOVING return-to-base slide
+			 * -- see capture_anim_count's own doc comment. Same
+			 * single-segment linear interpolation as above, between the
+			 * two endpoints captured when the animation started rather
+			 * than a real move_anim_path[]. */
+			int fx, fy, tx, ty;
+
+			cell_centre_work(capture_anim_from[cap_idx].col, capture_anim_from[cap_idx].row, &fx, &fy);
+			cell_centre_work(capture_anim_to[cap_idx].col, capture_anim_to[cap_idx].row, &tx, &ty);
+			wx = fx + (tx - fx) * capture_anim_tick / CAPTURE_ANIM_TICKS;
+			wy = fy + (ty - fy) * capture_anim_tick / CAPTURE_ANIM_TICKS;
+		} else {
+			board_cell cell = board_pawn_cell(&game, player, pawn_index);
+			int sdx, sdy;
+
+			cell_centre_work(cell.col, cell.row, &wx, &wy);
+			stack_offset(player, pawn_index, cell, &sdx, &sdy);
+			wx += sdx;
+			wy += sdy;
+		}
 	}
 	/* Nudge the pawn's own centre up by a few OS units. cell_range_
 	 * to_work_box()'s own +8 request padding (needed for its own
@@ -1251,6 +1341,21 @@ static void draw_board_region(int origin_x, int origin_y, int col0, int row0, in
 				continue;
 			}
 
+			/* Same idea for a pawn on its own STEP_CAPTURE_MOVING
+			 * return-to-base slide -- see capture_anim_index_for(). */
+			{
+				int cap_idx = capture_anim_index_for(player, pawn);
+
+				if (cap_idx != -1) {
+					if ((capture_anim_from[cap_idx].col >= col0 && capture_anim_from[cap_idx].col <= col1
+					  && capture_anim_from[cap_idx].row >= row0 && capture_anim_from[cap_idx].row <= row1)
+					 || (capture_anim_to[cap_idx].col >= col0 && capture_anim_to[cap_idx].col <= col1
+					  && capture_anim_to[cap_idx].row >= row0 && capture_anim_to[cap_idx].row <= row1))
+						plot_pawn(player, pawn, origin_x, origin_y);
+					continue;
+				}
+			}
+
 			cell = board_pawn_cell(&game, player, pawn);
 			if (cell.col >= col0 && cell.col <= col1 && cell.row >= row0 && cell.row <= row1)
 				plot_pawn(player, pawn, origin_x, origin_y);
@@ -1438,6 +1543,68 @@ static void update_move_animation_area(void)
 		 * comment for why that distinction matters (.box is the
 		 * window's WHOLE visible area, not the small region actually
 		 * being updated). */
+		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
+		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
+		more = wimp_get_rectangle(&redraw);
+	}
+}
+
+/*
+ * Function: update_capture_animation_area
+ * Summary: Same Wimp_UpdateWindow-scoped-redraw pattern as
+ *          update_move_animation_area(), for the STEP_CAPTURE_MOVING
+ *          return-to-base animation instead -- covers the union of
+ *          every active capture_anim_*[] entry's from/to cells (plus
+ *          the usual one-cell margin), since more than one pawn can be
+ *          animating at once (see capture_anim_count's own doc
+ *          comment) and they don't share a single path the way an
+ *          ordinary move's segments do.
+ */
+static void update_capture_animation_area(void)
+{
+	wimp_draw redraw;
+	osbool more;
+	int col0, row0, col1, row1, x0, y0, x1, y1, k;
+
+	if (window_handle == (wimp_w) -1 || capture_anim_count == 0)
+		return;
+
+	col0 = row0 = BOARD_GRID_SIZE;
+	col1 = row1 = -1;
+
+	for (k = 0; k < capture_anim_count; k++) {
+		const board_cell *cells[2] = { &capture_anim_from[k], &capture_anim_to[k] };
+		int c;
+
+		for (c = 0; c < 2; c++) {
+			if (cells[c]->col < col0) col0 = cells[c]->col;
+			if (cells[c]->row < row0) row0 = cells[c]->row;
+			if (cells[c]->col > col1) col1 = cells[c]->col;
+			if (cells[c]->row > row1) row1 = cells[c]->row;
+		}
+	}
+
+	col0--; if (col0 < 0) col0 = 0;
+	row0--; if (row0 < 0) row0 = 0;
+	col1++; if (col1 >= BOARD_GRID_SIZE) col1 = BOARD_GRID_SIZE - 1;
+	row1++; if (row1 >= BOARD_GRID_SIZE) row1 = BOARD_GRID_SIZE - 1;
+
+	cell_range_to_work_box(col0, row0, col1, row1, &x0, &y0, &x1, &y1);
+
+	redraw.w = window_handle;
+	redraw.box.x0 = x0;
+	redraw.box.y0 = y0;
+	redraw.box.x1 = x1;
+	redraw.box.y1 = y1;
+
+	dbg_request_x0 = x0; dbg_request_y0 = y0;
+	dbg_request_x1 = x1; dbg_request_y1 = y1;
+
+	more = wimp_update_window(&redraw);
+	while (more) {
+		int origin_x = redraw.box.x0 - redraw.xscroll;
+		int origin_y = redraw.box.y1 - redraw.yscroll;
+
 		fill_window_background(redraw.clip.x0, redraw.clip.y0, redraw.clip.x1, redraw.clip.y1);
 		draw_board_region(origin_x, origin_y, col0, row0, col1, row1);
 		more = wimp_get_rectangle(&redraw);
@@ -2099,6 +2266,9 @@ static void start_move_animation(int player, int pawn_index)
 	/* The single funnel every pawn move passes through (human click,
 	 * human auto-move, and every AI move), so this captures
 	 * every move regardless of path. */
+	(void) roll; /* only ever read by the debug_log() call below, which
+	              * compiles away entirely in a release build -- see its
+	              * own doc comment */
 	debug_log("start_move_animation: player=%d %s pawn=%d roll=%d steps %d -> %d\n",
 	          player, player_is_ai[player] ? "AI" : "human", pawn_index,
 	          roll, from_steps, to_steps);
@@ -2148,17 +2318,97 @@ static void start_move_animation(int player, int pawn_index)
 }
 
 /*
+ * Function: start_capture_animation_if_needed (internal)
+ * Summary: Scans every pawn (except the just-animated mover,
+ *          skip_player/skip_pawn) against the snapshot
+ *          snapshot_pawn_positions() took before the move, exactly like
+ *          update_settle_diff_area()'s own diff loop -- but instead of
+ *          redrawing the displaced pawn(s) instantly, populates
+ *          capture_anim_*[] and switches to STEP_CAPTURE_MOVING so
+ *          resolve_capture_move() (once its ticks finish) can redraw
+ *          them animated. See capture_anim_count's own doc comment for
+ *          why this is a step of its own rather than folded into the
+ *          main move animation.
+ * Syntax:  static int start_capture_animation_if_needed(int skip_player,
+ *              int skip_pawn);
+ * Output:  1 if an animation was started (caller must NOT call
+ *          after_settle() itself -- resolve_capture_move() will), 0 if
+ *          nothing was displaced (caller should proceed as before).
+ */
+static int start_capture_animation_if_needed(int skip_player, int skip_pawn)
+{
+	int player, pawn;
+
+	capture_anim_count = 0;
+
+	for (player = 0; player < LUDO_PLAYERS; player++) {
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			board_cell now_cell;
+			int now_in_play;
+
+			if (player == skip_player && pawn == skip_pawn)
+				continue;
+
+			now_in_play = game.players[player].pawns[pawn].in_play;
+			now_cell = board_pawn_cell(&game, player, pawn);
+
+			if (now_in_play == settle_prev_in_play[player][pawn]
+			 && now_cell.col == settle_prev_cell[player][pawn].col
+			 && now_cell.row == settle_prev_cell[player][pawn].row)
+				continue;
+
+			if (capture_anim_count >= CAPTURE_ANIM_MAX)
+				continue; /* defensive -- never actually reachable */
+
+			capture_anim_player[capture_anim_count] = player;
+			capture_anim_pawn[capture_anim_count] = pawn;
+			capture_anim_from[capture_anim_count] = settle_prev_cell[player][pawn];
+			capture_anim_to[capture_anim_count] = now_cell;
+			capture_anim_count++;
+		}
+	}
+
+	if (capture_anim_count == 0)
+		return 0;
+
+	capture_anim_tick = 0;
+	capture_anim_next_tick = os_read_monotonic_time() + CAPTURE_ANIM_STEP_CS;
+	step = STEP_CAPTURE_MOVING;
+	update_capture_animation_area();
+	return 1;
+}
+
+/*
  * Function: resolve_move
  * Summary: Called once a pawn-move animation has finished -- the board
  *          state is already correct (start_move_animation() applied it
- *          up front), so this just redraws anything the move displaced
- *          besides the animated pawn itself (a capture, an own-pawn
- *          collision -- see update_settle_diff_area()) and settles the
- *          next turn_step.
+ *          up front). If the move also displaced any other pawn (a
+ *          capture, an own-pawn collision), starts their own return-to-
+ *          base animation (start_capture_animation_if_needed()) and
+ *          defers settling the next turn_step until that finishes too
+ *          (see resolve_capture_move()); otherwise settles immediately,
+ *          same as before.
  */
 static void resolve_move(void)
 {
-	update_settle_diff_area(move_anim_player, move_anim_pawn_index);
+	if (start_capture_animation_if_needed(move_anim_player, move_anim_pawn_index))
+		return;
+	after_settle();
+}
+
+/*
+ * Function: resolve_capture_move
+ * Summary: Called once the STEP_CAPTURE_MOVING return-to-base animation
+ *          (started by resolve_move() via
+ *          start_capture_animation_if_needed()) has finished -- the
+ *          board state was already correct throughout (only the drawn
+ *          position was catching up), so this just settles the next
+ *          turn_step, same as resolve_move() itself does when nothing
+ *          needed animating.
+ */
+static void resolve_capture_move(void)
+{
+	capture_anim_count = 0;
 	after_settle();
 }
 
@@ -2344,6 +2594,20 @@ void game_view_poll_idle(void)
 		} else {
 			update_move_animation_area();
 			move_anim_next_tick = now + MOVE_ANIM_STEP_CS;
+		}
+		return;
+	}
+
+	if (step == STEP_CAPTURE_MOVING) {
+		if (now < capture_anim_next_tick)
+			return;
+		capture_anim_tick++;
+		if (capture_anim_tick >= CAPTURE_ANIM_TICKS) {
+			update_capture_animation_area();
+			resolve_capture_move();
+		} else {
+			update_capture_animation_area();
+			capture_anim_next_tick = now + CAPTURE_ANIM_STEP_CS;
 		}
 		return;
 	}

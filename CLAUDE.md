@@ -144,7 +144,10 @@ sprites are tagged to work correctly across all four. Debugging
 there: Arculator's built-in ARM debugger (breakpoints, register/memory
 view, disassembly) is the primary tool, since nothing like the Reporter
 module is assumed present on stock RISC OS 3.10; file-based logging via
-`fopen`/`fprintf` is the fallback for non-interactive tracing.
+`fopen`/`fprintf` (`debug_log()` in `src/game_view.c`/`lib/qtm.c`) is
+the fallback for non-interactive tracing -- opt-in only, compiled out
+entirely in a default build; rebuild with `make DEBUG_LOG=1` to enable
+it (see the Makefile's own `ARCHILUDO_DEBUG_LOG` comment).
 
 ## License
 

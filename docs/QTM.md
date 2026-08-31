@@ -148,16 +148,6 @@ truth between the Python build tool and the C code):
 single constant covers every bundled effect since they share a sample
 rate.
 
-**Vestigial code, not currently used**: `lib/qtm.c` still contains
-`load_one_sample()`/`load_all_samples()`, which convert each SFX file
-to VIDC's own 8-bit logarithmic audio format via the RISC OS Sound
-system's `Sound_SoundLog` SWI -- this was the sample-format machinery
-built for the abandoned `QTM_PlayRawSample` approach above. It still
-runs at `qtm_initialise()` time and its output is harmless, but it is
-no longer used by `qtm_play_sfx()`, which plays entirely from the
-MOD-embedded samples instead. Left in place rather than removed as
-part of this documentation pass; a future cleanup could delete it.
-
 ## Loudness normalization
 
 The 6 bundled SFX had wildly inconsistent source recording levels (RMS

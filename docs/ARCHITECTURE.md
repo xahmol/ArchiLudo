@@ -103,7 +103,10 @@ ArchiLudo/
     riscos_readme.py           -- Markdown -> RISC-OS-readable plain text
   assets/
     !Sprites, !Sprites22, PawnSprite -- shipped packed sprite files
-    audio/          -- shipped Music1-3, SfxDice/Release/Move/Capture/Home/Win, QTMModule
+    audio/          -- shipped Music1-3 (SFX embedded into their MOD sample tables at
+                       build time, not shipped separately -- see mod_embed_sfx.py
+                       above) and QTMModule; SfxDice/Release/Move/Capture/Home/Win
+                       here are build-time inputs only
     generate_icon_sprites.py, generate_app_icon.py -- asset generators (`make assets`)
     edit/           -- hand-editable PNG copies (`make export-sprites`/`import-sprites`)
     geos_source/    -- local copies of the original GeoLudo bitmap art, for reference
@@ -224,7 +227,15 @@ for any future animation work:
 A "diff redraw" pattern (`snapshot_pawn_positions()` before a state
 change, compare after) avoids full-window redraws for the common case
 where nothing else on the board changed -- only a capture/collision/
-mandatory-release displaces a second pawn.
+mandatory-release displaces a second pawn. Following an ordinary move
+(not the mandatory-release path), a displaced pawn gets its own short
+`STEP_CAPTURE_MOVING` slide from its old cell straight to its home
+base -- a single straight-line hop, not a retrace of the ring path it
+actually travelled (which can span most of the board) -- rather than
+the instant reposition the diff redraw alone would otherwise produce;
+more than one pawn can be displaced by a single landing (own_pawn_
+capture on lets a square hold pawns from several players at once), so
+this animates all of them in lockstep on one shared tick counter.
 
 The Throw/Continue button is one physical button whose label and
 shading change with game state; AI turns require a Continue click at
