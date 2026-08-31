@@ -37,14 +37,24 @@
  *   destination" -- counted once per game, whose accuracy after
  *   corner-case sequences of moves wasn't independently re-verified here).
  *
- * Difficulty levels: only LUDO_AI_NORMAL (this weighted heuristic) is
- * implemented. LUDO_AI_EASY currently falls back to NORMAL too -- the
- * intended design (not yet built) is a much simpler rule (e.g. "prefer
- * releasing/advancing the frontmost pawn, ignore capture/danger
- * entirely") or randomised choice among legal moves, so a human opponent
- * can find it genuinely easier to beat. LUDO_AI_HARD is reserved for a
- * possible future minimax/lookahead search -- see docs/ARCHITECTURE.md's
- * Roadmap.
+ * Difficulty levels: LUDO_AI_NORMAL is this weighted heuristic, unchanged.
+ * LUDO_AI_EASY (score_move_easy()) deliberately only weighs the
+ * objectively decisive factors of the same scoring shape above (win,
+ * finish, capture, plain progress) -- it never skips a free capture or a
+ * winning move (so it never reads as broken), but has no danger/entry-
+ * square/blockade awareness at all, which is what actually makes it
+ * beatable rather than a purely random choice would (random play
+ * routinely ignores a free win or capture, which doesn't read as "easy",
+ * it reads as broken). LUDO_AI_HARD reuses NORMAL's full score_move()
+ * and adds a genuine one-ply lookahead (score_lookahead_penalty()):
+ * for each candidate move, it simulates -- via game_logic.c's own
+ * tested ludo_roll()/ludo_move_pawn() on a cloned ludo_game, not
+ * hand-duplicated turn logic -- the next opponent's most likely
+ * response (predicted with the same NORMAL-tier greedy shape, choose_
+ * best_pawn(), deliberately not itself another level of lookahead, to
+ * keep this bounded to exactly one ply) across all 6 possible next
+ * rolls, and penalises a move that leaves one of the player's own pawns
+ * newly capturable.
  *
  * score_move() accounts for game_logic.c's configurable g->rules (see
  * game_logic.h's ludo_rules) throughout, rather than assuming a single
@@ -132,6 +142,20 @@
 /* How many ring squares behind ("could reach this square with one
  * throw") counts as a threat -- a die rolls 1-6, so exactly 6. */
 #define DANGER_RANGE 6
+
+/* LUDO_AI_HARD's one-ply lookahead penalty (score_lookahead_penalty()):
+ * applied once per simulated next roll (out of 6) whose predicted best
+ * opponent response captures one of the player's own pawns -- a fair
+ * die means each of the 6 rolls is an equally likely, mutually
+ * exclusive outcome, so counting how many of them result in a capture
+ * is a reasonable probability proxy. Scaled further by how far along
+ * the captured pawn had gotten, same shape as WEIGHT_OWN_COLLISION_*
+ * above. Deliberately smaller in magnitude than WEIGHT_CAPTURE/
+ * WEIGHT_OWN_COLLISION_BASE -- this is a probabilistic risk, not a
+ * move that has already happened, so it should nudge choices rather
+ * than dominate them the way a certain, immediate outcome does. */
+#define WEIGHT_LOOKAHEAD_CAPTURE_BASE       -150
+#define WEIGHT_LOOKAHEAD_CAPTURE_PER_STEP    -15
 
 /*
  * Function: ring_square (internal)
@@ -406,14 +430,156 @@ static int score_move(const ludo_game *g, int player, int pawn_index)
 	return score;
 }
 
-int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty difficulty)
+/*
+ * Function: release_would_self_capture (internal)
+ * Summary: Whether releasing `pawn_index` would land on (and, under
+ *          g->rules.own_pawn_capture, send home) another of the same
+ *          player's own pawns -- see score_release_easy()'s own doc
+ *          comment for why this needs to be checked explicitly rather
+ *          than trusting score_landing_at()'s general-purpose scaled
+ *          penalty alone.
+ * Syntax:  static int release_would_self_capture(const ludo_game *g,
+ *              int player, int pawn_index, int square);
+ */
+static int release_would_self_capture(const ludo_game *g, int player, int pawn_index, int square)
 {
-	int player = g->current_player;
-	int best_pawn = -1, best_score = 0, pawn;
+	int i;
 
-	/* Only one strategy implemented so far -- see this file's top-of-file
-	 * comment for the intended EASY/HARD design. */
-	(void) difficulty;
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		const ludo_pawn *op = &g->players[player].pawns[i];
+
+		if (i == pawn_index)
+			continue;
+		if (op->in_play && !op->finished && op->steps < LUDO_RING_LENGTH
+		 && ring_square(player, op->steps) == square)
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Function: score_release_easy (internal)
+ * Summary: LUDO_AI_EASY's release scoring -- see score_move_easy()'s
+ *          own doc comment for what "easy" means here. Keeps
+ *          score_release()'s base heuristic and capture-on-landing
+ *          (both objectively decisive: bring a pawn into play, take a
+ *          free capture if one happens to be sitting on the entry
+ *          square) but drops WEIGHT_ENTRY_SQUARE_LAND and the danger
+ *          scan entirely -- both are positional/subtle awareness, not
+ *          something a "just play the obvious move" AI should have.
+ *
+ *          One exception: releasing directly onto one of the player's
+ *          OWN pawns (only possible when g->rules.own_pawn_capture is
+ *          on) sends it home for no gain whatsoever -- an objectively
+ *          bad, decisive mistake fully in scope for EASY to avoid, not
+ *          the positional subtlety WEIGHT_ENTRY_SQUARE_LAND covers.
+ *          score_landing_at()'s own-collision penalty alone doesn't
+ *          reliably overwhelm WEIGHT_RELEASE_BASE when the captured
+ *          pawn is still near its own start (small `steps` means a
+ *          small penalty) -- without this explicit override, that let
+ *          EASY get trapped permanently alternating between releasing
+ *          onto, and later being released onto by, the very same pawn
+ *          whenever it was the player's sole other pawn still racing
+ *          (a real non-terminating game found by
+ *          tests/test_ai.c's test_headless_ai_all_rule_combinations()).
+ */
+static int score_release_easy(const ludo_game *g, int player, int pawn_index)
+{
+	int new_square = ring_square(player, 0);
+	int already_racing = 0, i, score;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		if (i != pawn_index && g->players[player].pawns[i].in_play
+		 && !g->players[player].pawns[i].finished)
+			already_racing++;
+	}
+
+	score = WEIGHT_RELEASE_BASE - WEIGHT_RELEASE_PER_PAWN_ALREADY_OUT * already_racing
+	      + score_landing_at(g, player, pawn_index, new_square);
+
+	if (g->rules.own_pawn_capture
+	 && release_would_self_capture(g, player, pawn_index, new_square))
+		score -= WEIGHT_RELEASE_BASE * 10;
+
+	return score;
+}
+
+/*
+ * Function: score_move_easy (internal)
+ * Summary: LUDO_AI_EASY's move scoring -- see ludo_ai_difficulty's own
+ *          doc comment in ai.h for the rationale. Only ever weighs the
+ *          objectively decisive factors of score_move()'s same scoring
+ *          shape: winning, finishing a pawn, capturing (including on a
+ *          release, via score_release_easy()), a risk-free home-column
+ *          advance, and plain forward progress. Never a purely random
+ *          choice -- always still takes a free win or capture -- but
+ *          has no danger avoidance, entry-square awareness, or
+ *          blockade-forming preference at all, which is what actually
+ *          makes it beatable by a player who understands positioning,
+ *          rather than by making moves a reasonable player would call
+ *          outright mistakes.
+ */
+static int score_move_easy(const ludo_game *g, int player, int pawn_index)
+{
+	const ludo_pawn *p = &g->players[player].pawns[pawn_index];
+	int roll = g->last_roll;
+	int new_steps;
+	int new_on_ring;
+	int new_square;
+	int score = 0;
+
+	if (!p->in_play)
+		return score_release_easy(g, player, pawn_index);
+
+	ludo_resolve_move_destination(g, pawn_index, roll, &new_steps);
+
+	new_on_ring = new_steps < LUDO_RING_LENGTH;
+
+	if (new_steps >= LUDO_TOTAL_STEPS) {
+		int i, others_finished = 1;
+
+		for (i = 0; i < LUDO_PAWNS; i++) {
+			if (i == pawn_index)
+				continue;
+			if (!g->players[player].pawns[i].finished)
+				others_finished = 0;
+		}
+		return others_finished ? WEIGHT_WIN : WEIGHT_FINISH;
+	}
+
+	if (new_on_ring) {
+		new_square = ring_square(player, new_steps);
+		score += score_landing_at(g, player, pawn_index, new_square);
+	} else {
+		/* Same risk-free home-column-advance incentive as score_move()
+		 * -- this isn't positional tactics, it's "closer to winning
+		 * with nothing to weigh it against", which fits EASY's own
+		 * "always take the obvious good outcome" scope. */
+		score += WEIGHT_HOME_COLUMN_ADVANCE_BASE
+		       + WEIGHT_HOME_COLUMN_ADVANCE_PER_STEP * (new_steps - LUDO_RING_LENGTH);
+	}
+
+	score += WEIGHT_PROGRESS_PER_STEP * new_steps;
+
+	return score;
+}
+
+/*
+ * Function: choose_best_pawn (internal)
+ * Summary: Shared greedy selection -- score every pawn set in
+ *          `movable` with `score_fn` and return whichever scores
+ *          highest (first one seen wins ties). Used both by
+ *          ludo_ai_choose_pawn() for its own EASY/NORMAL/HARD-base
+ *          selection and by score_lookahead_penalty() to predict an
+ *          opponent's most likely NORMAL-tier response one ply ahead.
+ * Syntax:  static int choose_best_pawn(const ludo_game *g, int player,
+ *              unsigned movable, int (*score_fn)(const ludo_game *,
+ *              int, int));
+ */
+static int choose_best_pawn(const ludo_game *g, int player, unsigned movable,
+                             int (*score_fn)(const ludo_game *, int, int))
+{
+	int best_pawn = -1, best_score = 0, pawn;
 
 	for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
 		int score;
@@ -421,7 +587,7 @@ int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty
 		if (!(movable & (1u << pawn)))
 			continue;
 
-		score = score_move(g, player, pawn);
+		score = score_fn(g, player, pawn);
 		if (best_pawn == -1 || score > best_score) {
 			best_score = score;
 			best_pawn = pawn;
@@ -429,6 +595,117 @@ int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty
 	}
 
 	return best_pawn;
+}
+
+/*
+ * Function: score_lookahead_penalty (internal)
+ * Summary: LUDO_AI_HARD's one-ply lookahead -- see this file's
+ *          top-of-file comment and ludo_ai_difficulty's own doc
+ *          comment in ai.h for the rationale. Simulates the move on a
+ *          cloned ludo_game via game_logic.c's own tested
+ *          ludo_move_pawn(), then, if it becomes the next opponent's
+ *          turn, simulates their most likely NORMAL-tier response
+ *          (choose_best_pawn() with score_move()) across all 6
+ *          possible next rolls via ludo_roll()/ludo_move_pawn() again
+ *          -- reusing the real, tested rules engine throughout rather
+ *          than hand-duplicating capture/turn-passing logic, which
+ *          would risk this lookahead disagreeing with how the game
+ *          would actually play out.
+ * Syntax:  static int score_lookahead_penalty(const ludo_game *g,
+ *              int player, int pawn_index);
+ * Output:  a score adjustment (0 or negative) to add to score_move()'s
+ *          own result for this candidate move.
+ */
+static int score_lookahead_penalty(const ludo_game *g, int player, int pawn_index)
+{
+	ludo_game after_move = *g;
+	int roll;
+	int penalty = 0;
+
+	ludo_move_pawn(&after_move, pawn_index);
+
+	/* This move already wins outright, or chains into another roll for
+	 * the same player (a six) -- either way there's no opposing turn to
+	 * look ahead to yet, so nothing more to evaluate here. Bounding the
+	 * lookahead to exactly the next OTHER player's turn is deliberate,
+	 * not a missed case -- see this file's top-of-file comment. */
+	if (after_move.winner != -1 || after_move.current_player == player)
+		return 0;
+
+	for (roll = 1; roll <= 6; roll++) {
+		ludo_game after_opp_roll = after_move;
+		int opp_player = after_opp_roll.current_player;
+		unsigned opp_movable;
+		int opp_pawn;
+		int i;
+
+		ludo_roll(&after_opp_roll, roll);
+		/* A forced roll on a fresh turn can't itself exhaust all three
+		 * "stuck" tries and pass the turn again -- but check anyway
+		 * rather than assume, since scoring the wrong player's pawns
+		 * below would be a real (if rare) bug. */
+		if (after_opp_roll.current_player != opp_player)
+			continue;
+
+		opp_movable = ludo_movable_pawns(&after_opp_roll);
+		if (!opp_movable)
+			continue;
+
+		opp_pawn = choose_best_pawn(&after_opp_roll, opp_player, opp_movable, score_move);
+		if (opp_pawn < 0)
+			continue;
+
+		ludo_move_pawn(&after_opp_roll, opp_pawn);
+
+		/* Did any of the player's own pawns that were safely in play
+		 * just before the opponent's simulated move get sent home by
+		 * it? capture_at() (game_logic.c) always resets both in_play
+		 * and steps to 0 on a capture, so this check is unambiguous. */
+		for (i = 0; i < LUDO_PAWNS; i++) {
+			const ludo_pawn *before = &after_move.players[player].pawns[i];
+			const ludo_pawn *now = &after_opp_roll.players[player].pawns[i];
+
+			if (before->in_play && !before->finished && !now->in_play) {
+				penalty += WEIGHT_LOOKAHEAD_CAPTURE_BASE
+				         + WEIGHT_LOOKAHEAD_CAPTURE_PER_STEP * before->steps;
+			}
+		}
+	}
+
+	return penalty;
+}
+
+int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty difficulty)
+{
+	int player = g->current_player;
+
+	if (difficulty == LUDO_AI_EASY)
+		return choose_best_pawn(g, player, movable, score_move_easy);
+
+	if (difficulty == LUDO_AI_HARD) {
+		/* score_move() plus score_lookahead_penalty()'s one-ply risk
+		 * adjustment -- can't express this as a single score_fn for
+		 * choose_best_pawn() (that helper only takes one function
+		 * pointer), so this tier gets its own small loop instead. */
+		int best_pawn = -1, best_score = 0, pawn;
+
+		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
+			int score;
+
+			if (!(movable & (1u << pawn)))
+				continue;
+
+			score = score_move(g, player, pawn) + score_lookahead_penalty(g, player, pawn);
+			if (best_pawn == -1 || score > best_score) {
+				best_score = score;
+				best_pawn = pawn;
+			}
+		}
+
+		return best_pawn;
+	}
+
+	return choose_best_pawn(g, player, movable, score_move);
 }
 
 /*

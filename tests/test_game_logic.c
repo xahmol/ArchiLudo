@@ -230,9 +230,9 @@ static void test_pawn_finishes_exactly(void)
 	CHECK(g.players[0].pawns[0].finished == 1);
 }
 
-/* Round 7.20, exactly the scenario reported live: once one pawn has
- * finished (permanently occupying LUDO_TOTAL_STEPS), a second pawn of
- * the same player must NOT be able to stack on that same square -- its
+/* Once one pawn has finished (permanently occupying LUDO_TOTAL_STEPS),
+ * a second pawn of the same player must NOT be able to stack on that
+ * same square -- its
  * own effective end becomes one square short (LUDO_TOTAL_STEPS - 1),
  * blocked from the true end exactly like ordinary home-column blocking,
  * and *that* square is what finishes it. */
@@ -312,16 +312,13 @@ static void test_extra_roll_on_six_keeps_same_player(void)
 }
 
 /*
- * Round 7.35 regression: once ANY player has won (g.winner != -1), every
- * OTHER player who hasn't finished yet must still keep their own normal
- * six-goes-again bonus -- per this project's "continue playing after the
- * first winner" house-rule mode (see docs/ARCHITECTURE.md's Round 7.35).
- * The bug this guards against checked the global g.winner == -1 instead
- * of this specific player's own all_pawns_finished(), which meant every
- * remaining player permanently lost their bonus turn for the rest of the
- * game the moment anyone won -- never noticed while the game simply ended
- * at the first winner, since nothing kept playing afterwards to exercise
- * it.
+ * Once ANY player has won (g.winner != -1), every OTHER player who
+ * hasn't finished yet must still keep their own normal six-goes-again
+ * bonus -- per this project's "continue playing after the first winner"
+ * house-rule mode (see docs/RULES.md). The turn-advance logic must check
+ * this specific player's own all_pawns_finished(), not the global
+ * g.winner == -1, or every remaining player would permanently lose their
+ * bonus turn for the rest of the game the moment anyone won.
  */
 static void test_six_bonus_survives_another_players_win(void)
 {
@@ -364,12 +361,11 @@ static void test_non_six_move_ends_turn(void)
 	CHECK(g.current_player == 1);
 }
 
-/* Exactly the scenario reported live in Arculator: a pawn one step short
- * of finishing (needs exactly 1) must never be reported movable, or
- * moved at all, on a roll of 2 -- see docs/ARCHITECTURE.md's Round 7.8
- * for the investigation this came out of. test_overshoot_not_movable()
- * above already covers "2 short, roll 3" -- this is the "1 short"
- * off-by-one neighbour, worth its own explicit check. */
+/* A pawn one step short of finishing (needs exactly 1) must never be
+ * reported movable, or moved at all, on a roll of 2.
+ * test_overshoot_not_movable() above already covers "2 short, roll 3" --
+ * this is the "1 short" off-by-one neighbour, worth its own explicit
+ * check. */
 static void test_one_short_overshoot_not_movable(void)
 {
 	ludo_game g;
@@ -628,10 +624,10 @@ static void test_blockade_off_allows_landing_and_passing(void)
 
 	ludo_init(&g);
 	r = ludo_default_rules(LUDO_VARIANT_LUDO);
-	/* Round 7.55 changed the Ludo preset's own blockade default to 1
-	 * (see ludo_default_rules()'s own doc comment) -- this test's whole
-	 * point is the blockade=0 behaviour specifically, so it must set
-	 * that explicitly now rather than lean on the preset's default. */
+	/* The Ludo preset's own blockade default is 1 (see
+	 * ludo_default_rules()'s own doc comment) -- this test's whole point
+	 * is the blockade=0 behaviour specifically, so it must set that
+	 * explicitly rather than lean on the preset's default. */
 	r.blockade = 0;
 	ludo_set_rules(&g, &r);
 
@@ -820,14 +816,10 @@ static void test_three_sixes_no_forfeit_when_rule_off(void)
  *          after every single roll and move -- a broad, automated
  *          equivalent of manually playing hundreds of games in Arculator
  *          looking for a rules bug, but deterministic (a fixed RNG seed)
- *          and runnable in well under a second. Written in direct
- *          response to a live-reported bug (a pawn one step short of
- *          finishing appeared to move on an overshooting roll) that
- *          turned out not to reproduce through this API at all (see
- *          docs/ARCHITECTURE.md's Round 7.8) -- this exists so the next
- *          such report gets checked here first, and so any *other*
- *          latent rules bug this specific manual playthrough didn't
- *          happen to trigger gets a much better chance of surfacing.
+ *          and runnable in well under a second -- catches a live-reported
+ *          rules bug here first, and gives any *other* latent rules bug
+ *          a much better chance of surfacing than a specific manual
+ *          playthrough would.
  *
  *          The one invariant this is really built around: before every
  *          ludo_move_pawn() call, the pawn being moved must be in
@@ -837,13 +829,13 @@ static void test_three_sixes_no_forfeit_when_rule_off(void)
  *          it) -- if compute_movable_pawns() ever let an overshooting
  *          move through, this is exactly the check that would catch it.
  *
- *          Round 7.20 update: "finished iff steps == LUDO_TOTAL_STEPS"
- *          stopped being a valid invariant once each pawn got its own
- *          dynamic finish threshold (game_logic.c's
- *          finish_threshold_for()) -- see expected_finish_threshold()
- *          below, a test-side reimplementation of that same logic
- *          against only the public ludo_pawn/ludo_game fields, used to
- *          keep asserting the equivalent per-pawn invariant.
+ *          "finished iff steps == LUDO_TOTAL_STEPS" is not a valid
+ *          invariant, since each pawn has its own dynamic finish
+ *          threshold (game_logic.c's finish_threshold_for()) -- see
+ *          expected_finish_threshold() below, a test-side
+ *          reimplementation of that same logic against only the public
+ *          ludo_pawn/ludo_game fields, used to keep asserting the
+ *          equivalent per-pawn invariant.
  */
 
 /*
@@ -852,8 +844,9 @@ static void test_three_sixes_no_forfeit_when_rule_off(void)
  *          finish_threshold_for() -- the steps value a specific pawn
  *          must reach to be finished right now, which is LUDO_TOTAL_STEPS
  *          minus however many of that player's *other* pawns have
- *          already finished (see game_logic.h's Round 7.20 note for the
- *          full reasoning). Deliberately reimplemented here rather than
+ *          already finished (see include/game_logic.h's own note on
+ *          this near LUDO_TOTAL_STEPS for the full reasoning).
+ *          Deliberately reimplemented here rather than
  *          exposed from game_logic.c, since it's purely an internal
  *          rule detail -- callers only ever need ludo_movable_pawns()/
  *          ludo_move_pawn(), never this threshold directly.
@@ -899,10 +892,9 @@ static void test_headless_full_games_invariants(void)
 			 * treating a changed current_player exactly like "nothing
 			 * to resolve this roll" (skip straight to the next
 			 * iteration, which will roll fresh for whoever it is now)
-			 * is the same fix applied to src/game_view.c's
-			 * resolve_roll() -- see docs/ARCHITECTURE.md's Round 7.8.
-			 * Getting this wrong here (as an earlier version of this
-			 * very test did) produces exactly the same class of bug:
+			 * is the same handling src/game_view.c's resolve_roll()
+			 * uses. Getting this wrong here produces exactly the same
+			 * class of bug:
 			 * evaluating movability with a stale last_roll==0, under
 			 * which every in-play pawn looks "movable" since adding
 			 * zero can never overshoot. */

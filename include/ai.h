@@ -26,12 +26,26 @@
 
 /*
  * Type: ludo_ai_difficulty
- * Summary: Which scoring strategy ludo_ai_choose_pawn() uses. Only
- *          LUDO_AI_NORMAL has real strategy behind it so far -- the
- *          others are placeholders so the WIMP shell's difficulty
- *          selection (once built) has somewhere to point, without
- *          needing another API change later. See ai.c for the roadmap
- *          note on what EASY/HARD are expected to become.
+ * Summary: Which scoring strategy ludo_ai_choose_pawn() uses:
+ *          - LUDO_AI_EASY: only ever weighs the objectively decisive
+ *            factors (win, finish, capture, plain progress) -- never
+ *            picks a move a reasonable player would call a mistake
+ *            (it always takes a free capture or a win when one is
+ *            available), but has zero awareness of danger, entry
+ *            squares, or opponent positioning, so it's consistently
+ *            beatable by tactical play.
+ *          - LUDO_AI_NORMAL: the full single-move heuristic (danger
+ *            avoidance, entry-square awareness, blockade formation, in
+ *            addition to everything EASY has).
+ *          - LUDO_AI_HARD: NORMAL's full scoring, plus a genuine
+ *            one-ply lookahead -- for each candidate move, simulates
+ *            (via game_logic.c's own ludo_roll()/ludo_move_pawn(), not
+ *            duplicated logic) the next opponent's most likely
+ *            response across all 6 possible rolls, and penalises a
+ *            move that leaves one of the player's own pawns newly
+ *            capturable.
+ *          See ai.c's top-of-file comment and score_move_easy()/
+ *          score_lookahead_penalty() for the full detail.
  */
 typedef enum {
 	LUDO_AI_EASY,

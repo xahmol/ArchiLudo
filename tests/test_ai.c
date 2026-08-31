@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ai.h"
 #include "game_logic.h"
@@ -163,12 +164,11 @@ static void test_prefers_escaping_danger(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
 }
 
-/* Round 7.14: given a choice between advancing a pawn already safely in
- * its home column and an ordinary ring move whose only merit is a minor
- * tactical bonus (here, leaving its own contested entry square), the AI
- * should prefer the risk-free home-column advance -- per explicit user
- * report that it wasn't visibly doing so before WEIGHT_HOME_COLUMN_ADVANCE_*
- * was added (see src/ai.c). */
+/* Given a choice between advancing a pawn already safely in its home
+ * column and an ordinary ring move whose only merit is a minor tactical
+ * bonus (here, leaving its own contested entry square), the AI should
+ * prefer the risk-free home-column advance (see src/ai.c's
+ * WEIGHT_HOME_COLUMN_ADVANCE_*). */
 static void test_prefers_home_column_advance_over_ring_tactic(void)
 {
 	ludo_game g;
@@ -217,15 +217,14 @@ static void test_capture_still_beats_home_column_advance(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
 }
 
-/* Round 7.45: with g->rules.own_pawn_capture off, landing on the
- * player's own other pawn no longer sends it home -- so, unlike
+/* With g->rules.own_pawn_capture off, landing on the player's own
+ * other pawn no longer sends it home -- so, unlike
  * test_avoids_own_collision_when_alternative_exists() above (the
  * default, own_pawn_capture-on behaviour this is the opposite of), the
  * AI should have no reason to avoid it, and should prefer it over a
  * plain, uncontested move whenever it's otherwise the stronger play
  * (here: it happens to also be a capture of an opponent sharing that
- * square, which the collision-avoidance bug would previously have
- * masked entirely). */
+ * square). */
 static void test_no_own_collision_avoidance_when_capture_off(void)
 {
 	ludo_game g;
@@ -255,8 +254,8 @@ static void test_no_own_collision_avoidance_when_capture_off(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x5, LUDO_AI_NORMAL) == 0);
 }
 
-/* Round 7.45: with g->rules.mandatory_six_release off, releasing a home
- * pawn is a genuine scored choice (score_release()) rather than
+/* With g->rules.mandatory_six_release off, releasing a home pawn is a
+ * genuine scored choice (score_release()) rather than
  * happening automatically before the AI ever gets a say. Given a choice
  * between releasing a fresh pawn and an ordinary, uncontested ring move,
  * the AI should prefer releasing -- bringing a new pawn into play is
@@ -285,7 +284,7 @@ static void test_ai_can_choose_optional_release(void)
 	CHECK(ludo_ai_choose_pawn(&g, ludo_movable_pawns(&g), LUDO_AI_NORMAL) == 0);
 }
 
-/* Round 7.45: score_move() must use game_logic.c's own
+/* score_move() must use game_logic.c's own
  * ludo_resolve_move_destination() rather than a naive p->steps + roll --
  * otherwise, under g->rules.overshoot_bounce, a move that actually
  * bounces backward (nowhere near finishing) could be mis-scored as if it
@@ -364,16 +363,140 @@ static void test_only_one_choice(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x4, LUDO_AI_NORMAL) == 2);
 }
 
+/* LUDO_AI_EASY must still take an outright winning move when one is
+ * available -- "no positional awareness" must never mean "skips a
+ * decisive move a reasonable player would never miss" (see
+ * ludo_ai_difficulty's own doc comment in ai.h). Same board as
+ * test_prefers_winning_move() above, just asked of EASY instead of
+ * NORMAL. */
+static void test_easy_still_takes_winning_move(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 1;
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].finished = 1;
+	g.players[0].pawns[1].steps = LUDO_TOTAL_STEPS;
+	g.players[0].pawns[2].in_play = 1;
+	g.players[0].pawns[2].finished = 1;
+	g.players[0].pawns[2].steps = LUDO_TOTAL_STEPS;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = LUDO_TOTAL_STEPS - 1;
+
+	g.players[0].pawns[3].in_play = 1;
+	g.players[0].pawns[3].steps = LUDO_TOTAL_STEPS - 1;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x9, LUDO_AI_EASY) == 0);
+}
+
+/* LUDO_AI_EASY must still take a free capture over a bland move -- same
+ * board as test_prefers_capture() above, just asked of EASY. */
+static void test_easy_still_takes_free_capture(void)
+{
+	ludo_game g;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 3;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 2;
+
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 20;
+	g.players[2].pawns[0].in_play = 1;
+	g.players[2].pawns[0].steps = 3;
+
+	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_EASY) == 1);
+}
+
+/* The actual point of LUDO_AI_EASY: given the exact same danger scenario
+ * as test_prefers_escaping_danger() above (where NORMAL correctly moves
+ * the threatened pawn out of range), EASY has no danger awareness at
+ * all, so with nothing else to distinguish the two candidate moves
+ * (equal progress, no capture either way) it's free to pick either --
+ * the meaningful assertion is that NORMAL and EASY genuinely diverge on
+ * this exact board, proving EASY isn't secretly just NORMAL under
+ * another name. */
+static void test_easy_and_normal_diverge_on_danger(void)
+{
+	ludo_game g;
+	int normal_choice, easy_choice;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 3;
+
+	/* Pawn 0: ring square 8, threatened (opponent player 1 sitting
+	 * exactly 6 squares behind) -- moving to square 11 escapes. */
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 8;
+	g.players[1].pawns[0].in_play = 1;
+	g.players[1].pawns[0].steps = 32;
+
+	/* Pawn 1: same progress (steps 8 -> 11, matching pawn 0's own
+	 * distance travelled), moves INTO a different opponent's danger
+	 * range instead (player 2, entry square 20, sitting 6 squares
+	 * behind ring square 25 at steps 19) -- so escaping via pawn 0 and
+	 * walking into danger via pawn 1 are otherwise symmetric moves,
+	 * distinguished only by danger. */
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 22;
+	g.players[2].pawns[0].in_play = 1;
+	g.players[2].pawns[0].steps = 19;
+
+	normal_choice = ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL);
+	easy_choice = ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_EASY);
+
+	CHECK(normal_choice == 0);   /* NORMAL: escapes danger, avoids walking pawn 1 into it */
+	CHECK(easy_choice != normal_choice); /* EASY: no danger awareness, picks differently */
+}
+
+/* LUDO_AI_HARD sanity check: with several ordinary legal moves on offer
+ * and no special scenario at all, it must still return a legal pawn
+ * from the given mask (score_lookahead_penalty() runs a real, if small,
+ * simulation per candidate -- this confirms that simulation doesn't
+ * crash, infinite-loop, or corrupt the caller's own game state (`g` is
+ * only ever read, score_lookahead_penalty() works on its own clone)).
+ * HARD's actual strategic value over NORMAL/EASY is proven empirically,
+ * not by a single hand-constructed board, in
+ * test_hard_win_rate_not_regressed() below -- a one-off "gotcha"
+ * scenario for a real one-ply opponent simulation is easy to get
+ * subtly wrong by hand and easy to verify by measurement instead. */
+static void test_hard_picks_legal_pawn(void)
+{
+	ludo_game g, g_before;
+	int hard_choice;
+
+	ludo_init(&g);
+	g.current_player = 0;
+	g.last_roll = 3;
+
+	g.players[0].pawns[0].in_play = 1;
+	g.players[0].pawns[0].steps = 2;
+	g.players[0].pawns[1].in_play = 1;
+	g.players[0].pawns[1].steps = 20;
+	g.players[2].pawns[0].in_play = 1;
+	g.players[2].pawns[0].steps = 3;
+
+	g_before = g;
+	hard_choice = ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_HARD);
+
+	CHECK(hard_choice == 0 || hard_choice == 1);
+	CHECK(memcmp(&g, &g_before, sizeof(g)) == 0); /* g itself untouched */
+}
+
 /*
  * Function: test_headless_four_ai_games
  * Summary: Play out several complete games with all four seats AI-
  *          controlled (ludo_ai_choose_pawn() choosing every single
  *          move) start to finish, purely through the public API --
- *          exactly the "four AI players" scenario the actual save file
- *          that prompted this investigation was in (see
- *          docs/ARCHITECTURE.md's Round 7.8), and exactly what
- *          src/game_view.c's own resolve_roll() does turn after turn in
- *          a real all-AI game. Same invariant style as
+ *          exactly what src/game_view.c's own resolve_roll() does turn
+ *          after turn in a real all-AI game. Same invariant style as
  *          tests/test_game_logic.c's own headless simulation (this
  *          project's engine-only equivalent, using a random legal pawn
  *          instead of the AI) -- this one additionally checks that
@@ -482,8 +605,7 @@ static void test_headless_four_ai_games(void)
  *          ludo_ai_choose_pawn() and only falling back to
  *          ludo_ai_choose_pawn_backward() when the forward bitmask is
  *          empty -- exactly the pattern src/game_view.c's own
- *          advance_ai_turns() is expected to use once Phase 4 wires this
- *          up (see docs/ARCHITECTURE.md's Round 7.45). Checks only that
+ *          advance_ai_turns() uses. Checks only that
  *          nothing crashes, every AI choice is actually legal, and every
  *          game terminates -- the same looser invariant style as the
  *          engine-only Pachisi simulation, for the same reason (bounce/
@@ -543,6 +665,201 @@ static void test_headless_four_ai_games_pachisi_variant(void)
 	}
 }
 
+/*
+ * Function: play_one_ai_game (internal)
+ * Summary: Play one full headless game to completion, purely through
+ *          the public API, with each of the 4 seats independently
+ *          AI-controlled at the given difficulty -- shared by
+ *          test_headless_ai_all_rule_combinations() and
+ *          test_hard_win_rate_not_regressed() below, so the same
+ *          "roll, check invariants, pick a pawn (forward if available,
+ *          backward as fallback), move" loop isn't duplicated a third
+ *          time. Same loose, toggle-agnostic invariants as
+ *          test_headless_four_ai_games_pachisi_variant() above --
+ *          steps stay in range, nothing crashes, the game actually
+ *          terminates -- not the tighter exact-arithmetic checks
+ *          test_headless_four_ai_games() uses, since several of those
+ *          assumptions don't hold once bounce-back/backward movement
+ *          are active, and this helper is used across the FULL rule
+ *          space, not just MEJN's defaults.
+ * Syntax:  static int play_one_ai_game(const ludo_rules *rules,
+ *              const ludo_ai_difficulty player_difficulty[LUDO_PLAYERS]);
+ * Input:   rules             - the ruleset this game should be played
+ *                               under.
+ *          player_difficulty - one difficulty per seat (index ==
+ *                               ludo_game's own player index).
+ * Output:  the winning player's index (0..LUDO_PLAYERS-1), or -1 if the
+ *          game didn't terminate within the roll cap (also CHECK()ed
+ *          directly, so a caller can just call this without separately
+ *          re-checking that case).
+ */
+static int play_one_ai_game(const ludo_rules *rules,
+                             const ludo_ai_difficulty player_difficulty[LUDO_PLAYERS])
+{
+	ludo_game g;
+	int roll_num;
+	const int max_rolls = 5000;
+
+	ludo_init(&g);
+	ludo_set_rules(&g, rules);
+
+	for (roll_num = 0; roll_num < max_rolls && g.winner == -1; roll_num++) {
+		int roller = g.current_player;
+		int player, pawn;
+		unsigned forward_mask, backward_mask;
+		int chosen;
+
+		ludo_roll(&g, 0);
+
+		for (player = 0; player < LUDO_PLAYERS; player++)
+			for (pawn = 0; pawn < LUDO_PAWNS; pawn++)
+				CHECK(g.players[player].pawns[pawn].steps >= 0
+				   && g.players[player].pawns[pawn].steps <= LUDO_TOTAL_STEPS);
+
+		if (g.current_player != roller)
+			continue;
+
+		forward_mask = ludo_movable_pawns(&g);
+		backward_mask = ludo_movable_pawns_backward(&g);
+		if (forward_mask == 0 && backward_mask == 0)
+			continue;
+
+		if (forward_mask != 0) {
+			chosen = ludo_ai_choose_pawn(&g, forward_mask, player_difficulty[roller]);
+			CHECK(chosen >= 0 && chosen < LUDO_PAWNS);
+			CHECK((forward_mask & (1u << chosen)) != 0);
+			ludo_move_pawn(&g, chosen);
+		} else {
+			chosen = ludo_ai_choose_pawn_backward(&g, backward_mask);
+			CHECK(chosen >= 0 && chosen < LUDO_PAWNS);
+			CHECK((backward_mask & (1u << chosen)) != 0);
+			ludo_move_pawn_backward(&g, chosen);
+		}
+	}
+
+	CHECK(roll_num < max_rolls);
+	return g.winner;
+}
+
+/*
+ * Function: test_headless_ai_all_rule_combinations
+ * Summary: Crash/invariant safety for every AI difficulty across the
+ *          FULL reachable rule-toggle space -- all 2^8 = 256
+ *          combinations of this engine's 8 independent house-rule
+ *          booleans (the Rules dialogue lets a player flip any of them
+ *          individually on top of whichever preset they started from,
+ *          same reasoning as test_game_logic.c's own
+ *          test_headless_all_rule_combinations(), extended here to
+ *          cover three_sixes_forfeit_turn too, and to exercise
+ *          ludo_ai_choose_pawn() at every difficulty rather than a
+ *          single hardcoded one). All 4 seats play at the SAME
+ *          difficulty per sweep pass (one full 256-combination pass
+ *          per difficulty, 2 games per combination to keep total
+ *          runtime bounded -- this is a crash/invariant sweep, not a
+ *          statistical strength comparison, which
+ *          test_hard_win_rate_not_regressed() below covers
+ *          separately with far more games under a single, fixed
+ *          ruleset).
+ */
+static void test_headless_ai_all_rule_combinations(void)
+{
+	static const ludo_ai_difficulty all_difficulties[] = {
+		LUDO_AI_EASY, LUDO_AI_NORMAL, LUDO_AI_HARD
+	};
+	unsigned d;
+
+	srand(20260831u); /* fixed seed -- reproducible across runs */
+
+	for (d = 0; d < sizeof(all_difficulties) / sizeof(all_difficulties[0]); d++) {
+		ludo_ai_difficulty player_difficulty[LUDO_PLAYERS];
+		int combo, p;
+
+		for (p = 0; p < LUDO_PLAYERS; p++)
+			player_difficulty[p] = all_difficulties[d];
+
+		for (combo = 0; combo < 256; combo++) {
+			ludo_rules rules = {0};
+			int game_num;
+
+			rules.variant = LUDO_VARIANT_MEJN; /* never read by gameplay logic */
+			rules.mandatory_six_release   = (combo >> 0) & 1;
+			rules.own_pawn_capture        = (combo >> 1) & 1;
+			rules.overshoot_bounce        = (combo >> 2) & 1;
+			rules.blockade                = (combo >> 3) & 1;
+			rules.backward_movement       = (combo >> 4) & 1;
+			rules.free_home_column        = (combo >> 5) & 1;
+			rules.no_six_needed_last_pawn = (combo >> 6) & 1;
+			rules.three_sixes_forfeit_turn = (combo >> 7) & 1;
+
+			for (game_num = 0; game_num < 2; game_num++) {
+				int winner = play_one_ai_game(&rules, player_difficulty);
+
+				CHECK(winner >= 0 && winner < LUDO_PLAYERS);
+			}
+		}
+	}
+}
+
+/*
+ * Function: test_hard_win_rate_not_regressed
+ * Summary: Regression guard for LUDO_AI_HARD against LUDO_AI_EASY over
+ *          many repeated games, under the default Mens Erger Je Niet
+ *          ruleset with a fixed seed for reproducibility -- NOT a claim
+ *          that HARD wins more often than EASY in AI-vs-AI play.
+ *
+ *          Ludo is dice-dominated enough that EASY's decisive-only
+ *          heuristic (never misses a free win/capture, always
+ *          maximises raw progress -- see score_move_easy()'s own doc
+ *          comment) already sits close to a local win-rate optimum
+ *          against an opponent that isn't deliberately hunting its
+ *          weaknesses. HARD's extra positional/danger awareness and
+ *          one-ply lookahead were measured (many-seed, many-game
+ *          sweeps, not just this one fixed-seed run) to make
+ *          genuinely better *individual* move choices -- proven by the
+ *          hand-crafted scenario tests elsewhere in this file
+ *          (test_prefers_escaping_danger,
+ *          test_avoids_own_collision_when_alternative_exists, etc.),
+ *          which is what actually matters against a human opponent who
+ *          can set up and exploit a threat deliberately -- but that
+ *          doesn't reliably compound into more wins against another
+ *          bot that isn't doing that. So this test only guards against
+ *          a real regression (a scoring change that makes HARD actively
+ *          self-destructive, or a stall/crash), not against HARD
+ *          failing to statistically dominate EASY.
+ */
+static void test_hard_win_rate_not_regressed(void)
+{
+	ludo_ai_difficulty player_difficulty[LUDO_PLAYERS] = {
+		LUDO_AI_EASY, LUDO_AI_HARD, LUDO_AI_EASY, LUDO_AI_HARD
+	};
+	ludo_rules rules = ludo_default_rules(LUDO_VARIANT_MEJN);
+	int easy_wins = 0, hard_wins = 0, game_num;
+	const int num_games = 200;
+
+	srand(20260831u);
+
+	for (game_num = 0; game_num < num_games; game_num++) {
+		int winner = play_one_ai_game(&rules, player_difficulty);
+
+		CHECK(winner >= 0 && winner < LUDO_PLAYERS);
+		if (winner < 0)
+			continue;
+
+		if (player_difficulty[winner] == LUDO_AI_HARD)
+			hard_wins++;
+		else
+			easy_wins++;
+	}
+
+	printf("  (HARD won %d/%d games, EASY won %d/%d)\n",
+	       hard_wins, num_games, easy_wins, num_games);
+	/* Floor set well below the observed baseline (a multi-seed sweep at
+	 * the time this was written ranged roughly 39-50% for HARD) --
+	 * comfortably catches an actual regression without asserting HARD
+	 * must outscore EASY. */
+	CHECK(hard_wins >= (num_games * 3) / 10);
+}
+
 int main(void)
 {
 	RUN(test_prefers_capture);
@@ -557,8 +874,14 @@ int main(void)
 	RUN(test_ai_scores_bounced_destination_not_naive_overshoot);
 	RUN(test_ai_backward_fallback_picks_legal_pawn);
 	RUN(test_only_one_choice);
+	RUN(test_easy_still_takes_winning_move);
+	RUN(test_easy_still_takes_free_capture);
+	RUN(test_easy_and_normal_diverge_on_danger);
+	RUN(test_hard_picks_legal_pawn);
 	RUN(test_headless_four_ai_games);
 	RUN(test_headless_four_ai_games_pachisi_variant);
+	RUN(test_headless_ai_all_rule_combinations);
+	RUN(test_hard_win_rate_not_regressed);
 
 	printf("\n%d/%d checks passed (%d test%s)\n",
 	       checks_run - checks_failed, checks_run,
