@@ -106,25 +106,43 @@ static const unsigned char sfx_slot[QTM_MUSIC_TRACK_COUNT][QTM_SFX_COUNT] = {
 	/* Music3 */ {  0,  0,  0, 28, 30, 31 },
 };
 
-/* Which of QTM's 4 genuinely-free channels (5-8, with 8-channel mode
- * enabled in qtm_initialise() and the 4-channel song on 1-4) each
- * qtm_sfx plays through. Spread across all 4 free channels rather than
- * sharing one, since Dice is always immediately followed by a Move
- * trigger (the pawn starts moving right after the roll resolves) --
- * sharing a channel let Move's own QTM_PlaySample call cut Dice's
- * sound off before it was audible. Only 4 channels for 6 events, so
- * Home/Win reuse Dice/Release's channels -- acceptable since Home/Win
- * are rare, end-of-turn/end-of-game events unlikely to overlap with
- * the per-step Move sound. Some SFX still stayed silent even after
- * this channel spread; the actual cause turned out to be loudness, not
- * channel assignment -- see docs/QTM.md's "Loudness normalization"
- * section. */
+/* Which of QTM's free channels each qtm_sfx plays through -- confined to
+ * channels 5-6 only, NOT the full 5-8 QTM_SoundControl's 8-channel mode
+ * nominally makes available. QTM_SFX_CAPTURE (the only effect ever
+ * assigned channel 8) was reported reliably inaudible in live testing --
+ * the SWI call itself succeeds (confirmed via debug_log: QTM_PlaySample
+ * returns no error, registers echoed back exactly as sent) and the
+ * embedded sample data is genuinely present and loud (88% of 8-bit full
+ * scale, comparable to the other SFX), so this isn't a data/loudness
+ * problem -- channels 7/8 just don't reliably produce sound in
+ * practice. Rather than chase exactly which of 7/8 is actually usable,
+ * confined to the two channels (5, 6) every other SFX was already
+ * proven working on.
+ *
+ * Only 2 channels for 6 events means real sharing, so which SFX share a
+ * channel matters: QTM_SFX_MOVE is called unconditionally right after
+ * QTM_SFX_CAPTURE/_HOME/_WIN in start_move_animation() (see
+ * src/game_view.c) with zero delay between the two calls -- confirmed
+ * via this project's own history that a shared channel lets the second
+ * QTM_PlaySample call cut the first's sound off before it's audible
+ * (the original reason DICE and MOVE were split across channels in the
+ * first place, since a roll's resolution chains straight into a move).
+ * QTM_SFX_RELEASE is the only event that's mutually exclusive with
+ * QTM_SFX_MOVE (a move is either a release, handled in a separate
+ * zero-distance branch that returns before ever reaching the MOVE
+ * call, or an ordinary move -- never both), so it's the only safe
+ * channel-mate for MOVE. DICE, CAPTURE, HOME, and WIN are never
+ * triggered back-to-back with each other (DICE fires once per roll,
+ * well before a pawn is even chosen; CAPTURE/HOME/WIN are mutually
+ * exclusive alternatives of each other, chosen by start_move_
+ * animation()'s own if/else-if chain), so all four safely share the
+ * other channel. */
 static const unsigned char sfx_channel[QTM_SFX_COUNT] = {
 	6, /* QTM_SFX_DICE */
 	5, /* QTM_SFX_RELEASE */
-	7, /* QTM_SFX_MOVE */
-	8, /* QTM_SFX_CAPTURE */
-	5, /* QTM_SFX_HOME */
+	5, /* QTM_SFX_MOVE */
+	6, /* QTM_SFX_CAPTURE */
+	6, /* QTM_SFX_HOME */
 	6, /* QTM_SFX_WIN */
 };
 

@@ -16,15 +16,26 @@
 #define MESSAGE_WIDTH  288
 #define MESSAGE_HEIGHT  40
 #define BUTTON_GAP      16
-#define BUTTON_WIDTH   128
+/* 160, not a tighter fit -- "Continue"/"New Game" are both 8 characters;
+ * 20 OS units/character matches the comfortable fit already confirmed
+ * working elsewhere (setup_view.c's TYPE_WIDTH for "Human"/"AI"). The
+ * previous 128 (16 units/character) read as visibly cramped in live
+ * testing. */
+#define BUTTON_WIDTH   160
 #define BUTTON_HEIGHT   40
 
-#define WINDOW_WIDTH  (MARGIN + MESSAGE_WIDTH + MARGIN)
+#define BUTTON_ROW_WIDTH (BUTTON_WIDTH * 2 + BUTTON_GAP)
+/* Widened, not just MESSAGE_WIDTH-based, in case the button row (now
+ * wider than before) would otherwise overflow past the window's own
+ * edge -- same max()-of-both-rows approach setup_view.c's own
+ * WINDOW_WIDTH already uses. */
+#define MESSAGE_ROW_TOTAL (MARGIN + MESSAGE_WIDTH + MARGIN)
+#define BUTTON_ROW_TOTAL (MARGIN + BUTTON_ROW_WIDTH + MARGIN)
+#define WINDOW_WIDTH (MESSAGE_ROW_TOTAL > BUTTON_ROW_TOTAL ? MESSAGE_ROW_TOTAL : BUTTON_ROW_TOTAL)
 #define MESSAGE_X0    (MARGIN + ((WINDOW_WIDTH - MARGIN * 2 - MESSAGE_WIDTH) / 2))
 #define MESSAGE_Y1    (-MARGIN)
 #define BUTTON_ROW_Y1 (MESSAGE_Y1 - MESSAGE_HEIGHT - MARGIN)
 #define WINDOW_HEIGHT (MARGIN - (BUTTON_ROW_Y1 - BUTTON_HEIGHT))
-#define BUTTON_ROW_WIDTH (BUTTON_WIDTH * 2 + BUTTON_GAP)
 #define CONTINUE_X0   (MARGIN + ((WINDOW_WIDTH - MARGIN * 2 - BUTTON_ROW_WIDTH) / 2))
 #define NEWGAME_X0    (CONTINUE_X0 + BUTTON_WIDTH + BUTTON_GAP)
 

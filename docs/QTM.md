@@ -124,12 +124,22 @@ truth between the Python build tool and the C code):
 - `sfx_slot[track][sfx]` -- which sample-table slot holds a given
   effect, per track (0 if that track doesn't carry that effect at all
   -- see Track 3's limitation above).
-- `sfx_channel[sfx]` -- which of the 4 free channels (5-8, once
-  8-channel mode is enabled) plays a given effect. Effects are spread
-  across multiple channels (current map: Dice=6, Release=5, Move=7,
-  Capture=8, Home=5, Win=6) rather than sharing one, since Dice is
-  always immediately followed by a Move trigger and would otherwise
-  cut itself off on the same channel.
+- `sfx_channel[sfx]` -- which channel plays a given effect. Confined to
+  channels 5-6 only, not the full 5-8 range 8-channel mode nominally
+  makes available -- channel 8 (the only one QTM_SFX_CAPTURE ever
+  used) was reported reliably inaudible in live testing, despite the
+  underlying QTM_PlaySample call succeeding and the embedded sample
+  data being genuinely present and loud, so channels 7/8 are avoided
+  entirely rather than chasing exactly which one is unusable. Current
+  map: Dice=6, Release=5, Move=5, Capture=6, Home=6, Win=6 -- Move and
+  Release share one channel (the only pair that's mutually exclusive,
+  never triggered together), Dice/Capture/Home/Win share the other
+  (never triggered back-to-back with each other). Move is called
+  unconditionally right after Capture/Home/Win with zero delay, so it
+  must never share their channel -- that's what would "cut itself off
+  on the same channel" the way an earlier Dice/Move channel-sharing
+  attempt did (see lib/qtm.c's own sfx_channel[] comment for the full
+  reasoning).
 
 **Playback pitch**: all 6 bundled SFX are stored at a uniform 11025Hz.
 `QTM_PlaySample`'s period parameter follows the classic Amiga formula
