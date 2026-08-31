@@ -196,15 +196,15 @@ to -- this file consolidates all of it in one place.
   `docs/ARCHITECTURE.md`'s GeoLudo->Wimp mapping table); ArchiLudo's rules
   engine (`src/game_logic.c`) is a clean reimplementation of the rules
   documented there, not a line-for-line port (see `docs/GAME_LOGIC.md`
-  for why). Its board geometry (`src/board_layout.c`) and, as of Phase
-  1's round 6, its **actual pawn/die-face artwork** are direct reuses,
-  not just references: `assets/geos_source/*.gbm` are local copies of
-  `GEOS/assets/bm_pawn.gbm` and `dice1..6.gbm`, recoloured and resized
-  for RISC OS by `assets/generate_placeholder_art.py` -- see
-  `docs/GRAPHICS_TOOLING.md`'s "Round 6: reusing GeoLudo's own art" and
-  "Round 6.3". (The board-entry direction markers, `bm_{g,r,b,y}start.gbm`,
-  were also tried this way but are drawn programmatically instead as of
-  round 6.1 -- see that section for why.) ArchiLudo's AI opponent
+  for why). Its board geometry (`src/board_layout.c`) and its **actual
+  pawn/die-face artwork** are direct reuses, not just references:
+  `assets/geos_source/*.gbm` are local copies of `GEOS/assets/bm_pawn.gbm`
+  and `dice1..6.gbm`, recoloured and resized for RISC OS by
+  `assets/generate_placeholder_art.py` -- see `docs/GRAPHICS_TOOLING.md`'s
+  "Current rendering approach" section. (The board-entry direction
+  markers, `bm_{g,r,b,y}start.gbm`, were also tried this way but are
+  drawn programmatically instead -- see that same section for why.)
+  ArchiLudo's AI opponent
   (`src/ai.c`) is likewise assessed from, not a literal port of,
   GeoLudo's `computerchoosepawn()` (`GEOS/src/main.c`) -- see
   `docs/AI.md` for exactly what carried over and what changed.
@@ -219,14 +219,15 @@ to -- this file consolidates all of it in one place.
   `idreamtin8bits-astro` repo, checked out locally at
   `/home/xahmol/git/idreamtin8bits-astro`; reproduced as a hand-extracted
   grid of flat `os_plot` rectangles rather than a sprite -- see
-  `docs/ARCHITECTURE.md`'s "Round 6.9" notes for why and how. By Xander
-  Mol, the author of this project.
+  `src/splash_view.c`'s own top-of-file comment for why and how. By
+  Xander Mol, the author of this project.
 - **C64 character ROM dump** (`chargen-901225-01.bin`) -- used one-off,
   offline, to decode the `.petmate` PETSCII source above into an exact
-  pixel bitmap (see `docs/ARCHITECTURE.md`'s "Round 6.9"); not shipped
-  with or built into ArchiLudo itself. Original ROM copyright Commodore
-  Business Machines; this dump found in a local VICE source checkout's
-  test-suite data (`~/svn-mirror/vice/data/C64/`), not distributed by
+  pixel bitmap (see `src/splash_view.c`'s own top-of-file comment); not
+  shipped with or built into ArchiLudo itself. Original ROM copyright
+  Commodore Business Machines; this dump found in a local VICE source
+  checkout's test-suite data (`~/svn-mirror/vice/data/C64/`), not
+  distributed by
   the Debian/Ubuntu `vice` package itself.
 
 ## Updating this file

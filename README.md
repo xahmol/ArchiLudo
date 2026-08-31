@@ -9,6 +9,7 @@ genuine 26-bit RISC OS 3.10. By Xander Mol (idreamtin8bits.com).
 - [Installation](#installation)
 - [Building from source](#building-from-source)
 - [Changelog](#changelog)
+- [Development history](#development-history)
 - [Documentation](#documentation)
 - [Credits and licence](#credits-and-licence)
 
@@ -180,6 +181,43 @@ milestone-level history of what's been built, newest first.
   own coordinate tables), click-to-move, dice, capture/win detection.
 - **Build environment**: the ArchieSDK toolchain, Arculator test
   profiles, and this project's full documentation set established.
+
+## Development history
+
+ArchiLudo isn't this game's first outing -- it's the latest in a line
+of ports going back over three decades, all by the same author. Full
+credits and technical detail for each generation are in
+[`CREDITS.md`](CREDITS.md)'s "Porting source" section; this is the
+narrative version.
+
+- **1992**: the original, written in Commodore BASIC 7.0 for the
+  Commodore 128 in 80-column mode -- "Mens Erger Je Niet" (Dutch for
+  "Don't Get Angry, Man", the house-rule variant of Ludo this whole
+  family of ports implements), by Xander Mol under the "XAMA Software"
+  name. The listing itself still carries its original 1992 copyright
+  banner. Source and a working D64 disk image are preserved at
+  [`C128/BASIC Original`](https://github.com/xahmol/ludo/tree/main/C128/BASIC%20Original)
+  in the [`xahmol/ludo`](https://github.com/xahmol/ludo) repository.
+- **2020**: rewritten for the Oric Atmos, in BASIC.
+- **2021**: rewritten a further three times -- the Oric Atmos version
+  again, now in C via CC65; a new C port for the TI-99/4a via
+  TMS9900-GCC; and a new C port for the Commodore 128 via CC65.
+- **2023**: **GeoLudo**, a GEOS edition sharing one executable across
+  GEOS on the Commodore 64, Commodore 128, and Commodore Plus/4 --
+  [`xahmol/ludo/GEOS`](https://github.com/xahmol/ludo/tree/main/GEOS).
+  This is ArchiLudo's own direct porting source: its board geometry and
+  ring/home-column layout, its pawn and die-face artwork, and its first
+  AI opponent all trace back to GeoLudo specifically (see
+  `docs/ARCHITECTURE.md`'s GeoLudo→ArchiLudo mapping table), even
+  though ArchiLudo's own rules engine (`src/game_logic.c`) is a clean
+  reimplementation rather than a line-for-line port (see
+  `docs/GAME_LOGIC.md` for why).
+- **ArchiLudo**: this project -- a native WIMP port for the Acorn
+  Archimedes, targeting genuine 26-bit RISC OS 3.10. The house rules
+  the 1992 original encoded by hand are now the configurable
+  `LUDO_VARIANT_MEJN` preset among three curated variants (see
+  [`RULES.md`](docs/RULES.md)), and its own multi-decade thread
+  continues in this README's [Changelog](#changelog) above.
 
 ## Documentation
 
