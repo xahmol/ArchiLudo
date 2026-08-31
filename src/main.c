@@ -280,7 +280,7 @@ void archiludo_initialise(const char *argv0)
 	win_view_initialise();
 	rules_view_initialise();
 	splash_view_initialise();
-	splash_view_open();
+	splash_view_open(1);
 	/* After game_view_initialise() -- save_view.c's default pathname is
 	 * built from game_view_app_dir(), which needs argv0 already
 	 * processed. */
@@ -444,7 +444,7 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 				qtm_set_music_enabled(1);
 			}
 		} else if (block->selection.items[0] == ICONBAR_MENU_ABOUT)
-			splash_view_open();
+			splash_view_open(0);
 		else if (block->selection.items[0] == ICONBAR_MENU_QUIT)
 			return true;
 		break;

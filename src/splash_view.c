@@ -17,7 +17,6 @@
 
 #include "splash_view.h"
 #include "archiludo.h"
-#include "game_view.h"
 #include "setup_view.h"
 
 #define MARGIN         16
@@ -171,6 +170,10 @@ static const int logo_palette[5][3] = {
 #define TEXT_LINE_BUF_LEN 32
 
 static wimp_w window_handle = (wimp_w) -1;
+/* Set by the current splash_view_open() call -- see its own doc
+ * comment in splash_view.h. Read once by splash_view_click() when the
+ * player dismisses the window. */
+static int go_to_new_game_on_dismiss = 0;
 static char version_text[TEXT_LINE_BUF_LEN];
 static char text_line_buf[TEXT_LINES][TEXT_LINE_BUF_LEN];
 static char ok_validation[4] = "R1";
@@ -300,12 +303,14 @@ void splash_view_initialise(void)
 	window_handle = wimp_create_window((wimp_window *) &def);
 }
 
-void splash_view_open(void)
+void splash_view_open(int new_go_to_new_game_on_dismiss)
 {
 	wimp_window_state state;
 
 	if (window_handle == (wimp_w) -1)
 		return;
+
+	go_to_new_game_on_dismiss = new_go_to_new_game_on_dismiss;
 
 	state.w = window_handle;
 	wimp_get_window_state(&state);
@@ -363,14 +368,17 @@ void splash_view_click(wimp_pointer *pointer)
 	 * minor, acceptable inconsistency for a dismiss-anywhere splash. */
 	if (pointer->i == ICON_OK || pointer->i == wimp_ICON_WINDOW) {
 		wimp_close_window(window_handle);
-		/* Only on the very first, startup-triggered splash: go
-		 * straight into the New Game dialogue rather than making the
-		 * player make a second, separate iconbar click for it,
-		 * matching the iconbar click's own "first click ever asks for
-		 * player details" behaviour (see main.c). Dismissing the
-		 * splash later, via the About menu entry mid-game, must not
-		 * interrupt a game already in progress. */
-		if (!game_view_has_started())
+		/* Only for the automatic launch splash (see splash_view_open()'s
+		 * own doc comment) -- go straight into the New Game dialogue
+		 * rather than making the player make a second, separate
+		 * iconbar click for it, matching the iconbar click's own
+		 * "first click ever asks for player details" behaviour (see
+		 * main.c). A later, player-triggered reopen via the About menu
+		 * entry never does this, regardless of whether a game happens
+		 * to be underway. */
+		if (go_to_new_game_on_dismiss) {
+			go_to_new_game_on_dismiss = 0;
 			setup_view_open();
+		}
 	}
 }
