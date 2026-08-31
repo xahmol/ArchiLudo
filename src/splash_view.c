@@ -17,6 +17,8 @@
 
 #include "splash_view.h"
 #include "archiludo.h"
+#include "game_view.h"
+#include "setup_view.h"
 
 #define MARGIN         16
 #define LOGO_CELL       4
@@ -359,6 +361,16 @@ void splash_view_click(wimp_pointer *pointer)
 	 * splash_view_initialise()). The always-BUTTON_NEVER text icons
 	 * don't generate a click at all if clicked directly, which is a
 	 * minor, acceptable inconsistency for a dismiss-anywhere splash. */
-	if (pointer->i == ICON_OK || pointer->i == wimp_ICON_WINDOW)
+	if (pointer->i == ICON_OK || pointer->i == wimp_ICON_WINDOW) {
 		wimp_close_window(window_handle);
+		/* Only on the very first, startup-triggered splash: go
+		 * straight into the New Game dialogue rather than making the
+		 * player make a second, separate iconbar click for it,
+		 * matching the iconbar click's own "first click ever asks for
+		 * player details" behaviour (see main.c). Dismissing the
+		 * splash later, via the About menu entry mid-game, must not
+		 * interrupt a game already in progress. */
+		if (!game_view_has_started())
+			setup_view_open();
+	}
 }

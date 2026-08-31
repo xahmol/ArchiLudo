@@ -17,8 +17,10 @@ genuine 26-bit RISC OS 3.10. By Xander Mol (idreamtin8bits.com).
 Four players, four pawns each, a shared ring and a short home run per
 player -- the classic "Mens Erger Je Niet"/Ludo cross board.
 
-**Starting a game**: click the iconbar icon to open the **New Game**
-dialogue. Set each of the 4 players' name and whether they're Human or
+**Starting a game**: on first launch, dismissing the startup splash
+screen (**OK**, or click anywhere on it) opens the **New Game**
+dialogue directly. Later on, click the iconbar icon to open it again.
+Set each of the 4 players' name and whether they're Human or
 AI-controlled, optionally click **Rules...** to pick a rule variant or
 adjust individual house rules (see [RULES.md](docs/RULES.md) for the
 full manual), then **Start**.
