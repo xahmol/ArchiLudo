@@ -16,19 +16,18 @@
 #define MESSAGE_WIDTH  288
 #define MESSAGE_HEIGHT  40
 #define BUTTON_GAP      16
-/* 160, not a tighter fit -- "Continue"/"New Game" are both 8 characters;
- * 20 OS units/character matches the comfortable fit already confirmed
- * working elsewhere (setup_view.c's TYPE_WIDTH for "Human"/"AI"). The
- * previous 128 (16 units/character) read as visibly cramped in live
- * testing. */
-#define BUTTON_WIDTH   160
+/* 180, not a tighter fit -- "Quit Game" is the longest label at 9
+ * characters; 20 OS units/character matches the comfortable fit already
+ * confirmed working elsewhere (setup_view.c's TYPE_WIDTH for
+ * "Human"/"AI", this window's own earlier Continue/New Game widening). */
+#define BUTTON_WIDTH   180
 #define BUTTON_HEIGHT   40
 
-#define BUTTON_ROW_WIDTH (BUTTON_WIDTH * 2 + BUTTON_GAP)
-/* Widened, not just MESSAGE_WIDTH-based, in case the button row (now
- * wider than before) would otherwise overflow past the window's own
- * edge -- same max()-of-both-rows approach setup_view.c's own
- * WINDOW_WIDTH already uses. */
+#define BUTTON_COUNT 3
+#define BUTTON_ROW_WIDTH (BUTTON_WIDTH * BUTTON_COUNT + BUTTON_GAP * (BUTTON_COUNT - 1))
+/* Widened, not just MESSAGE_WIDTH-based, in case the button row would
+ * otherwise overflow past the window's own edge -- same max()-of-both-
+ * rows approach setup_view.c's own WINDOW_WIDTH already uses. */
 #define MESSAGE_ROW_TOTAL (MARGIN + MESSAGE_WIDTH + MARGIN)
 #define BUTTON_ROW_TOTAL (MARGIN + BUTTON_ROW_WIDTH + MARGIN)
 #define WINDOW_WIDTH (MESSAGE_ROW_TOTAL > BUTTON_ROW_TOTAL ? MESSAGE_ROW_TOTAL : BUTTON_ROW_TOTAL)
@@ -38,20 +37,29 @@
 #define WINDOW_HEIGHT (MARGIN - (BUTTON_ROW_Y1 - BUTTON_HEIGHT))
 #define CONTINUE_X0   (MARGIN + ((WINDOW_WIDTH - MARGIN * 2 - BUTTON_ROW_WIDTH) / 2))
 #define NEWGAME_X0    (CONTINUE_X0 + BUTTON_WIDTH + BUTTON_GAP)
+#define QUIT_X0       (NEWGAME_X0 + BUTTON_WIDTH + BUTTON_GAP)
 
 #define ICON_MESSAGE  0
 #define ICON_CONTINUE 1
 #define ICON_NEWGAME  2
-#define WINDOW_ICON_COUNT 3
+#define ICON_QUIT     3
+#define WINDOW_ICON_COUNT 4
 
 /* Sized for "GREEN WINS!" plus a safety margin -- the longest realistic
- * message ("YELLOW WINS!") is 12 characters + terminator. */
+ * message is a custom GAME_VIEW_NAME_LEN-1 (11) character name plus
+ * " ended 3rd"/" ended 4th" (10 characters), well under this. */
 #define MESSAGE_BUF_LEN 32
 
 static wimp_w window_handle = (wimp_w) -1;
 static char message_buf[MESSAGE_BUF_LEN];
 static char continue_validation[4] = "R1";
 static char newgame_validation[4] = "R1";
+static char quit_validation[4] = "R1";
+/* Tracks ICON_CONTINUE's current shaded state -- see win_view_open()'s
+ * allow_continue parameter -- so the EOR toggle only fires when the
+ * desired state actually differs, same bookkeeping convention as
+ * setup_view.c's difficulty-icon shading. */
+static int continue_shaded = 0;
 
 void win_view_initialise(void)
 {
@@ -139,10 +147,24 @@ void win_view_initialise(void)
 	icon->data.indirected_text.validation = newgame_validation;
 	icon->data.indirected_text.size = 9;
 
+	icon = &def.icons[ICON_QUIT];
+	icon->extent.x0 = QUIT_X0;
+	icon->extent.x1 = QUIT_X0 + BUTTON_WIDTH;
+	icon->extent.y1 = BUTTON_ROW_Y1;
+	icon->extent.y0 = BUTTON_ROW_Y1 - BUTTON_HEIGHT;
+	icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+	              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+	              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+	              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+	              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+	icon->data.indirected_text.text = "Quit Game";
+	icon->data.indirected_text.validation = quit_validation;
+	icon->data.indirected_text.size = 10;
+
 	window_handle = wimp_create_window((wimp_window *) &def);
 }
 
-void win_view_open(const char *message)
+void win_view_open(const char *message, int allow_continue)
 {
 	wimp_window_state state;
 
@@ -151,6 +173,15 @@ void win_view_open(const char *message)
 
 	strncpy(message_buf, message, MESSAGE_BUF_LEN - 1);
 	message_buf[MESSAGE_BUF_LEN - 1] = '\0';
+
+	/* Shade Continue for the last-place finish (allow_continue == 0) --
+	 * nothing left to continue playing once every player has finished.
+	 * Same "only EOR-toggle when the desired state actually differs"
+	 * bookkeeping as setup_view.c's difficulty-icon shading. */
+	if (continue_shaded != !allow_continue) {
+		wimp_set_icon_state(window_handle, ICON_CONTINUE, wimp_ICON_SHADED, 0);
+		continue_shaded = !allow_continue;
+	}
 
 	state.w = window_handle;
 	wimp_get_window_state(&state);
@@ -174,12 +205,17 @@ void win_view_redraw(wimp_draw *redraw)
 		more = wimp_get_rectangle(redraw);
 }
 
-void win_view_click(wimp_pointer *pointer)
+int win_view_click(wimp_pointer *pointer)
 {
 	if (pointer->i == ICON_CONTINUE) {
+		/* Shaded (and so, by Wimp convention, not clickable) for the
+		 * 4th-place dialogue -- guarded explicitly anyway rather than
+		 * relying solely on that, since it costs nothing. */
+		if (continue_shaded)
+			return 0;
 		wimp_close_window(window_handle);
 		game_view_win_continue();
-		return;
+		return 0;
 	}
 
 	if (pointer->i == ICON_NEWGAME) {
@@ -195,6 +231,16 @@ void win_view_click(wimp_pointer *pointer)
 		 * whatever the user does next (Start, or Load). */
 		game_view_win_continue();
 		setup_view_open();
-		return;
+		return 0;
 	}
+
+	if (pointer->i == ICON_QUIT) {
+		/* Just report it -- actually terminating the Wimp_Poll loop is
+		 * main.c's own job (see win_view_click()'s doc comment). No
+		 * game_view_win_continue()/window close needed: the whole
+		 * application is about to exit. */
+		return 1;
+	}
+
+	return 0;
 }

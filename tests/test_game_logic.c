@@ -289,6 +289,52 @@ static void test_winner_detected_when_all_pawns_finish(void)
 
 	CHECK(g.players[0].pawns[3].steps == LUDO_TOTAL_STEPS - 3);
 	CHECK(g.winner == 0);
+	CHECK(g.finish_order[0] == 0);
+	CHECK(g.finish_order[1] == -1);
+}
+
+/* finish_order records every player as they finish, not just the first
+ * (winner) -- game_view.c's win dialogue shows a distinct message per
+ * place (1st through 4th), so all four need to be tracked, in the order
+ * they actually finish, not player index order. */
+static void test_finish_order_tracks_all_four_places(void)
+{
+	static const int order[LUDO_PLAYERS] = { 2, 0, 3, 1 }; /* finish order */
+	ludo_game g;
+	int i, j, place;
+
+	ludo_init(&g);
+
+	for (place = 0; place < LUDO_PLAYERS; place++) {
+		int player = order[place];
+
+		/* Same dynamic-threshold pattern as
+		 * test_winner_detected_when_all_pawns_finish() above: 3 pawns
+		 * already finished, the 4th moved into place to trigger the
+		 * finish. */
+		for (i = 0; i < 3; i++) {
+			g.players[player].pawns[i].in_play = 1;
+			g.players[player].pawns[i].finished = 1;
+			g.players[player].pawns[i].steps = LUDO_TOTAL_STEPS - i;
+		}
+		g.players[player].pawns[3].in_play = 1;
+		g.players[player].pawns[3].steps = LUDO_TOTAL_STEPS - 3 - 1;
+
+		g.current_player = player;
+		ludo_roll(&g, 1);
+		CHECK((ludo_movable_pawns(&g) & (1u << 3)) != 0);
+		ludo_move_pawn(&g, 3);
+
+		CHECK(g.finish_order[place] == player);
+		for (j = place + 1; j < LUDO_PLAYERS; j++)
+			CHECK(g.finish_order[j] == -1);
+	}
+
+	CHECK(g.winner == order[0]); /* the first to finish */
+	CHECK(g.finish_order[0] == order[0]);
+	CHECK(g.finish_order[1] == order[1]);
+	CHECK(g.finish_order[2] == order[2]);
+	CHECK(g.finish_order[3] == order[3]);
 }
 
 /* A six rolled for a pawn move (not a home release) grants another roll
@@ -1257,6 +1303,7 @@ int main(void)
 	RUN(test_pawn_finishes_exactly);
 	RUN(test_second_finishing_pawn_lands_one_square_short);
 	RUN(test_winner_detected_when_all_pawns_finish);
+	RUN(test_finish_order_tracks_all_four_places);
 	RUN(test_extra_roll_on_six_keeps_same_player);
 	RUN(test_six_bonus_survives_another_players_win);
 	RUN(test_non_six_move_ends_turn);

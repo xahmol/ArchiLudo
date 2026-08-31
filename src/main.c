@@ -369,7 +369,8 @@ static bool main_dispatch(wimp_event_no reason, wimp_block *block)
 		} else if (block->pointer.w == setup_view_window_handle()) {
 			setup_view_click(&block->pointer);
 		} else if (block->pointer.w == win_view_window_handle()) {
-			win_view_click(&block->pointer);
+			if (win_view_click(&block->pointer))
+				return true;
 		} else if (block->pointer.w == rules_view_window_handle()) {
 			rules_view_click(&block->pointer);
 		} else if (block->pointer.w == splash_view_window_handle()) {

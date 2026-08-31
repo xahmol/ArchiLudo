@@ -78,7 +78,7 @@ ArchiLudo/
     ai.c            -- AI opponent move selection (portable, see docs/AI.md)
     game_view.c     -- the game window: creation, redraw, clicks, animation
     setup_view.c    -- the "New Game" dialogue: names, Human/AI + difficulty per player
-    win_view.c      -- the "a player has won" Continue/New Game dialogue
+    win_view.c      -- the "a player has finished" Continue/New Game/Quit dialogue
     rules_view.c    -- the "Rule Options" dialogue: preset + house rules
     splash_view.c   -- the startup/About window (idi8b logo, version, author)
     save_view.c     -- Save/Load dialogues (5 fixed slots)

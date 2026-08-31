@@ -29,6 +29,37 @@ static int all_pawns_finished(const ludo_game *g, int player)
 }
 
 /*
+ * Function: record_finish_order (internal)
+ * Summary: If `player` has just finished all four pawns and isn't
+ *          already recorded in g->finish_order, adds them at the next
+ *          free place (idempotent -- safe to call every time a pawn
+ *          finishes, not just the first time overall, since a player
+ *          already present in finish_order is simply left alone).
+ *          Also sets g->winner, kept in sync as finish_order[0] for
+ *          backward compatibility with existing callers that only care
+ *          about the first winner.
+ * Syntax:  static void record_finish_order(ludo_game *g, int player);
+ */
+static void record_finish_order(ludo_game *g, int player)
+{
+	int i;
+
+	if (!all_pawns_finished(g, player))
+		return;
+
+	for (i = 0; i < LUDO_PLAYERS; i++) {
+		if (g->finish_order[i] == player)
+			return; /* already recorded */
+		if (g->finish_order[i] == -1) {
+			g->finish_order[i] = player;
+			if (g->winner == -1)
+				g->winner = player;
+			return;
+		}
+	}
+}
+
+/*
  * Function: find_home_pawn (internal)
  * Summary: Locate a pawn still waiting in a player's home base.
  * Syntax:  static int find_home_pawn(const ludo_game *g, int player);
@@ -634,6 +665,8 @@ void ludo_set_rules(ludo_game *g, const ludo_rules *rules)
 
 void ludo_init(ludo_game *g)
 {
+	int i;
+
 	memset(g, 0, sizeof(*g));
 	g->current_player = 0;
 	g->last_roll = 0;
@@ -642,6 +675,8 @@ void ludo_init(ludo_game *g)
 	g->pending_forced_pawn = -1;
 	g->just_released = 0;
 	g->winner = -1;
+	for (i = 0; i < LUDO_PLAYERS; i++)
+		g->finish_order[i] = -1;
 	g->rules = ludo_default_rules(LUDO_VARIANT_MEJN);
 }
 
@@ -798,8 +833,7 @@ int ludo_move_pawn(ludo_game *g, int pawn_index)
 
 	g->forced_pawn = -1; /* this roll's obligation, if any, is now fulfilled */
 
-	if (g->winner == -1 && all_pawns_finished(g, player))
-		g->winner = player;
+	record_finish_order(g, player);
 
 	/* Checks THIS player's own all_pawns_finished(), not the global
 	 * g->winner == -1 -- players may continue after the first winner

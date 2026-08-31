@@ -90,7 +90,10 @@ players may continue"). Regression test:
 
 See the docstring comment above each declaration in `game_logic.h` for
 the authoritative summary/syntax/input/output description. In short,
-the caller's loop looks like this:
+the caller's loop looks like this (stopping at the first winner -- a
+caller that wants full placement, like `src/game_view.c`'s win dialogue
+does, keeps playing past this and reads `g.finish_order[]` instead,
+which records every player as they finish, not just the first):
 
 ```c
 ludo_game g;

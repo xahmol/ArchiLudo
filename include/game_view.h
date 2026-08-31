@@ -25,7 +25,7 @@
 /* Size in bytes of a saved-game file -- see game_view_save_to_path()'s
  * "Save/load" block comment in game_view.c for the layout.
  *
- * Includes the rules block (magic "ALS4") --
+ * Includes the rules block (magic "ALS5") --
  * one byte per ludo_rules field (variant + 8 house-rule booleans, see
  * game_logic.h), so the chosen ruleset (which variant, which of the 8
  * toggles) survives save/load rather than reverting to MEJN defaults --
@@ -35,11 +35,17 @@
  * why this replaced an earlier free-form drag-and-drop design). Each
  * player's block is name + is_ai + AI difficulty (one byte each), so a
  * per-player difficulty (see game_view_configure_players()) also
- * survives save/load. The magic is bumped whenever the layout changes,
- * and an older-magic save is deliberately rejected rather than partially
- * loaded -- an accepted trade-off for this hobby project. */
+ * survives save/load. The "+ 7" fixed fields are current_player,
+ * last_roll, tries_remaining, forced_pawn, pending_forced_pawn,
+ * just_released, and winner; the trailing "+ LUDO_PLAYERS" is
+ * game.finish_order (one signed byte per place, see game_logic.h),
+ * so which player finished in which place also survives save/load.
+ * The magic is bumped whenever the layout changes, and an older-magic
+ * save is deliberately rejected rather than partially loaded -- an
+ * accepted trade-off for this hobby project. */
 #define GAME_VIEW_SAVE_FILE_SIZE (4 + GAME_VIEW_SLOT_NAME_LEN + 9 \
                                  + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 2) + 7 \
+                                 + LUDO_PLAYERS \
                                  + LUDO_PLAYERS * LUDO_PAWNS * 3)
 
 /*

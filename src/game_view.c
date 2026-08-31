@@ -229,37 +229,63 @@ static int throw_shaded = 0;
  * in progress). See game_view_has_started(). */
 static int game_started = 0;
 
-/* Whether the CURRENT game.winner (if any) has been
- * acknowledged via src/win_view.c's "Continue" (or "New Game", which
- * also acknowledges it before opening setup -- see
- * game_view_win_continue()). While a player has won but this is still
- * 0, the game is "paused" -- refresh_status() shows the "X WINS!"
- * announcement and game_view_click() ignores board/Throw clicks --
- * waiting for the win dialogue's choice. Once acknowledged, game.winner
- * stays set (the engine itself never clears it -- see game_logic.c) but
- * every UI check that used to treat "there's a winner" as "the game is
- * over" now also requires !win_acknowledged, so ordinary turn-based play
- * resumes for whichever players haven't finished yet. Reset to 0 by
- * game_view_new_game() and game_view_load_from_path() (a loaded game's
- * own winner, if any, needs its own fresh acknowledgement). */
-static int win_acknowledged = 0;
+/* How many of game.finish_order's places have been shown AND
+ * acknowledged via src/win_view.c's "Continue"/"New Game"/"Quit Game"
+ * (all three acknowledge -- see game_view_win_continue()). While a
+ * player has finished but this is still less than how many places are
+ * actually filled, the game is "paused" -- refresh_status() shows the
+ * "<name> WINS!"/"<name> ended Nth" announcement for the one pending
+ * place (finish_order[win_shown_count]) and game_view_click() ignores
+ * board/Throw clicks -- waiting for the win dialogue's choice. Since a
+ * new finisher can only ever occur while nobody is paused (a paused
+ * game blocks all further rolls/moves), at most one place is ever
+ * pending unacknowledged at a time, so a simple count (not a per-place
+ * flag array) is enough. Once acknowledged, finish_order stays set
+ * (the engine itself never clears it -- see game_logic.c) but every UI
+ * check that used to treat "there's a winner" as "the game is over" now
+ * checks game_paused() instead, so ordinary turn-based play resumes for
+ * whichever players haven't finished yet -- until the 4th (last) place
+ * is acknowledged, at which point nobody has any pawns left to move.
+ * Reset to 0 by game_view_new_game() and game_view_load_from_path() (a
+ * loaded game's own pending place, if any, needs its own fresh
+ * acknowledgement). */
+static int win_shown_count = 0;
+
+/*
+ * Function: finished_place_count (internal)
+ * Summary: How many of game.finish_order's places are actually filled
+ *          right now (0..LUDO_PLAYERS) -- the first -1 entry marks the
+ *          end, since players are recorded in order as they finish
+ *          (see game_logic.c's record_finish_order()).
+ * Syntax:  static int finished_place_count(void);
+ */
+static int finished_place_count(void)
+{
+	int i;
+
+	for (i = 0; i < LUDO_PLAYERS; i++) {
+		if (game.finish_order[i] == -1)
+			return i;
+	}
+	return LUDO_PLAYERS;
+}
 
 /*
  * Function: game_paused
  * Summary: Whether normal turn-based interactivity (board clicks, the
  *          Throw/Continue button, movable-pawn/hover highlights) should
- *          be suspended right now because there's a winner the user
- *          hasn't yet acknowledged via src/win_view.c -- see
- *          win_acknowledged's own doc comment. Every place that used to
+ *          be suspended right now because a player has finished and the
+ *          user hasn't yet acknowledged it via src/win_view.c -- see
+ *          win_shown_count's own doc comment. Every place that used to
  *          check game.winner != -1 to mean "the game is over" now checks
  *          this instead, so play resumes normally once acknowledged.
  * Syntax:  static int game_paused(void);
  * Input:   none.
- * Output:  1 if paused (winner set, not yet acknowledged), 0 otherwise.
+ * Output:  1 if paused (an unacknowledged finish is pending), 0 otherwise.
  */
 static int game_paused(void)
 {
-	return game.winner != -1 && !win_acknowledged;
+	return finished_place_count() > win_shown_count;
 }
 
 /*
@@ -660,20 +686,47 @@ static const char *player_display_name(int player)
 	return player_name[player];
 }
 
+/*
+ * Function: format_place_message (internal)
+ * Summary: The announcement text for one finish_order place -- "<name>
+ *          WINS!" for place 0 (the winner), "<name> ended 2nd/3rd/4th"
+ *          for places 1-3. Shared by refresh_status() (the game
+ *          window's own name-panel text while paused) and after_settle()
+ *          (src/win_view.c's dialogue message), so the two can never
+ *          disagree about which player/place is currently pending.
+ * Syntax:  static void format_place_message(char *buf, size_t buf_size,
+ *              int place);
+ * Input:   buf, buf_size - destination.
+ *          place         - 0..LUDO_PLAYERS-1, index into
+ *                           game.finish_order.
+ * Output:  none. buf is NUL-terminated.
+ */
+static void format_place_message(char *buf, size_t buf_size, int place)
+{
+	static const char *const ordinal[LUDO_PLAYERS] = { NULL, "2nd", "3rd", "4th" };
+	int player = game.finish_order[place];
+
+	if (place == 0)
+		snprintf(buf, buf_size, "%s WINS!", player_display_name(player));
+	else
+		snprintf(buf, buf_size, "%s ended %s", player_display_name(player), ordinal[place]);
+}
+
 static void refresh_status(void)
 {
-	/* "paused" means there's a winner the user hasn't yet
-	 * acknowledged via src/win_view.c's dialogue -- see win_acknowledged's
-	 * own doc comment. Only genuinely an "AI's turn" while NOT paused
-	 * (either no one has won yet, or someone has but play is continuing) --
-	 * while paused, the Throw/Continue icon always shows "Throw" (its old
-	 * "play again" meaning is gone -- see game_view_click() -- it's simply
-	 * inert while the win dialogue has focus). */
+	/* "paused" means a player has finished and the user hasn't yet
+	 * acknowledged it via src/win_view.c's dialogue -- see
+	 * win_shown_count's own doc comment. Only genuinely an "AI's turn"
+	 * while NOT paused (either nobody has finished yet, or someone has
+	 * but play is continuing) -- while paused, the Throw/Continue icon
+	 * always shows "Throw" (its old "play again" meaning is gone -- see
+	 * game_view_click() -- it's simply inert while the win dialogue has
+	 * focus). */
 	int paused = game_paused();
 	int ai_turn = !paused && player_is_ai[game.current_player];
 
 	if (paused) {
-		snprintf(name_text, NAME_TEXT_LEN, "%s WINS!", player_display_name(game.winner));
+		format_place_message(name_text, NAME_TEXT_LEN, win_shown_count);
 		snprintf(status_text, STATUS_TEXT_LEN, "Click Throw");
 	} else {
 		snprintf(name_text, NAME_TEXT_LEN, "%s", player_display_name(game.current_player));
@@ -1739,7 +1792,7 @@ static void draw_full_window_content(int origin_x, int origin_y)
 	 * explicit user request -- yellow in particular read poorly
 	 * against the panel's own light background with no border. */
 	{
-		int player = game_paused() ? game.winner : game.current_player;
+		int player = game_paused() ? game.finish_order[win_shown_count] : game.current_player;
 		int x0 = origin_x + SWATCH_X0;
 		int y1 = origin_y + SWATCH_Y1;
 		/* Mode 15 is 2x4 OS units per physical pixel (non-square --
@@ -1918,23 +1971,28 @@ static board_cell preview_destination(int player, int pawn_index)
  *          Continue click -- per explicit user request), otherwise
  *          STEP_IDLE for ordinary human play.
  *
- *          Also where a fresh win first gets noticed -- if
- *          game.winner is set and not yet acknowledged (see
- *          win_acknowledged's own doc comment), this is always the FIRST
- *          call after the winning move/roll settled (every caller runs
- *          straight after a ludo_move_pawn()/ludo_roll() that could have
- *          set it), so opening src/win_view.c's win-choice dialogue right
- *          here catches it exactly once per win, with no separate
- *          "did we already show this" tracking needed beyond
- *          win_acknowledged itself -- once the dialogue's Continue/New
- *          Game sets it, this branch simply stops matching.
+ *          Also where a fresh finish first gets noticed -- if
+ *          game.finish_order has a place beyond win_shown_count (see its
+ *          own doc comment), this is always the FIRST call after the
+ *          finishing move/roll settled (every caller runs straight after
+ *          a ludo_move_pawn()/ludo_roll() that could have set it), so
+ *          opening src/win_view.c's win-choice dialogue right here
+ *          catches it exactly once per finish, with no separate "did we
+ *          already show this" tracking needed beyond win_shown_count
+ *          itself -- once the dialogue's Continue/New Game/Quit Game
+ *          increments it, this branch simply stops matching until the
+ *          NEXT player finishes. Since a paused game blocks all further
+ *          rolls/moves, at most one place is ever pending unacknowledged
+ *          at a time.
  */
 static void after_settle(void)
 {
-	if (game.winner != -1 && !win_acknowledged) {
+	if (finished_place_count() > win_shown_count) {
 		step = STEP_IDLE;
 		refresh_status();
-		win_view_open(name_text);
+		/* Continue is offered for every place except the last (all 4
+		 * players finished -- nobody has a pawn left to move). */
+		win_view_open(name_text, win_shown_count < LUDO_PLAYERS - 1);
 		return;
 	}
 
@@ -2012,15 +2070,27 @@ static void start_move_animation(int player, int pawn_index)
 		 * capture (landing on an unprotected opponent at the ring entry
 		 * square). */
 		int was_finished = game.players[player].pawns[pawn_index].finished;
-		int had_winner = (game.winner != -1);
+		int had_finished_places = finished_place_count();
 		int captured;
 
 		captured = ludo_move_pawn(&game, pawn_index);
 		to_steps = game.players[player].pawns[pawn_index].steps;
 
-		if (game.winner != -1 && !had_winner)
+		/* Plays for EVERY player finishing, not just the first -- per
+		 * explicit user request, 2nd/3rd/4th place also get the win
+		 * fanfare, not just the winner. */
+		if (finished_place_count() > had_finished_places)
 			qtm_play_sfx(QTM_SFX_WIN);
 		else if (game.players[player].pawns[pawn_index].finished && !was_finished)
+			qtm_play_sfx(QTM_SFX_HOME);
+		else if (from_steps < LUDO_RING_LENGTH && to_steps >= LUDO_RING_LENGTH)
+			/* Crossed from the ring into the home column this move,
+			 * without also finishing in the same move (that case is
+			 * already handled by the branch above -- checked first, so a
+			 * move short enough to both enter and finish at once still
+			 * only plays one sound, not two). Reuses QTM_SFX_HOME rather
+			 * than a dedicated recording -- per explicit user request,
+			 * simplest option, no new asset needed. */
 			qtm_play_sfx(QTM_SFX_HOME);
 		else if (captured)
 			qtm_play_sfx(QTM_SFX_CAPTURE);
@@ -2359,7 +2429,7 @@ void game_view_new_game(void)
 	ludo_set_rules(&game, &configured_rules);
 	game_started = 1;
 	step = STEP_IDLE;
-	win_acknowledged = 0;
+	win_shown_count = 0;
 	hover_active = 0;
 	dice_display_face = 0;
 	/* after_settle() itself calls refresh_status() -- see its doc comment.
@@ -2379,7 +2449,7 @@ int game_view_has_started(void)
 
 void game_view_win_continue(void)
 {
-	win_acknowledged = 1;
+	win_shown_count++;
 	after_settle();
 	redraw_now();
 }
@@ -2440,7 +2510,7 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 	int i = 0, player, pawn;
 	size_t name_len;
 
-	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '4';
+	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '5';
 
 	/* The slot's own display name travels WITH the save data
 	 * itself (not just the fixed "SlotN" filename) so src/save_view.c's
@@ -2482,6 +2552,8 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 	buf[i++] = (unsigned char) game.pending_forced_pawn;
 	buf[i++] = (unsigned char) game.just_released;
 	buf[i++] = (unsigned char) game.winner;
+	for (player = 0; player < LUDO_PLAYERS; player++)
+		buf[i++] = (unsigned char) game.finish_order[player];
 
 	for (player = 0; player < LUDO_PLAYERS; player++) {
 		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
@@ -2547,6 +2619,8 @@ static void deserialize_game(const unsigned char *buf)
 	game.pending_forced_pawn = (signed char) buf[i++];
 	game.just_released = buf[i++];
 	game.winner = (signed char) buf[i++];
+	for (player = 0; player < LUDO_PLAYERS; player++)
+		game.finish_order[player] = (signed char) buf[i++];
 
 	for (player = 0; player < LUDO_PLAYERS; player++) {
 		for (pawn = 0; pawn < LUDO_PAWNS; pawn++) {
@@ -2595,7 +2669,7 @@ int game_view_load_from_path(const char *path)
 	got = fread(buf, 1, SAVE_FILE_SIZE, f);
 	fclose(f);
 
-	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '4') {
+	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '5') {
 		/* An older-format save (a different magic) is deliberately
 		 * rejected here rather than partially loaded, since it has a
 		 * different byte layout the rest of this function assumes it
@@ -2607,14 +2681,14 @@ int game_view_load_from_path(const char *path)
 
 	deserialize_game(buf);
 	game_started = 1;
-	/* A loaded game's own winner (if any -- the save format
-	 * doesn't record whether it had already been acknowledged) always
-	 * needs a fresh acknowledgement -- after_settle() below will open
-	 * src/win_view.c's dialogue again if game.winner != -1, which is a
-	 * one-click "Continue" if the player had already dealt with it
-	 * before saving -- an acceptable minor rough edge rather than
-	 * changing the save file format to track it. */
-	win_acknowledged = 0;
+	/* A loaded game's own finished places (if any -- the save format
+	 * doesn't record how many had already been acknowledged) always
+	 * need a fresh acknowledgement -- after_settle() below will open
+	 * src/win_view.c's dialogue again for each one already in
+	 * finish_order, one Continue click apiece, if the player had already
+	 * dealt with them before saving -- an acceptable minor rough edge
+	 * rather than changing the save file format to track it. */
+	win_shown_count = 0;
 	hover_active = 0;
 	/* Show whatever die face the save was mid-turn on, if any, rather
 	 * than a blank die until the next throw. */
@@ -2648,7 +2722,7 @@ int game_view_peek_slot_name(const char *path, char *out, size_t out_size)
 	fclose(f);
 
 	if (got != sizeof(header) || header[0] != 'A' || header[1] != 'L' ||
-	    header[2] != 'S' || header[3] != '4')
+	    header[2] != 'S' || header[3] != '5')
 		return 0;
 
 	if (out_size > 0) {

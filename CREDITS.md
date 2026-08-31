@@ -131,11 +131,17 @@ to -- this file consolidates all of it in one place.
 ## Sound effects
 
 - **Kenney** (kenney.nl) -- the "Interface Sounds" pack (click/
-  confirmation/error tones -- pawn release, per-move tick, and capture
-  SFX) and, via its OpenGameArt mirror, the "54 Casino Sound Effects"
-  pack (dice-throw SFX). CC0 (public domain); Kenney is one of the most
-  widely-used, long-standing CC0 game-asset sources, credited across
-  thousands of indie/game-jam projects. `https://kenney.nl/assets/interface-sounds`,
+  confirmation/error tones -- pawn release and per-move tick SFX),
+  the "Impact Sounds" pack (`impactWood_heavy_000.ogg`, used as the
+  capture SFX -- the original "Interface Sounds" click used for this
+  had a soft ~2.7ms attack ramp that read as inaudible against the
+  music in live testing; this one has a <1ms attack, much closer to a
+  genuine percussive hit), and, via its OpenGameArt mirror, the "54
+  Casino Sound Effects" pack (dice-throw SFX). CC0 (public domain);
+  Kenney is one of the most widely-used, long-standing CC0 game-asset
+  sources, credited across thousands of indie/game-jam projects.
+  `https://kenney.nl/assets/interface-sounds`,
+  `https://kenney.nl/assets/impact-sounds`,
   `https://opengameart.org/content/54-casino-sound-effects-cards-dice-chips`
 - **"Glorious Victory Fanfare NES"** -- the game-won SFX (`SfxWin`), a
   Famicom/NES-style chiptune fanfare made with FamiStudio, trimmed to 4

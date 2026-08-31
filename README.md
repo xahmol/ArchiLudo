@@ -34,9 +34,11 @@ than one can legally move (if only one can, it moves automatically),
 or click **Throw** again on a six. Landing exactly on another pawn
 sends it home; reaching the exact end of your home column finishes
 that pawn. For an AI player's turn, click **Continue** to step through
-its moves. When someone gets all four pawns home, a win screen
-appears -- **Continue** lets the remaining players keep going to decide
-runner-up order.
+its moves. Every time a player finishes, a win screen appears --
+**Continue** (offered for 1st, 2nd, and 3rd place) lets the remaining
+players keep going to decide the rest of the placing; the 4th and
+final player's screen has no Continue, since nobody's left to play.
+Every win screen also offers **New Game** and **Quit Game**.
 
 **Saving and loading**: **Save Game**/**Load Game** from the iconbar
 menu open 5 fixed, renamable slots at any time during play.
@@ -143,6 +145,10 @@ for its structure).
 ArchiLudo hasn't cut discrete numbered releases yet -- this is a
 milestone-level history of what's been built, newest first.
 
+- **Full placement flow**: a win screen (with fanfare) now appears for
+  every player who finishes, not just the first -- "WINS!" for 1st,
+  "ended 2nd/3rd/4th" for the rest, each offering Continue (except the
+  last), New Game, and Quit Game.
 - **AI difficulty tiers**: Low/Medium/High per AI-controlled player,
   picked in the New Game dialogue -- Low takes only the objectively
   decisive moves (win/finish/capture/progress), Medium is the original

@@ -311,6 +311,15 @@ typedef struct {
  *                         outside game_logic.c.
  *   winner              - index of the first player to finish all four
  *                         pawns, or -1 if the game is still undecided.
+ *                         Always equals finish_order[0] once set.
+ *   finish_order         - finish_order[i] is the player index of the
+ *                         (i+1)-th player to finish all four pawns (0 =
+ *                         1st place/winner, 1 = 2nd, ...), or -1 for a
+ *                         place not reached yet. Lets a caller show each
+ *                         player's own placement, not just who won first
+ *                         -- players may continue after the first winner
+ *                         (see docs/RULES.md), and this is how a caller
+ *                         tells that a *different* player just finished.
  *   rules               - the house-rule toggles in effect for this game
  *                         (see ludo_rules) -- set to LUDO_VARIANT_MEJN's
  *                         defaults by ludo_init(), optionally overridden
@@ -331,6 +340,7 @@ typedef struct {
 	int pending_forced_pawn;
 	int just_released;
 	int winner;
+	int finish_order[LUDO_PLAYERS];
 	ludo_rules rules;
 	int consecutive_sixes;
 } ludo_game;
