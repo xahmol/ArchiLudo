@@ -62,7 +62,7 @@ APPNAME = ArchiLudo
 VERSION_MAJOR     = 0
 VERSION_MINOR     = 1
 VERSION_PATCH     = 0
-# Round 7.91: := (immediate expansion), not = -- with plain =, $(shell date)
+# := (immediate expansion), not = -- with plain =, $(shell date)
 # re-runs on every reference to VERSION_TIMESTAMP, so two recipe lines (or
 # two targets, like zip and disk below, where disk's recipe re-derives
 # $(ZIPFILE) rather than being handed it) straddling a minute boundary
@@ -105,9 +105,9 @@ ZIPFILE  = build/$(APPNAME)-$(VERSION).zip
 # the name rather than shell-style delimiters.
 APPDIR    = build/!$(APPNAME)
 RUNIMAGE  = $(APPDIR)/!RunImage,ff8
-# Round 7.60: QTMModule (,ffa -- Module filetype) plus the bundled music
-# (Music1/Music2/Music3 -- round 7.65 added the third track, ProTracker
-# .mod data) and sample-effect (Sfx* -- raw 16-bit PCM, converted to
+# QTMModule (,ffa -- Module filetype) plus the bundled music
+# (Music1/Music2/Music3, ProTracker .mod data) and sample-effect (Sfx* --
+# raw 16-bit PCM, converted to
 # QTM's own format at runtime, see lib/qtm.c) files, all ,ffd (Data) like
 # this project's own save files -- see docs/QTM.md.
 APPFILES  = $(RUNIMAGE) $(APPDIR)/!Run,feb $(APPDIR)/!Sprites,ff9 \
@@ -217,13 +217,13 @@ deploy: check-hostfs $(APPFILES)
 	# first, since DEST already exists as a directory from the previous
 	# run (the classic cp -r gotcha).
 	$(CPDIR) "$(APPDIR)/." "$(ARCULATOR_HOSTFS)/!$(APPNAME)/"
-	# Pre-app-directory deploys (round 7.17 through 7.34) left a flat
+	# An earlier pre-app-directory layout left a flat
 	# ArchiLudo,ff8/PawnSprites,ff9 directly in hostfs -- remove any
 	# stale copies so they can't be mistaken for what the Filer/iconbar
 	# actually runs now (the app directory above).
 	rm -f "$(ARCULATOR_HOSTFS)/$(APPNAME),ff8" "$(ARCULATOR_HOSTFS)/PawnSprites,ff9" \
 	      "$(ARCULATOR_HOSTFS)/Sprites,ff9"
-	# Round 7.88: PawnSprites,ff9 -> PawnSprite,ff9 (see APPFILES comment
+	# PawnSprites,ff9 was renamed to PawnSprite,ff9 (see APPFILES comment
 	# above) -- remove the old 11-character name from inside the app
 	# directory itself so a stale copy doesn't linger alongside the new one.
 	rm -f "$(ARCULATOR_HOSTFS)/!$(APPNAME)/PawnSprites,ff9"
@@ -244,7 +244,7 @@ check-pibridge:
 
 PIBRIDGE_STAGE = build/pibridge-stage/!$(APPNAME)
 
-# Round 7.87: PiEconetBridge's fileserver (PiFS) does NOT use the ",xxx"
+# PiEconetBridge's fileserver (PiFS) does NOT use the ",xxx"
 # hex-suffix convention Arculator's hostfs uses -- a live deploy showed
 # filetypes weren't preserved. Confirmed against PiFS's own source
 # (cr12925/PiEconetBridge, utilities/fs.c): it expects either Linux
@@ -269,7 +269,7 @@ deploy-pibridge: check-pibridge $(PIBRIDGE_STAGE)
 
 ZIPFILE_ABS = $(abspath $(ZIPFILE))
 
-# Round 7.89: a real Spark-tested bug -- live-tested on real hardware with
+# A real Spark-tested bug -- live-tested on real hardware with
 # SparkFS, the zip opened fine but NO filetype survived extraction. Root
 # cause, found by reading ArchieSDK's own bundled Info-Zip source
 # (build-infozip.sh builds zip30 with -DFORRISCOS, which compiles in
@@ -318,7 +318,7 @@ zip: $(APPFILES) build/README.pdf,adf build/ReadMe,fff
 
 DISKFILE = build/$(APPNAME)-$(VERSION).adf
 
-# Round 7.91: an ADFS "D" format (800KB) disc image containing just the
+# An ADFS "D" format (800KB) disc image containing just the
 # release zip -- fits comfortably (the zip is ~654KB; ADFS "L", the
 # other common DD floppy format, only has 640KB, too small). Filetype
 # &A91 is RISC OS's real Zip filetype (confirmed against RISC OS Open's
@@ -329,24 +329,24 @@ DISKFILE = build/$(APPNAME)-$(VERSION).adf
 # truthed against DiscImageManager's own source and independently
 # verified (structural checksums recomputed by a separately-written
 # reader, payload checked byte-for-byte via SHA-256) -- see that
-# script's own doc comment and docs/ARCHITECTURE.md's round 7.91 notes.
+# script's own doc comment.
 disk: $(DISKFILE)
 
 $(DISKFILE): zip tools/build_adfs_disk.py
 	python3 tools/build_adfs_disk.py "$(ZIPFILE)" "$(DISKFILE)" "$(APPNAME)" "$(APPNAME)" a91
 
-# Plain-text, CR-line-ended conversion of README.md for reading directly
-# on RISC OS (see the zip target's comment above for why this exists
-# alongside README.pdf). Round 7.90: a straight `pandoc -t plain | tr`
-# passed live testing on real hardware but "did not correctly paginate"
-# -- pandoc's plain writer renders this project's own Markdown tables
-# (see the "Building from source" section) as ~170-character-wide grid
-# tables regardless of --columns, and separately emits UTF-8 "smart"
-# typography (en/em dashes, curly quotes) that RISC OS's single-byte
-# text files can't represent. tools/riscos_readme.py flattens tables to
-# stacked "Header: value" records, wraps everything to 78 columns, and
-# transliterates to plain ASCII (failing the build if it can't) before
-# writing CR-only line endings -- see that script's own doc comment.
+# Plain-text conversion of README.md for reading directly on RISC OS
+# (see the zip target's comment above for why this exists alongside
+# README.pdf). A straight `pandoc -t plain` renders this project's own
+# Markdown tables (see the "Building from source" section) as
+# ~170-character-wide grid tables regardless of --columns, and
+# separately emits UTF-8 "smart" typography (en/em dashes, curly
+# quotes) that RISC OS's single-byte text files can't represent.
+# tools/riscos_readme.py flattens tables to stacked "Header: value"
+# records, wraps everything to 78 columns, and transliterates to plain
+# ASCII (failing the build if it can't) before writing LF line endings
+# -- see that script's own doc comment for why LF, not the textbook
+# RISC OS CR convention.
 build/ReadMe,fff: README.md tools/riscos_readme.py | build
 	@which pandoc >$(NULLDEV) 2>&1 || \
 		(echo "ERROR: pandoc not found -- install with: sudo apt install pandoc" && false)

@@ -22,7 +22,7 @@
 #define SWATCH_SIZE  32
 #define NAME_WIDTH  180
 #define TYPE_WIDTH  100
-#define DIFFICULTY_WIDTH 90
+#define DIFFICULTY_WIDTH 130
 #define COL_GAP       8
 #define BUTTON_WIDTH 110
 #define BUTTON_HEIGHT 40
