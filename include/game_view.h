@@ -5,6 +5,7 @@
 
 #include "oslib/wimp.h"
 #include "game_logic.h"
+#include "ai.h"
 
 /* Max characters (including the terminator) in a configured player name
  * -- see game_view_configure_players(). Deliberately short: the name
@@ -24,19 +25,21 @@
 /* Size in bytes of a saved-game file -- see game_view_save_to_path()'s
  * "Save/load" block comment in game_view.c for the layout.
  *
- * Includes the rules block (magic "ALS3") --
+ * Includes the rules block (magic "ALS4") --
  * one byte per ludo_rules field (variant + 8 house-rule booleans, see
  * game_logic.h), so the chosen ruleset (which variant, which of the 8
  * toggles) survives save/load rather than reverting to MEJN defaults --
  * and GAME_VIEW_SLOT_NAME_LEN for the slot's own display name, part of
  * the 5 fixed, renamable save slots inside the app directory (see
  * docs/ARCHITECTURE.md's "Decisions made and not revisited" section for
- * why this replaced an earlier free-form drag-and-drop design). The
- * magic is bumped whenever the layout changes, and an older-magic save
- * is deliberately rejected rather than partially loaded -- an accepted
- * trade-off for this hobby project. */
+ * why this replaced an earlier free-form drag-and-drop design). Each
+ * player's block is name + is_ai + AI difficulty (one byte each), so a
+ * per-player difficulty (see game_view_configure_players()) also
+ * survives save/load. The magic is bumped whenever the layout changes,
+ * and an older-magic save is deliberately rejected rather than partially
+ * loaded -- an accepted trade-off for this hobby project. */
 #define GAME_VIEW_SAVE_FILE_SIZE (4 + GAME_VIEW_SLOT_NAME_LEN + 9 \
-                                 + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 1) + 7 \
+                                 + LUDO_PLAYERS * (GAME_VIEW_NAME_LEN + 2) + 7 \
                                  + LUDO_PLAYERS * LUDO_PAWNS * 3)
 
 /*
@@ -133,8 +136,9 @@ void game_view_win_continue(void);
 /*
  * Function: game_view_get_players
  * Summary: The current (or, for a just-finished game, most recent)
- *          player configuration -- display names and human/AI status --
- *          for src/setup_view.c's "New Game" dialogue to default to. Per
+ *          player configuration -- display names, human/AI status, and
+ *          each AI-controlled player's difficulty -- for
+ *          src/setup_view.c's "New Game" dialogue to default to. Per
  *          explicit user request ("for new game dialogue, defaults always
  *          should be the in progress game, unless we just started a new
  *          one"): setup_view_open() calls this every time it's opened
@@ -143,17 +147,25 @@ void game_view_win_continue(void);
  *          keeps its own hardcoded first-run defaults).
  * Syntax:  void game_view_get_players(
  *              char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
- *              int is_ai[LUDO_PLAYERS]);
+ *              int is_ai[LUDO_PLAYERS],
+ *              ludo_ai_difficulty difficulty[LUDO_PLAYERS]);
  * Input:   none.
- * Output:  names - filled with each player's current DISPLAY name (the
- *                  configured custom name if one was set, otherwise the
- *                  default colour name, e.g. "GREEN") -- never empty, so
- *                  the caller can copy it straight into a writable icon.
- *          is_ai - filled with each player's current human(0)/AI(nonzero)
- *                  status.
+ * Output:  names      - filled with each player's current DISPLAY name
+ *                        (the configured custom name if one was set,
+ *                        otherwise the default colour name, e.g. "GREEN")
+ *                        -- never empty, so the caller can copy it
+ *                        straight into a writable icon.
+ *          is_ai      - filled with each player's current
+ *                        human(0)/AI(nonzero) status.
+ *          difficulty - filled with each player's currently configured
+ *                        AI difficulty (meaningful only for a player
+ *                        whose is_ai is nonzero -- a Human player's
+ *                        entry is whatever was last configured for them,
+ *                        not a meaningful "current" value).
  */
 void game_view_get_players(char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
-                            int is_ai[LUDO_PLAYERS]);
+                            int is_ai[LUDO_PLAYERS],
+                            ludo_ai_difficulty difficulty[LUDO_PLAYERS]);
 
 /*
  * Function: game_view_poll_idle
@@ -172,31 +184,40 @@ void game_view_poll_idle(void);
 
 /*
  * Function: game_view_configure_players
- * Summary: Set each player's display name and whether they're
- *          human-controlled or AI-controlled, per src/setup_view.c's
- *          "New Game" dialogue. Takes effect immediately (the name/AI
- *          status is read live wherever it's needed -- the panel's name
- *          line, and whether a turn should be played automatically) but
- *          does *not* itself reset the game in progress -- call
+ * Summary: Set each player's display name, whether they're
+ *          human-controlled or AI-controlled, and (for an AI-controlled
+ *          player) which difficulty ludo_ai_choose_pawn() should use for
+ *          them, per src/setup_view.c's "New Game" dialogue. Takes
+ *          effect immediately (all three are read live wherever they're
+ *          needed -- the panel's name line, whether a turn should be
+ *          played automatically, and which scoring tier that turn uses)
+ *          but does *not* itself reset the game in progress -- call
  *          game_view_new_game() afterwards for that (setup_view.c's
  *          Start button does both).
  * Syntax:  void game_view_configure_players(
  *              const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
- *              const int is_ai[LUDO_PLAYERS]);
- * Input:   names - one GAME_VIEW_NAME_LEN-byte buffer per player; an
- *                  empty string leaves that player's default colour name
- *                  (e.g. "GREEN") in place rather than showing blank.
- *          is_ai - one flag per player: 0 = human (waits for Throw/board
- *                  clicks as normal), non-zero = AI-controlled (see
- *                  include/ai.h; picks its pawn automatically via
- *                  ludo_ai_choose_pawn() whenever it becomes their turn,
- *                  but still waits for a Continue click -- the Throw icon,
- *                  relabelled -- before each roll, per explicit user
- *                  request that AI turns never advance on their own).
+ *              const int is_ai[LUDO_PLAYERS],
+ *              const ludo_ai_difficulty difficulty[LUDO_PLAYERS]);
+ * Input:   names      - one GAME_VIEW_NAME_LEN-byte buffer per player; an
+ *                        empty string leaves that player's default colour
+ *                        name (e.g. "GREEN") in place rather than showing
+ *                        blank.
+ *          is_ai      - one flag per player: 0 = human (waits for
+ *                        Throw/board clicks as normal), non-zero =
+ *                        AI-controlled (see include/ai.h; picks its pawn
+ *                        automatically via ludo_ai_choose_pawn() whenever
+ *                        it becomes their turn, but still waits for a
+ *                        Continue click -- the Throw icon, relabelled --
+ *                        before each roll, per explicit user request that
+ *                        AI turns never advance on their own).
+ *          difficulty - one ludo_ai_difficulty per player, used for that
+ *                        player's turns whenever is_ai is nonzero for
+ *                        them; ignored for a Human player.
  * Output:  none.
  */
 void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
-                                  const int is_ai[LUDO_PLAYERS]);
+                                  const int is_ai[LUDO_PLAYERS],
+                                  const ludo_ai_difficulty difficulty[LUDO_PLAYERS]);
 
 /*
  * Function: game_view_configure_rules

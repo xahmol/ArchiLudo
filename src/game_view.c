@@ -198,6 +198,7 @@ static const char *player_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLOW
  * "no custom name set", falling back to player_name[n] above. */
 static char configured_name[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 static int player_is_ai[LUDO_PLAYERS];
+static ludo_ai_difficulty player_ai_difficulty[LUDO_PLAYERS];
 
 /* Rules configured from src/setup_view.c's "New Game" dialogue (via
  * src/rules_view.c's own "Rule Options" dialogue) -- see
@@ -748,7 +749,8 @@ static void refresh_status(void)
 }
 
 void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
-                                  const int is_ai[LUDO_PLAYERS])
+                                  const int is_ai[LUDO_PLAYERS],
+                                  const ludo_ai_difficulty difficulty[LUDO_PLAYERS])
 {
 	int player;
 
@@ -756,6 +758,7 @@ void game_view_configure_players(const char names[LUDO_PLAYERS][GAME_VIEW_NAME_L
 		strncpy(configured_name[player], names[player], GAME_VIEW_NAME_LEN - 1);
 		configured_name[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		player_is_ai[player] = is_ai[player];
+		player_ai_difficulty[player] = difficulty[player];
 	}
 }
 
@@ -2162,7 +2165,8 @@ static void resolve_roll(void)
 	}
 
 	if (player_is_ai[game.current_player]) {
-		int pawn = ludo_ai_choose_pawn(&game, movable, LUDO_AI_NORMAL);
+		int pawn = ludo_ai_choose_pawn(&game, movable,
+		                                player_ai_difficulty[game.current_player]);
 
 		start_move_animation(game.current_player, pawn);
 		return;
@@ -2381,7 +2385,8 @@ void game_view_win_continue(void)
 }
 
 void game_view_get_players(char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
-                            int is_ai[LUDO_PLAYERS])
+                            int is_ai[LUDO_PLAYERS],
+                            ludo_ai_difficulty difficulty[LUDO_PLAYERS])
 {
 	int player;
 
@@ -2389,6 +2394,7 @@ void game_view_get_players(char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN],
 		strncpy(names[player], player_display_name(player), GAME_VIEW_NAME_LEN - 1);
 		names[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		is_ai[player] = player_is_ai[player];
+		difficulty[player] = player_ai_difficulty[player];
 	}
 }
 
@@ -2434,7 +2440,7 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 	int i = 0, player, pawn;
 	size_t name_len;
 
-	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '3';
+	buf[i++] = 'A'; buf[i++] = 'L'; buf[i++] = 'S'; buf[i++] = '4';
 
 	/* The slot's own display name travels WITH the save data
 	 * itself (not just the fixed "SlotN" filename) so src/save_view.c's
@@ -2466,6 +2472,7 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 		memcpy(&buf[i], configured_name[player], GAME_VIEW_NAME_LEN);
 		i += GAME_VIEW_NAME_LEN;
 		buf[i++] = (unsigned char) player_is_ai[player];
+		buf[i++] = (unsigned char) player_ai_difficulty[player];
 	}
 
 	buf[i++] = (unsigned char) game.current_player;
@@ -2488,7 +2495,8 @@ static void serialize_game(unsigned char *buf, const char *slot_name)
 /*
  * Function: deserialize_game
  * Summary: Reverse of serialize_game() -- restores `configured_name`,
- *          `player_is_ai`, and `game` from a buffer produced by it.
+ *          `player_is_ai`, `player_ai_difficulty`, and `game` from a
+ *          buffer produced by it.
  *          Caller must have already checked the 4-byte magic/version
  *          (see game_view_load_from_path()) before calling this.
  * Syntax:  static void deserialize_game(const unsigned char *buf);
@@ -2529,6 +2537,7 @@ static void deserialize_game(const unsigned char *buf)
 		configured_name[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		i += GAME_VIEW_NAME_LEN;
 		player_is_ai[player] = buf[i++];
+		player_ai_difficulty[player] = (ludo_ai_difficulty) buf[i++];
 	}
 
 	game.current_player = buf[i++];
@@ -2586,7 +2595,7 @@ int game_view_load_from_path(const char *path)
 	got = fread(buf, 1, SAVE_FILE_SIZE, f);
 	fclose(f);
 
-	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '3') {
+	if (got != SAVE_FILE_SIZE || buf[0] != 'A' || buf[1] != 'L' || buf[2] != 'S' || buf[3] != '4') {
 		/* An older-format save (a different magic) is deliberately
 		 * rejected here rather than partially loaded, since it has a
 		 * different byte layout the rest of this function assumes it
@@ -2639,7 +2648,7 @@ int game_view_peek_slot_name(const char *path, char *out, size_t out_size)
 	fclose(f);
 
 	if (got != sizeof(header) || header[0] != 'A' || header[1] != 'L' ||
-	    header[2] != 'S' || header[3] != '3')
+	    header[2] != 'S' || header[3] != '4')
 		return 0;
 
 	if (out_size > 0) {
@@ -2663,10 +2672,19 @@ void game_view_initialise(const char *argv0)
 	wimp_WINDOW(WINDOW_ICON_COUNT) def;
 	wimp_icon *icon;
 
+	int player;
+
 	set_app_dir(argv0);
 	build_cell_kinds();
 	ludo_init(&game);
 	configured_rules = ludo_default_rules(LUDO_VARIANT_MEJN);
+	/* player_ai_difficulty[] would otherwise default to its BSS zero
+	 * value, which is LUDO_AI_EASY (the enum's first member) -- explicit
+	 * here so an AI player configured before setup_view.c's own
+	 * difficulty picker is ever touched still plays at the long-standing
+	 * NORMAL tier, not silently at EASY. */
+	for (player = 0; player < LUDO_PLAYERS; player++)
+		player_ai_difficulty[player] = LUDO_AI_NORMAL;
 	load_pawn_sprites();
 
 	def.visible.x0 = 100;

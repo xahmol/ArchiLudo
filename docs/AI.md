@@ -123,20 +123,63 @@ section describes for the human/board-click side of the same feature.
 
 ## Difficulty levels
 
-Only `LUDO_AI_NORMAL` (the weighted heuristic above) is implemented.
-`LUDO_AI_EASY` and `LUDO_AI_HARD` are declared in `ai.h` and accepted
-by `ludo_ai_choose_pawn()`, but both currently fall through to the same
-`NORMAL` behaviour -- they exist so a future difficulty picker has
-somewhere to point without needing another API change later. Intended
-design, not yet built:
+`ludo_ai_difficulty` (`ai.h`) has three values, chosen per AI-controlled
+player in `src/setup_view.c`'s "New Game" dialogue (a Low/Medium/High
+button next to that player's Human/AI toggle, shaded while the player
+is Human) and passed through
+`game_view_configure_players()`/`game_view_get_players()` to
+`ludo_ai_choose_pawn()`:
 
-- **Easy**: something a human can find genuinely easier to beat --
-  candidates: ignore capture/danger scoring entirely and just prefer
-  advancing the frontmost pawn, or pick uniformly at random among
-  legal moves.
-- **Hard**: a deeper search (e.g. minimax over the next few rolls)
-  rather than this purely greedy single-move scoring -- a bigger
-  undertaking, not scoped in detail yet.
+- **`LUDO_AI_EASY`** ("Low") -- `score_move_easy()`/`score_release_easy()`
+  keep only the objectively decisive terms from the table above: win,
+  finish, capture (including a free capture on release), the risk-free
+  home-column-advance bonus, and plain per-step progress. It never
+  skips a free win or capture (so it never reads as broken the way
+  picking uniformly at random would -- random play routinely ignores an
+  obvious win), but has zero danger, entry-square, or blockade
+  awareness. One deliberate exception: `score_release_easy()` still
+  applies a decisive penalty when a release would land on (and, under
+  Own capture, send home) one of the player's *own* pawns -- without it
+  a player with exactly one pawn left at home and one other pawn
+  sitting on the entry square could get stuck alternately releasing
+  onto, and being released onto by, that same pawn forever (a real
+  non-terminating game `tests/test_ai.c`'s
+  `test_headless_ai_all_rule_combinations()` found this way).
+- **`LUDO_AI_NORMAL`** ("Medium") -- the full weighted heuristic
+  described above, unchanged.
+- **`LUDO_AI_HARD`** ("High") -- `NORMAL`'s full scoring plus a genuine
+  one-ply lookahead, `score_lookahead_penalty()`: for each candidate
+  move it clones the game, applies the move via `game_logic.c`'s own
+  tested `ludo_move_pawn()`, then simulates the next opponent's most
+  likely response (predicted with `NORMAL`'s own `score_move()`,
+  deliberately not itself another level of lookahead) across all 6
+  possible next rolls via `ludo_roll()`/`ludo_move_pawn()` again, and
+  penalises a move that leaves one of the player's own pawns newly
+  capturable. All three tiers share a `choose_best_pawn()` helper
+  (score every bit in the `movable` mask with a given scoring function,
+  return the highest -- first one seen wins ties).
+
+**AI-vs-AI win rate does not rank the tiers the way per-move scoring
+sophistication would suggest**, and this is expected, not a bug: Ludo
+is dice-dominated enough that `EASY`'s decisive-only heuristic already
+sits close to a local win-rate optimum against a non-adversarial
+opponent. A multi-seed measurement (many seeds, many games each, not
+just `tests/test_ai.c`'s own single fixed-seed run) found `EASY`
+winning roughly as often as, or somewhat more often than, both `NORMAL`
+and `HARD` under the default Mens Erger Je Niet ruleset, and no
+reasonable retuning of the danger/entry-square weights or the lookahead
+penalty's magnitude closed that gap -- proactive danger-avoidance
+mostly trades away real progress for a risk reduction a dice-driven
+game doesn't reliably reward when the opponent isn't specifically
+hunting your weaknesses. What *is* real and tested: `NORMAL`/`HARD`
+make genuinely better *individual* move choices than `EASY` in the
+specific scenarios the hand-crafted tests check (escaping a threatened
+pawn, avoiding a pointless own-collision, etc.) -- which is what
+matters against a human opponent who can set up and exploit a
+weakness deliberately. `tests/test_ai.c`'s
+`test_hard_win_rate_not_regressed()` reflects this: it's a regression
+guard against something badly broken, not a claim that `HARD`
+statistically dominates `EASY` in AI-vs-AI play.
 
 ## How an AI turn actually plays out
 

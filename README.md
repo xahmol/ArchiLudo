@@ -21,9 +21,11 @@ player -- the classic "Mens Erger Je Niet"/Ludo cross board.
 screen (**OK**, or click anywhere on it) opens the **New Game**
 dialogue directly. Later on, click the iconbar icon to open it again.
 Set each of the 4 players' name and whether they're Human or
-AI-controlled, optionally click **Rules...** to pick a rule variant or
-adjust individual house rules (see [RULES.md](docs/RULES.md) for the
-full manual), then **Start**.
+AI-controlled; an AI-controlled player also gets a **Low**/**Medium**/
+**High** difficulty picker (click to cycle) -- see [AI.md](docs/AI.md)
+for what each tier actually does. Optionally click **Rules...** to pick
+a rule variant or adjust individual house rules (see
+[RULES.md](docs/RULES.md) for the full manual), then **Start**.
 
 **Playing a turn**: click **Throw** to roll. The status line tells you
 what to do next -- click one of your own pawns on the board if more
@@ -133,6 +135,13 @@ for its structure).
 ArchiLudo hasn't cut discrete numbered releases yet -- this is a
 milestone-level history of what's been built, newest first.
 
+- **AI difficulty tiers**: Low/Medium/High per AI-controlled player,
+  picked in the New Game dialogue -- Low takes only the objectively
+  decisive moves (win/finish/capture/progress), Medium is the original
+  full heuristic, High adds a genuine one-ply lookahead. See
+  [AI.md](docs/AI.md).
+- **Launch flow**: the New Game dialogue now opens automatically right
+  after dismissing the startup splash screen.
 - **Distribution pipeline**: a filetype-preserving release zip
   (`make zip`), a from-scratch ADFS disc-image builder (`make disk`),
   and a real-hardware deploy target over Econet (`make

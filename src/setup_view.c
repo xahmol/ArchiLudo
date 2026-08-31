@@ -12,6 +12,7 @@
 #include "setup_view.h"
 #include "game_view.h"
 #include "game_logic.h"
+#include "ai.h"
 #include "save_view.h"
 #include "rules_view.h"
 
@@ -21,13 +22,15 @@
 #define SWATCH_SIZE  32
 #define NAME_WIDTH  180
 #define TYPE_WIDTH  100
+#define DIFFICULTY_WIDTH 90
 #define COL_GAP       8
 #define BUTTON_WIDTH 110
 #define BUTTON_HEIGHT 40
 #define BUTTON_GAP   16
 
 #define ROWS_HEIGHT (LUDO_PLAYERS * ROW_HEIGHT + (LUDO_PLAYERS - 1) * ROW_GAP)
-#define ROWS_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH + MARGIN)
+#define ROWS_WIDTH (MARGIN + SWATCH_SIZE + COL_GAP + NAME_WIDTH + COL_GAP + TYPE_WIDTH \
+                    + COL_GAP + DIFFICULTY_WIDTH + MARGIN)
 /* Four buttons: Start/Rules/Load/Cancel -- widen the window if that row
  * would otherwise be wider than the name/type rows above it. */
 #define BUTTONS_WIDTH (MARGIN + 4 * BUTTON_WIDTH + 3 * BUTTON_GAP + MARGIN)
@@ -37,6 +40,7 @@
 #define SWATCH_X0 MARGIN
 #define NAME_X0   (SWATCH_X0 + SWATCH_SIZE + COL_GAP)
 #define TYPE_X0   (NAME_X0 + NAME_WIDTH + COL_GAP)
+#define DIFFICULTY_X0 (TYPE_X0 + TYPE_WIDTH + COL_GAP)
 
 #define ROW_Y1(row) (-(MARGIN + (row) * (ROW_HEIGHT + ROW_GAP)))
 #define ROW_Y0(row) (ROW_Y1(row) - ROW_HEIGHT)
@@ -48,16 +52,17 @@
 #define LOAD_X0   (RULES_X0 + BUTTON_WIDTH + BUTTON_GAP)
 #define CANCEL_X0 (LOAD_X0 + BUTTON_WIDTH + BUTTON_GAP)
 
-/* One swatch + name + type icon per player, then Start, Rules, Load and
- * Cancel. */
-#define ICON_SWATCH(player) ((player) * 3)
-#define ICON_NAME(player)   ((player) * 3 + 1)
-#define ICON_TYPE(player)   ((player) * 3 + 2)
-#define ICON_START  (LUDO_PLAYERS * 3)
-#define ICON_RULES  (LUDO_PLAYERS * 3 + 1)
-#define ICON_LOAD   (LUDO_PLAYERS * 3 + 2)
-#define ICON_CANCEL (LUDO_PLAYERS * 3 + 3)
-#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 3 + 4)
+/* One swatch + name + type + difficulty icon per player, then Start,
+ * Rules, Load and Cancel. */
+#define ICON_SWATCH(player)     ((player) * 4)
+#define ICON_NAME(player)       ((player) * 4 + 1)
+#define ICON_TYPE(player)       ((player) * 4 + 2)
+#define ICON_DIFFICULTY(player) ((player) * 4 + 3)
+#define ICON_START  (LUDO_PLAYERS * 4)
+#define ICON_RULES  (LUDO_PLAYERS * 4 + 1)
+#define ICON_LOAD   (LUDO_PLAYERS * 4 + 2)
+#define ICON_CANCEL (LUDO_PLAYERS * 4 + 3)
+#define WINDOW_ICON_COUNT (LUDO_PLAYERS * 4 + 4)
 
 /* Standard 16-colour Wimp desktop palette approximations of this
  * project's actual (full-RGB) player colours -- plain Wimp icons can
@@ -76,10 +81,20 @@ static const char *default_name[LUDO_PLAYERS] = { "GREEN", "RED", "BLUE", "YELLO
 static char name_buffer[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 static char type_text[LUDO_PLAYERS][6]; /* "Human" or "AI", plus terminator */
 static int type_is_ai[LUDO_PLAYERS];
+static char difficulty_text[LUDO_PLAYERS][8]; /* "Low"/"Medium"/"High", plus terminator */
+static ludo_ai_difficulty player_difficulty[LUDO_PLAYERS];
+/* Tracks whether ICON_DIFFICULTY(player) is currently shaded, so
+ * set_type() only issues a wimp_set_icon_state() EOR toggle when the
+ * shaded state actually needs to change (same "only flip when the
+ * desired state differs from what's tracked" bookkeeping
+ * game_view.c's flash_throw_button() uses for its own icon). */
+static int difficulty_shaded[LUDO_PLAYERS];
 static char start_validation[4] = "R1";
 static char rules_validation[4] = "R1";
 static char load_validation[4] = "R1";
 static char cancel_validation[4] = "R1";
+
+static const char *difficulty_label[3] = { "Low", "Medium", "High" };
 
 /* Pending rules for the next Start click -- see setup_view_configure_rules()
  * (called by src/rules_view.c's OK button) and game_view_configure_rules()
@@ -90,10 +105,31 @@ static ludo_rules pending_rules;
 static wimp_w window_handle = (wimp_w) -1;
 
 /*
+ * Function: set_difficulty
+ * Summary: Set one player's AI difficulty (both the tracked value and
+ *          its displayed text) and, if the window already exists, ask
+ *          the Wimp to redraw that one icon. Meaningful only while that
+ *          player is AI-controlled -- see set_type()'s own shading of
+ *          ICON_DIFFICULTY(player) -- but always tracked regardless, so
+ *          a player's difficulty choice survives toggling Human/AI back
+ *          and forth.
+ */
+static void set_difficulty(int player, ludo_ai_difficulty difficulty)
+{
+	player_difficulty[player] = difficulty;
+	strcpy(difficulty_text[player], difficulty_label[difficulty]);
+
+	if (window_handle != (wimp_w) -1)
+		wimp_set_icon_state(window_handle, ICON_DIFFICULTY(player), 0, 0);
+}
+
+/*
  * Function: set_type
  * Summary: Set one player's Human/AI toggle state (both the tracked flag
  *          and its displayed text) and, if the window already exists,
- *          ask the Wimp to redraw that one icon.
+ *          ask the Wimp to redraw that one icon. Also shades
+ *          ICON_DIFFICULTY(player) while the player is Human -- the
+ *          difficulty choice only matters for an AI-controlled seat.
  */
 static void set_type(int player, int is_ai)
 {
@@ -103,8 +139,15 @@ static void set_type(int player, int is_ai)
 	 * same-length copy, doesn't trip a "may not null-terminate" warning). */
 	strcpy(type_text[player], is_ai ? "AI" : "Human");
 
-	if (window_handle != (wimp_w) -1)
+	if (window_handle != (wimp_w) -1) {
 		wimp_set_icon_state(window_handle, ICON_TYPE(player), 0, 0);
+
+		if (difficulty_shaded[player] != !is_ai) {
+			wimp_set_icon_state(window_handle, ICON_DIFFICULTY(player),
+			                     wimp_ICON_SHADED, 0);
+			difficulty_shaded[player] = !is_ai;
+		}
+	}
 }
 
 void setup_view_initialise(void)
@@ -158,6 +201,10 @@ void setup_view_initialise(void)
 		name_buffer[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		type_is_ai[player] = 0;
 		strcpy(type_text[player], "Human");
+		player_difficulty[player] = LUDO_AI_NORMAL;
+		strcpy(difficulty_text[player], difficulty_label[LUDO_AI_NORMAL]);
+		/* Shaded from the start -- every player begins Human (above). */
+		difficulty_shaded[player] = 1;
 
 		icon = &def.icons[ICON_SWATCH(player)];
 		icon->extent.x0 = SWATCH_X0;
@@ -207,6 +254,25 @@ void setup_view_initialise(void)
 		icon->data.indirected_text.text = type_text[player];
 		icon->data.indirected_text.validation = "R1";
 		icon->data.indirected_text.size = sizeof(type_text[player]);
+
+		icon = &def.icons[ICON_DIFFICULTY(player)];
+		icon->extent.x0 = DIFFICULTY_X0;
+		icon->extent.x1 = DIFFICULTY_X0 + DIFFICULTY_WIDTH;
+		icon->extent.y1 = ROW_Y1(player);
+		icon->extent.y0 = ROW_Y0(player);
+		/* Click-to-cycle Low/Medium/High, same technique as ICON_TYPE(player)
+		 * above -- shaded (wimp_ICON_SHADED) whenever this player is Human,
+		 * since difficulty only applies to an AI-controlled seat; set_type()
+		 * keeps that shading in sync as the player's Human/AI toggle changes. */
+		icon->flags = wimp_ICON_TEXT | wimp_ICON_INDIRECTED | wimp_ICON_BORDER |
+		              wimp_ICON_HCENTRED | wimp_ICON_VCENTRED | wimp_ICON_FILLED |
+		              wimp_ICON_SHADED |
+		              (wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT) |
+		              (wimp_COLOUR_VERY_LIGHT_GREY << wimp_ICON_BG_COLOUR_SHIFT) |
+		              (wimp_BUTTON_CLICK << wimp_ICON_BUTTON_TYPE_SHIFT);
+		icon->data.indirected_text.text = difficulty_text[player];
+		icon->data.indirected_text.validation = "R1";
+		icon->data.indirected_text.size = sizeof(difficulty_text[player]);
 	}
 
 	{
@@ -296,13 +362,15 @@ void setup_view_open(void)
 	if (game_view_has_started()) {
 		char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
 		int is_ai[LUDO_PLAYERS];
+		ludo_ai_difficulty difficulty[LUDO_PLAYERS];
 		int player;
 
-		game_view_get_players(names, is_ai);
+		game_view_get_players(names, is_ai, difficulty);
 		for (player = 0; player < LUDO_PLAYERS; player++) {
 			strncpy(name_buffer[player], names[player], GAME_VIEW_NAME_LEN - 1);
 			name_buffer[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 			set_type(player, is_ai[player]);
+			set_difficulty(player, difficulty[player]);
 		}
 
 		/* Same "always default to the in-progress game" convention,
@@ -359,6 +427,14 @@ void setup_view_click(wimp_pointer *pointer)
 			set_type(player, !type_is_ai[player]);
 			return;
 		}
+		if (pointer->i == ICON_DIFFICULTY(player)) {
+			/* Shaded (and so, by Wimp convention, not clickable) whenever
+			 * this player is Human -- guarded explicitly anyway rather
+			 * than relying solely on that, since it costs nothing. */
+			if (type_is_ai[player])
+				set_difficulty(player, (player_difficulty[player] + 1) % 3);
+			return;
+		}
 	}
 
 	if (pointer->i == ICON_CANCEL) {
@@ -389,7 +465,7 @@ void setup_view_click(wimp_pointer *pointer)
 			strncpy(names[player], name_buffer[player], GAME_VIEW_NAME_LEN - 1);
 			names[player][GAME_VIEW_NAME_LEN - 1] = '\0';
 		}
-		game_view_configure_players(names, type_is_ai);
+		game_view_configure_players(names, type_is_ai, player_difficulty);
 		game_view_configure_rules(&pending_rules);
 
 		wimp_close_window(window_handle);

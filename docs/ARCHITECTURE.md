@@ -62,7 +62,7 @@ have to share that limitation.
 | `main.c` / `game_view.c` | Playable, extensively refined WIMP game: iconbar icon, game window with animated pawn movement, dice roll animation, movable-pawn highlight rings, capture/win detection, Continue-gated AI turns |
 | `rules_view.c`/`setup_view.c`/`save_view.c`/`win_view.c`/`splash_view.c` | Rule Options dialogue (preset picker + all 8 house-rule toggles), New Game/player setup, 5-slot save/load, win/continue dialogue, About/splash screen -- all done |
 | Audio (QTM) | Done and live-confirmed on real hardware: 3 selectable background tracks, 6 one-shot SFX embedded as MOD instrument samples, independently switchable On/SFX toggles -- see [QTM.md](QTM.md) |
-| AI opponents | Working (`ai.c`) -- but only one difficulty level (`LUDO_AI_NORMAL`) has real strategy; `LUDO_AI_EASY`/`LUDO_AI_HARD` are declared but unimplemented, no per-player difficulty picker exists |
+| AI opponents | Working (`ai.c`) -- three real difficulty tiers (Low/Medium/High, `LUDO_AI_EASY`/`NORMAL`/`HARD`), with a per-player difficulty picker in the New Game dialogue -- see [AI.md](AI.md) |
 | Save/load | 5 fixed, renamable slots inside the app directory; rules persist in the save format. Live-confirmed working |
 | Application directory packaging | Real `!ArchiLudo` app directory with custom icon (see [BUILDCHAIN.md](BUILDCHAIN.md)) |
 | Distribution | `make zip` (filetype-preserving PKZIP), `make disk` (from-scratch ADFS "D"-format disc image), `make deploy`/`make deploy-pibridge` (Arculator hostfs and real PiEconetBridge hardware) -- see [BUILDCHAIN.md](BUILDCHAIN.md) |
@@ -77,7 +77,7 @@ ArchiLudo/
     board_layout.c  -- board geometry (portable)
     ai.c            -- AI opponent move selection (portable, see docs/AI.md)
     game_view.c     -- the game window: creation, redraw, clicks, animation
-    setup_view.c    -- the "New Game" dialogue: names, Human/AI per player
+    setup_view.c    -- the "New Game" dialogue: names, Human/AI + difficulty per player
     win_view.c      -- the "a player has won" Continue/New Game dialogue
     rules_view.c    -- the "Rule Options" dialogue: preset + house rules
     splash_view.c   -- the startup/About window (idi8b logo, version, author)
@@ -309,9 +309,6 @@ pipeline (`make zip`/`make disk`/`make deploy`/`make deploy-pibridge`).
   for the backward direction, and, for a human player, some way to
   actually choose "backward" on the board's click model, which doesn't
   have that concept at all currently.
-- **AI difficulty**: `LUDO_AI_EASY`/`LUDO_AI_HARD` are declared but
-  unimplemented, and there's no per-player difficulty picker in the
-  New Game dialogue.
 
 ## Decisions made and not revisited
 
@@ -366,7 +363,7 @@ real menu trees, real dialogue boxes, icon-driven actions.
 | `throwicon`/`nexticon` (`struct icontab`) | Ordinary `wimp_icon`s inside the game window | Direct conceptual match |
 | `informationCredits()`/`ShowCredits()` (splash and Credits menu item are the same screen) | `splash_view.c`'s About window -- shown at startup and reachable again via the "About" menu entry, same dual role | Direct conceptual match, no separate Credits screen needed |
 | `computerchoosepawn()` (AI move choice) | `ai.c`'s `ludo_ai_choose_pawn()` | Assessed and reused as the basis, not a literal port -- see [AI.md](AI.md) for what carried over vs. changed |
-| `inputofnames()` (name entry + AI count, `DlgBoxGetString`) | `setup_view.c`'s "New Game" dialogue: one writable name icon + one click-to-toggle Human/AI icon per player | More granular than GEOS's single "how many AI players" count -- per-player choice |
+| `inputofnames()` (name entry + AI count, `DlgBoxGetString`) | `setup_view.c`'s "New Game" dialogue: one writable name icon + one click-to-toggle Human/AI icon + one click-to-cycle Low/Medium/High difficulty icon per player | More granular than GEOS's single "how many AI players" count -- per-player choice, with a difficulty level GEOS never had |
 | Custom per-platform bitmap/colour-card plotting (`interface.c`, `geoscore.s`) | RISC OS Sprites (`OS_SpriteOp`/`Wimp_PlotIcon`) in a window redraw handler | GEOS needed hand-written pixel code per 8-bit machine; RISC OS's sprite plotter is uniform |
 | `monochromeflag`, `VDC_CLR0..4`, `Switch4080` | One fixed screen mode family (see "Screen modes" above) | VIDC gives every Archimedes the same colour capability under RISC OS 3.10 |
 | Overlay/VLIR loading (`loadoverlay`/`openVLIR`/`closeVLIR`) | None -- program stays resident | 1MB+ RAM makes this unnecessary |
