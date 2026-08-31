@@ -32,8 +32,15 @@ static int checks_failed = 0;
 	test_fn(); \
 } while (0)
 
-/* Given a choice between a move that captures an opponent and one that
- * doesn't, the AI should capture. */
+/*
+ * Function: test_prefers_capture
+ * Summary: Given a choice between a move that captures an opponent and
+ *          one that doesn't, the AI should capture.
+ * Syntax:  static void test_prefers_capture(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_prefers_capture(void)
 {
 	ludo_game g;
@@ -57,8 +64,15 @@ static void test_prefers_capture(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
 }
 
-/* Given a choice between finishing a pawn and an ordinary move, the AI
- * should finish it. */
+/*
+ * Function: test_prefers_finishing
+ * Summary: Given a choice between finishing a pawn and an ordinary move,
+ *          the AI should finish it.
+ * Syntax:  static void test_prefers_finishing(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_prefers_finishing(void)
 {
 	ludo_game g;
@@ -79,9 +93,17 @@ static void test_prefers_finishing(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
 }
 
-/* Finishing this player's very last unfinished pawn (the winning move)
- * outweighs finishing a different pawn that leaves others still in
- * play, even though both moves complete a pawn. */
+/*
+ * Function: test_prefers_winning_move
+ * Summary: Finishing this player's very last unfinished pawn (the
+ *          winning move) outweighs finishing a different pawn that
+ *          leaves others still in play, even though both moves complete
+ *          a pawn.
+ * Syntax:  static void test_prefers_winning_move(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_prefers_winning_move(void)
 {
 	ludo_game g;
@@ -111,9 +133,17 @@ static void test_prefers_winning_move(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x9, LUDO_AI_NORMAL) == 0);
 }
 
-/* Given a choice between a move that lands on (and sends home) the
- * player's own other pawn, and an ordinary move, the AI should avoid
- * the collision when a reasonable alternative exists. */
+/*
+ * Function: test_avoids_own_collision_when_alternative_exists
+ * Summary: Given a choice between a move that lands on (and sends home)
+ *          the player's own other pawn, and an ordinary move, the AI
+ *          should avoid the collision when a reasonable alternative
+ *          exists.
+ * Syntax:  static void test_avoids_own_collision_when_alternative_exists(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_avoids_own_collision_when_alternative_exists(void)
 {
 	ludo_game g;
@@ -136,9 +166,17 @@ static void test_avoids_own_collision_when_alternative_exists(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x5, LUDO_AI_NORMAL) == 2);
 }
 
-/* A pawn currently within reach of an opponent's next throw (real board
- * distance, not GEOS's same-lap-position shortcut) should be preferred
- * for movement over one that isn't threatened, all else being similar. */
+/*
+ * Function: test_prefers_escaping_danger
+ * Summary: A pawn currently within reach of an opponent's next throw
+ *          (real board distance, not GEOS's same-lap-position shortcut)
+ *          should be preferred for movement over one that isn't
+ *          threatened, all else being similar.
+ * Syntax:  static void test_prefers_escaping_danger(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_prefers_escaping_danger(void)
 {
 	ludo_game g;
@@ -164,11 +202,19 @@ static void test_prefers_escaping_danger(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
 }
 
-/* Given a choice between advancing a pawn already safely in its home
- * column and an ordinary ring move whose only merit is a minor tactical
- * bonus (here, leaving its own contested entry square), the AI should
- * prefer the risk-free home-column advance (see src/ai.c's
- * WEIGHT_HOME_COLUMN_ADVANCE_*). */
+/*
+ * Function: test_prefers_home_column_advance_over_ring_tactic
+ * Summary: Given a choice between advancing a pawn already safely in
+ *          its home column and an ordinary ring move whose only merit
+ *          is a minor tactical bonus (here, leaving its own contested
+ *          entry square), the AI should prefer the risk-free
+ *          home-column advance (see src/ai.c's
+ *          WEIGHT_HOME_COLUMN_ADVANCE_*).
+ * Syntax:  static void test_prefers_home_column_advance_over_ring_tactic(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_prefers_home_column_advance_over_ring_tactic(void)
 {
 	ludo_game g;
@@ -192,8 +238,16 @@ static void test_prefers_home_column_advance_over_ring_tactic(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 0);
 }
 
-/* ...but an actual capture still outranks a home-column advance -- the
- * new bonus must not be so large it swamps a guaranteed tactical gain. */
+/*
+ * Function: test_capture_still_beats_home_column_advance
+ * Summary: ...but an actual capture still outranks a home-column
+ *          advance -- the new bonus must not be so large it swamps a
+ *          guaranteed tactical gain.
+ * Syntax:  static void test_capture_still_beats_home_column_advance(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_capture_still_beats_home_column_advance(void)
 {
 	ludo_game g;
@@ -217,14 +271,21 @@ static void test_capture_still_beats_home_column_advance(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
 }
 
-/* With g->rules.own_pawn_capture off, landing on the player's own
- * other pawn no longer sends it home -- so, unlike
- * test_avoids_own_collision_when_alternative_exists() above (the
- * default, own_pawn_capture-on behaviour this is the opposite of), the
- * AI should have no reason to avoid it, and should prefer it over a
- * plain, uncontested move whenever it's otherwise the stronger play
- * (here: it happens to also be a capture of an opponent sharing that
- * square). */
+/*
+ * Function: test_no_own_collision_avoidance_when_capture_off
+ * Summary: With g->rules.own_pawn_capture off, landing on the player's
+ *          own other pawn no longer sends it home -- so, unlike
+ *          test_avoids_own_collision_when_alternative_exists() above
+ *          (the default, own_pawn_capture-on behaviour this is the
+ *          opposite of), the AI should have no reason to avoid it, and
+ *          should prefer it over a plain, uncontested move whenever
+ *          it's otherwise the stronger play (here: it happens to also
+ *          be a capture of an opponent sharing that square).
+ * Syntax:  static void test_no_own_collision_avoidance_when_capture_off(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_no_own_collision_avoidance_when_capture_off(void)
 {
 	ludo_game g;
@@ -254,13 +315,22 @@ static void test_no_own_collision_avoidance_when_capture_off(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x5, LUDO_AI_NORMAL) == 0);
 }
 
-/* With g->rules.mandatory_six_release off, releasing a home pawn is a
- * genuine scored choice (score_release()) rather than
- * happening automatically before the AI ever gets a say. Given a choice
- * between releasing a fresh pawn and an ordinary, uncontested ring move,
- * the AI should prefer releasing -- bringing a new pawn into play is
- * scored as clearly valuable (WEIGHT_RELEASE_BASE), and an uncontested
- * ring move earns nothing beyond a small per-step progress tie-breaker. */
+/*
+ * Function: test_ai_can_choose_optional_release
+ * Summary: With g->rules.mandatory_six_release off, releasing a home
+ *          pawn is a genuine scored choice (score_release()) rather
+ *          than happening automatically before the AI ever gets a say.
+ *          Given a choice between releasing a fresh pawn and an
+ *          ordinary, uncontested ring move, the AI should prefer
+ *          releasing -- bringing a new pawn into play is scored as
+ *          clearly valuable (WEIGHT_RELEASE_BASE), and an uncontested
+ *          ring move earns nothing beyond a small per-step progress
+ *          tie-breaker.
+ * Syntax:  static void test_ai_can_choose_optional_release(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_ai_can_choose_optional_release(void)
 {
 	ludo_game g;
@@ -284,18 +354,28 @@ static void test_ai_can_choose_optional_release(void)
 	CHECK(ludo_ai_choose_pawn(&g, ludo_movable_pawns(&g), LUDO_AI_NORMAL) == 0);
 }
 
-/* score_move() must use game_logic.c's own
- * ludo_resolve_move_destination() rather than a naive p->steps + roll --
- * otherwise, under g->rules.overshoot_bounce, a move that actually
- * bounces backward (nowhere near finishing) could be mis-scored as if it
- * finished the pawn outright, since the naive sum alone can exceed
- * LUDO_TOTAL_STEPS. Pawn 0's roll bounces it back to just inside the
- * home column (real score: an ordinary home-column-entry advance,
- * ~2200) rather than finishing it (a naive scorer would wrongly return
- * WEIGHT_FINISH, 6000); pawn 1 makes a genuine, real capture (~4040) --
- * a score between the two, so the AI's choice directly reveals which
- * scoring pawn 0 actually got: correct math prefers the real capture
- * (pawn 1), the old naive bug would have wrongly preferred pawn 0. */
+/*
+ * Function: test_ai_scores_bounced_destination_not_naive_overshoot
+ * Summary: score_move() must use game_logic.c's own
+ *          ludo_resolve_move_destination() rather than a naive
+ *          p->steps + roll -- otherwise, under g->rules.overshoot_bounce,
+ *          a move that actually bounces backward (nowhere near
+ *          finishing) could be mis-scored as if it finished the pawn
+ *          outright, since the naive sum alone can exceed
+ *          LUDO_TOTAL_STEPS. Pawn 0's roll bounces it back to just
+ *          inside the home column (real score: an ordinary
+ *          home-column-entry advance, ~2200) rather than finishing it
+ *          (a naive scorer would wrongly return WEIGHT_FINISH, 6000);
+ *          pawn 1 makes a genuine, real capture (~4040) -- a score
+ *          between the two, so the AI's choice directly reveals which
+ *          scoring pawn 0 actually got: correct math prefers the real
+ *          capture (pawn 1), the old naive bug would have wrongly
+ *          preferred pawn 0.
+ * Syntax:  static void test_ai_scores_bounced_destination_not_naive_overshoot(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_ai_scores_bounced_destination_not_naive_overshoot(void)
 {
 	ludo_game g;
@@ -325,11 +405,18 @@ static void test_ai_scores_bounced_destination_not_naive_overshoot(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_NORMAL) == 1);
 }
 
-/* A trivial sanity check for the backward-movement fallback API: with
- * only pawn 0 backward-movable, that's what gets chosen. Real backward-
- * movement strategy isn't scored deeply (see ai.c's top-of-file
- * comment) -- this only confirms the API picks a legal, non-crashing
- * choice. */
+/*
+ * Function: test_ai_backward_fallback_picks_legal_pawn
+ * Summary: A trivial sanity check for the backward-movement fallback
+ *          API: with only pawn 0 backward-movable, that's what gets
+ *          chosen. Real backward-movement strategy isn't scored deeply
+ *          (see ai.c's top-of-file comment) -- this only confirms the
+ *          API picks a legal, non-crashing choice.
+ * Syntax:  static void test_ai_backward_fallback_picks_legal_pawn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_ai_backward_fallback_picks_legal_pawn(void)
 {
 	ludo_game g;
@@ -347,9 +434,16 @@ static void test_ai_backward_fallback_picks_legal_pawn(void)
 	CHECK(ludo_ai_choose_pawn_backward(&g, 0x1) == 0);
 }
 
-/* With only one legal move, that's what gets chosen -- the trivial case,
- * but worth a direct check since every other test always offers a
- * choice. */
+/*
+ * Function: test_only_one_choice
+ * Summary: With only one legal move, that's what gets chosen -- the
+ *          trivial case, but worth a direct check since every other
+ *          test always offers a choice.
+ * Syntax:  static void test_only_one_choice(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_only_one_choice(void)
 {
 	ludo_game g;
@@ -363,12 +457,19 @@ static void test_only_one_choice(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x4, LUDO_AI_NORMAL) == 2);
 }
 
-/* LUDO_AI_EASY must still take an outright winning move when one is
- * available -- "no positional awareness" must never mean "skips a
- * decisive move a reasonable player would never miss" (see
- * ludo_ai_difficulty's own doc comment in ai.h). Same board as
- * test_prefers_winning_move() above, just asked of EASY instead of
- * NORMAL. */
+/*
+ * Function: test_easy_still_takes_winning_move
+ * Summary: LUDO_AI_EASY must still take an outright winning move when
+ *          one is available -- "no positional awareness" must never
+ *          mean "skips a decisive move a reasonable player would never
+ *          miss" (see ludo_ai_difficulty's own doc comment in ai.h).
+ *          Same board as test_prefers_winning_move() above, just asked
+ *          of EASY instead of NORMAL.
+ * Syntax:  static void test_easy_still_takes_winning_move(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_easy_still_takes_winning_move(void)
 {
 	ludo_game g;
@@ -393,8 +494,16 @@ static void test_easy_still_takes_winning_move(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x9, LUDO_AI_EASY) == 0);
 }
 
-/* LUDO_AI_EASY must still take a free capture over a bland move -- same
- * board as test_prefers_capture() above, just asked of EASY. */
+/*
+ * Function: test_easy_still_takes_free_capture
+ * Summary: LUDO_AI_EASY must still take a free capture over a bland
+ *          move -- same board as test_prefers_capture() above, just
+ *          asked of EASY.
+ * Syntax:  static void test_easy_still_takes_free_capture(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_easy_still_takes_free_capture(void)
 {
 	ludo_game g;
@@ -414,14 +523,22 @@ static void test_easy_still_takes_free_capture(void)
 	CHECK(ludo_ai_choose_pawn(&g, 0x3, LUDO_AI_EASY) == 1);
 }
 
-/* The actual point of LUDO_AI_EASY: given the exact same danger scenario
- * as test_prefers_escaping_danger() above (where NORMAL correctly moves
- * the threatened pawn out of range), EASY has no danger awareness at
- * all, so with nothing else to distinguish the two candidate moves
- * (equal progress, no capture either way) it's free to pick either --
- * the meaningful assertion is that NORMAL and EASY genuinely diverge on
- * this exact board, proving EASY isn't secretly just NORMAL under
- * another name. */
+/*
+ * Function: test_easy_and_normal_diverge_on_danger
+ * Summary: The actual point of LUDO_AI_EASY: given the exact same
+ *          danger scenario as test_prefers_escaping_danger() above
+ *          (where NORMAL correctly moves the threatened pawn out of
+ *          range), EASY has no danger awareness at all, so with
+ *          nothing else to distinguish the two candidate moves (equal
+ *          progress, no capture either way) it's free to pick either --
+ *          the meaningful assertion is that NORMAL and EASY genuinely
+ *          diverge on this exact board, proving EASY isn't secretly
+ *          just NORMAL under another name.
+ * Syntax:  static void test_easy_and_normal_diverge_on_danger(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_easy_and_normal_diverge_on_danger(void)
 {
 	ludo_game g;
@@ -456,17 +573,26 @@ static void test_easy_and_normal_diverge_on_danger(void)
 	CHECK(easy_choice != normal_choice); /* EASY: no danger awareness, picks differently */
 }
 
-/* LUDO_AI_HARD sanity check: with several ordinary legal moves on offer
- * and no special scenario at all, it must still return a legal pawn
- * from the given mask (score_lookahead_penalty() runs a real, if small,
- * simulation per candidate -- this confirms that simulation doesn't
- * crash, infinite-loop, or corrupt the caller's own game state (`g` is
- * only ever read, score_lookahead_penalty() works on its own clone)).
- * HARD's actual strategic value over NORMAL/EASY is proven empirically,
- * not by a single hand-constructed board, in
- * test_hard_win_rate_not_regressed() below -- a one-off "gotcha"
- * scenario for a real one-ply opponent simulation is easy to get
- * subtly wrong by hand and easy to verify by measurement instead. */
+/*
+ * Function: test_hard_picks_legal_pawn
+ * Summary: LUDO_AI_HARD sanity check: with several ordinary legal moves
+ *          on offer and no special scenario at all, it must still
+ *          return a legal pawn from the given mask
+ *          (score_lookahead_penalty() runs a real, if small,
+ *          simulation per candidate -- this confirms that simulation
+ *          doesn't crash, infinite-loop, or corrupt the caller's own
+ *          game state (`g` is only ever read, score_lookahead_penalty()
+ *          works on its own clone)). HARD's actual strategic value over
+ *          NORMAL/EASY is proven empirically, not by a single
+ *          hand-constructed board, in test_hard_win_rate_not_regressed()
+ *          below -- a one-off "gotcha" scenario for a real one-ply
+ *          opponent simulation is easy to get subtly wrong by hand and
+ *          easy to verify by measurement instead.
+ * Syntax:  static void test_hard_picks_legal_pawn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_hard_picks_legal_pawn(void)
 {
 	ludo_game g, g_before;
@@ -504,6 +630,10 @@ static void test_hard_picks_legal_pawn(void)
  *          in the movable mask it was given, which the scoring-weights
  *          tests elsewhere in this file don't exercise across a real,
  *          evolving board.
+ * Syntax:  static void test_headless_four_ai_games(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_headless_four_ai_games(void)
 {
@@ -611,6 +741,10 @@ static void test_headless_four_ai_games(void)
  *          engine-only Pachisi simulation, for the same reason (bounce/
  *          backward movement break the exact-arithmetic assumptions the
  *          original MEJN-only simulation relies on).
+ * Syntax:  static void test_headless_four_ai_games_pachisi_variant(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_headless_four_ai_games_pachisi_variant(void)
 {
@@ -760,6 +894,10 @@ static int play_one_ai_game(const ludo_rules *rules,
  *          test_hard_win_rate_not_regressed() below covers
  *          separately with far more games under a single, fixed
  *          ruleset).
+ * Syntax:  static void test_headless_ai_all_rule_combinations(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_headless_ai_all_rule_combinations(void)
 {
@@ -826,6 +964,11 @@ static void test_headless_ai_all_rule_combinations(void)
  *          a real regression (a scoring change that makes HARD actively
  *          self-destructive, or a stall/crash), not against HARD
  *          failing to statistically dominate EASY.
+ * Syntax:  static void test_hard_win_rate_not_regressed(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file),
+ *          plus a printed HARD/EASY win-count line for visibility.
  */
 static void test_hard_win_rate_not_regressed(void)
 {
@@ -860,6 +1003,17 @@ static void test_hard_win_rate_not_regressed(void)
 	CHECK(hard_wins >= (num_games * 3) / 10);
 }
 
+/*
+ * Function: main
+ * Summary: Test-runner entry point: runs every test in this file via
+ *          RUN() (which prints the test's name and calls it), prints a
+ *          final "<passed>/<total> checks passed (<n> tests)" summary
+ *          line, and reports success/failure to the calling shell.
+ * Syntax:  int main(void);
+ * Input:   none.
+ * Output:  process exit code -- 0 if every CHECK() across every test
+ *          passed (checks_failed == 0), 1 if at least one failed.
+ */
 int main(void)
 {
 	RUN(test_prefers_capture);

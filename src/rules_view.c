@@ -211,6 +211,10 @@ static wimp_MENU(3) variant_menu;
  *          generic code (see TOGGLES[] above for the matching index
  *          order) instead of a 7-way repeated switch scattered through
  *          this file.
+ * Syntax:  static int *rule_field(ludo_rules *r, int toggle);
+ * Input:   r      - the rules struct to index into.
+ *          toggle - toggle index, 0..TOGGLE_COUNT-1, matching TOGGLES[].
+ * Output:  pointer to the int field within `r` that toggle controls.
  */
 static int *rule_field(ludo_rules *r, int toggle)
 {
@@ -237,6 +241,11 @@ static int *rule_field(ludo_rules *r, int toggle)
  *          icon between its "optoff" and "opton" sprites -- the Wimp
  *          reads SELECTED to choose which of the two, no separate
  *          redraw call needed.
+ * Syntax:  static void set_icon_selected(int icon, int selected);
+ * Input:   icon     - icon handle within this window.
+ *          selected - non-zero to select the icon, 0 to deselect it.
+ * Output:  none. The icon's SELECTED flag is updated (via a
+ *          Wimp_SetIconState only if it actually needs to change).
  */
 static void set_icon_selected(int icon, int selected)
 {
@@ -256,6 +265,12 @@ static void set_icon_selected(int icon, int selected)
  *          grey out (and disable clicking on) a toggle's label and both
  *          option icons when it doesn't apply to the currently selected
  *          variant (see VARIANT_HIDDEN_MASK).
+ * Syntax:  static void set_icon_shaded(int icon, int shaded);
+ * Input:   icon   - icon handle within this window.
+ *          shaded - non-zero to shade (grey out/disable) the icon, 0 to
+ *                   unshade it.
+ * Output:  none. The icon's SHADED flag is updated (via a
+ *          Wimp_SetIconState only if it actually needs to change).
  */
 static void set_icon_shaded(int icon, int shaded)
 {
@@ -274,6 +289,9 @@ static void set_icon_shaded(int icon, int shaded)
  * Summary: Sync one toggle's two option icons' SELECTED state to the
  *          current `pending` value, and its label/both option icons'
  *          SHADED state to whether it applies to `pending.variant`.
+ * Syntax:  static void refresh_toggle_display(int t);
+ * Input:   t - toggle index, 0..TOGGLE_COUNT-1.
+ * Output:  none. Updates that toggle's icons on screen.
  */
 static void refresh_toggle_display(int t)
 {
@@ -288,6 +306,15 @@ static void refresh_toggle_display(int t)
 	set_icon_shaded(ICON_TOGGLE_OPT_B(t), hidden);
 }
 
+/*
+ * Function: refresh_all_toggle_displays (internal)
+ * Summary: Call refresh_toggle_display() for every toggle -- used after
+ *          any bulk change to `pending` (e.g. picking a new variant,
+ *          which resets every toggle's default).
+ * Syntax:  static void refresh_all_toggle_displays(void);
+ * Input:   none.
+ * Output:  none. Updates every toggle's icons on screen.
+ */
 static void refresh_all_toggle_displays(void)
 {
 	int t;
@@ -300,6 +327,9 @@ static void refresh_all_toggle_displays(void)
  * Function: refresh_variant_display (internal)
  * Summary: Update the variant value icon's indirected text to match
  *          pending.variant and ask the Wimp to redraw it.
+ * Syntax:  static void refresh_variant_display(void);
+ * Input:   none.
+ * Output:  none. Updates variant_text and forces a redraw of the icon.
  */
 static void refresh_variant_display(void)
 {
@@ -313,6 +343,20 @@ static void refresh_variant_display(void)
  * Summary: Fill in one toggle option's indirected text+sprite radio
  *          icon -- shared by both option columns in the icon-creation
  *          loop below so the sprite/flag setup is only written once.
+ * Syntax:  static void init_radio_icon(wimp_icon *icon, int x0, int row,
+ *              char *buffer, const char *text, unsigned esg);
+ * Input:   icon   - the icon struct to fill in.
+ *          x0     - left edge of the icon's extent, in OS units.
+ *          row    - which toggle row this icon belongs to (see
+ *                   ROW_Y0()/ROW_Y1()).
+ *          buffer - indirected text storage for this icon (at least 12
+ *                   bytes), written to by this call and read by the
+ *                   Wimp thereafter.
+ *          text   - the option's label, copied into `buffer` (truncated
+ *                   to 11 characters plus terminator).
+ *          esg    - the icon's ESG (sprite-selection group) flag bits,
+ *                   OR'd into icon->flags.
+ * Output:  none. `icon` (and `buffer`) are filled in on return.
  */
 static void init_radio_icon(wimp_icon *icon, int x0, int row, char *buffer,
                              const char *text, unsigned esg)

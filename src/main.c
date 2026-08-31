@@ -82,6 +82,9 @@ static const char *const track_titles[QTM_MUSIC_TRACK_COUNT] = {
  *          bypassing !Run) -- this is Wimp_CreateIcon's own standard
  *          missing-sprite behaviour, nothing this code needs to handle
  *          explicitly.
+ * Syntax:  static void create_iconbar_icon(void);
+ * Input:   none.
+ * Output:  none. Creates the iconbar icon as a side effect.
  */
 static void create_iconbar_icon(void)
 {
@@ -104,6 +107,14 @@ static void create_iconbar_icon(void)
  * Summary: Fill in one menu entry's flags/text -- every entry in
  *          iconbar_menu shares the same plain-text appearance, so this
  *          avoids repeating the same four-flag OR expression five times.
+ * Syntax:  static void set_menu_entry(wimp_menu_entry *entry,
+ *              const char *text, int is_last);
+ * Input:   entry   - the menu entry to fill in.
+ *          text    - up to 12 characters of plain entry text, copied
+ *                    into the entry's inline (non-indirected) buffer.
+ *          is_last - non-zero if this is the menu's final entry (sets
+ *                    wimp_MENU_LAST).
+ * Output:  none. `entry` is filled in on return.
  */
 static void set_menu_entry(wimp_menu_entry *entry, const char *text, int is_last)
 {
@@ -124,6 +135,9 @@ static void set_menu_entry(wimp_menu_entry *entry, const char *text, int is_last
  *          build_music_menu()), "About" (reopens src/splash_view.c's
  *          splash/about window, shown automatically once at startup
  *          too), and "Quit".
+ * Syntax:  static void build_iconbar_menu(void);
+ * Input:   none.
+ * Output:  none. Fills in the module-scope iconbar_menu.
  */
 static void build_iconbar_menu(void)
 {
@@ -157,6 +171,9 @@ static void build_iconbar_menu(void)
  *          qtm_available() -- see include/qtm.h's own doc comment on why
  *          this stays visible (rather than being hidden) when QTM isn't
  *          actually present.
+ * Syntax:  static void build_music_menu(void);
+ * Input:   none.
+ * Output:  none. Fills in the module-scope music_menu.
  */
 static void build_music_menu(void)
 {
@@ -184,6 +201,9 @@ static void build_music_menu(void)
  *          titles run well past 12 characters). Ticks reflect the
  *          current selection and are refreshed by
  *          refresh_track_menu_ticks() just before the menu opens.
+ * Syntax:  static void build_track_menu(void);
+ * Input:   none.
+ * Output:  none. Fills in the module-scope track_menu.
  */
 static void build_track_menu(void)
 {
@@ -224,14 +244,17 @@ static void build_track_menu(void)
 /*
  * Function: refresh_music_menu_ticks
  * Summary: Set the Music submenu's TICKED flag on "On" (per
- *          qtm_music_enabled()) and "SFX" (per qtm_sfx_enabled(), round
- *          7.84 -- independent of "On") -- called right before the
+ *          qtm_music_enabled()) and "SFX" (per qtm_sfx_enabled() --
+ *          independent of "On") -- called right before the
  *          shared menu opens (see main_dispatch()'s wimp_CLICK_MENU
  *          handling), the same "just-in-time" approach as recomputing a
  *          menu's contents via Menu_Warning, but simpler since only tick
  *          state ever changes here, not the entries themselves. Track's
  *          own tick state is refreshed separately, by
  *          refresh_track_menu_ticks(), just before *that* submenu opens.
+ * Syntax:  static void refresh_music_menu_ticks(void);
+ * Input:   none.
+ * Output:  none. Updates the module-scope music_menu's TICKED flags.
  */
 static void refresh_music_menu_ticks(void)
 {
@@ -253,6 +276,9 @@ static void refresh_music_menu_ticks(void)
  *          submenu opens (same as refresh_music_menu_ticks()), since
  *          RISC OS pops a submenu open on hover with no separate event
  *          this project could hook just for Track specifically.
+ * Syntax:  static void refresh_track_menu_ticks(void);
+ * Input:   none.
+ * Output:  none. Updates the module-scope track_menu's TICKED flags.
  */
 static void refresh_track_menu_ticks(void)
 {
@@ -486,6 +512,20 @@ void archiludo_poll_loop(void)
 	}
 }
 
+/*
+ * Function: main
+ * Summary: ArchiLudo's real process entry point -- initialises the WIMP
+ *          task (archiludo_initialise()), runs the Wimp_Poll event loop
+ *          until the user quits (archiludo_poll_loop()), then shuts down
+ *          QTM and the task cleanly.
+ * Syntax:  int main(int argc, char *argv[]);
+ * Input:   argc - argument count, as passed by ArchieSDK's crt0.s.
+ *          argv - argument vector; argv[0] is the full RISC OS pathname
+ *                 this program was run as (see the comment below), used
+ *                 to locate the application directory.
+ * Output:  0 on a clean exit (the only path this function takes -- there
+ *          is no error-exit case).
+ */
 int main(int argc, char *argv[])
 {
 	/* argv[0] is how a RISC OS program finds its own directory -- OS_GetEnv

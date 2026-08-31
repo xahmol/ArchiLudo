@@ -268,6 +268,8 @@ static int win_shown_count = 0;
  *          end, since players are recorded in order as they finish
  *          (see game_logic.c's record_finish_order()).
  * Syntax:  static int finished_place_count(void);
+ * Input:   none.
+ * Output:  count of filled places (0..LUDO_PLAYERS).
  */
 static int finished_place_count(void)
 {
@@ -447,6 +449,10 @@ static char app_dir[APP_DIR_LEN] = "";
  *          this way. Building absolute paths from argv[0] instead is the
  *          standard RISC OS convention for a program to find its own
  *          resources.
+ * Syntax:  static void set_app_dir(const char *argv0);
+ * Input:   argv0 - this program's own invocation pathname, as passed to
+ *                  game_view_initialise().
+ * Output:  none. Sets the module-level app_dir[] buffer.
  */
 static void set_app_dir(const char *argv0)
 {
@@ -471,6 +477,12 @@ static void set_app_dir(const char *argv0)
  * Summary: Build an absolute path to a file named `leaf` in this
  *          program's own directory (see set_app_dir()). Falls back to
  *          the bare leafname if argv[0] didn't yield a usable directory.
+ * Syntax:  static void resource_path(char *out, size_t out_size,
+ *                                    const char *leaf);
+ * Input:   out      - buffer to receive the built path.
+ *          out_size - size of `out` in bytes.
+ *          leaf     - leafname to resolve, e.g. "PawnSprite".
+ * Output:  none. `out` holds the resolved, nul-terminated path.
  */
 static void resource_path(char *out, size_t out_size, const char *leaf)
 {
@@ -494,6 +506,11 @@ static void resource_path(char *out, size_t out_size, const char *leaf)
  *          ARCHILUDO_DEBUG_LOG comment. Release builds don't ship with
  *          this writing to disk on every redraw/click/animation tick by
  *          default.
+ * Syntax:  static void debug_log(const char *fmt, ...);
+ * Input:   fmt - printf()-style format string, plus its matching
+ *                variadic arguments.
+ * Output:  none. Silently does nothing if "Log" can't be opened for
+ *          append.
  */
 #ifdef ARCHILUDO_DEBUG_LOG
 static void debug_log(const char *fmt, ...)
@@ -530,7 +547,7 @@ static int pawn_sprites_loaded = 0;
 static const char *pawn_sprite_names[LUDO_PLAYERS] = { "pawn0", "pawn1", "pawn2", "pawn3" };
 
 /*
- * Function: load_pawn_sprites
+ * Function: load_pawn_sprites (internal)
  * Summary: Load assets/PawnSprite (see assets/generate_icon_sprites.py)
  *          into a freshly malloc()'d private sprite area, so plot_pawn()
  *          can plot each player's pawn via Wimp_PlotIcon. Called once
@@ -538,6 +555,9 @@ static const char *pawn_sprite_names[LUDO_PLAYERS] = { "pawn0", "pawn1", "pawn2"
  *          (its safe default) on any failure -- a missing/corrupt/
  *          unreadable sprite file is not fatal, just falls back to the
  *          existing os_plot circles.
+ * Syntax:  static void load_pawn_sprites(void);
+ * Input:   none. Reads "PawnSprite" from this program's own directory.
+ * Output:  none. Sets pawn_sprite_area and pawn_sprites_loaded.
  */
 static void load_pawn_sprites(void)
 {
@@ -590,12 +610,15 @@ static void load_pawn_sprites(void)
 }
 
 /*
- * Function: build_cell_kinds
+ * Function: build_cell_kinds (internal)
  * Summary: Precompute, once, which board_layout.c grid cell holds which
  *          kind of board feature (and which player owns it, for the
  *          home column / ring entry cells), by walking board_layout.c's
  *          forward mappings. Done once at startup rather than every
  *          redraw since the geometry never changes.
+ * Syntax:  static void build_cell_kinds(void);
+ * Input:   none.
+ * Output:  none. Fills the module-level cell_kinds[]/cell_owner[] grids.
  */
 static void build_cell_kinds(void)
 {
@@ -627,9 +650,13 @@ static void build_cell_kinds(void)
 }
 
 /*
- * Function: set_gcol
+ * Function: set_gcol (internal)
  * Summary: Set the current graphics foreground colour for os_plot(), from
  *          plain RGB values (0..255 each).
+ * Syntax:  static void set_gcol(int r, int g, int b);
+ * Input:   r, g, b - colour components, 0..255 each.
+ * Output:  none. Sets the VDU's current foreground colour as a side
+ *          effect.
  */
 static void set_gcol(int r, int g, int b)
 {
@@ -644,10 +671,14 @@ static void set_gcol(int r, int g, int b)
 }
 
 /*
- * Function: fill_rect
+ * Function: fill_rect (internal)
  * Summary: Plot a filled rectangle in the current foreground colour,
  *          given absolute screen coordinates (already offset by the
  *          redraw origin -- see game_view_redraw()).
+ * Syntax:  static void fill_rect(int x0, int y0, int x1, int y1);
+ * Input:   x0, y0 - one corner, in screen (OS unit) coordinates.
+ *          x1, y1 - opposite corner.
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void fill_rect(int x0, int y0, int x1, int y1)
 {
@@ -656,7 +687,7 @@ static void fill_rect(int x0, int y0, int x1, int y1)
 }
 
 /*
- * Function: fill_window_background
+ * Function: fill_window_background (internal)
  * Summary: Fill a rectangle (absolute screen coordinates) with the
  *          window's own background colour -- via Wimp_SetColour, not a
  *          hand-picked RGB approximation, so it stays correct regardless
@@ -672,6 +703,13 @@ static void fill_rect(int x0, int y0, int x1, int y1)
  *          between two grid points one tick (a pawn mid-slide, a ring
  *          at its full radius) is never actually erased before the
  *          next tick draws over it.
+ * Syntax:  static void fill_window_background(int x0, int y0, int x1,
+ *                                              int y1);
+ * Input:   x0, y0, x1, y1 - rectangle corners, in screen (OS unit)
+ *                           coordinates.
+ * Output:  none. Plots directly to the current graphics window, and
+ *          changes the current foreground colour as a side effect
+ *          (matching fill_rect()'s own behaviour).
  */
 static void fill_window_background(int x0, int y0, int x1, int y1)
 {
@@ -680,7 +718,7 @@ static void fill_window_background(int x0, int y0, int x1, int y1)
 }
 
 /*
- * Function: fill_circle / outline_circle
+ * Function: fill_circle / outline_circle (internal)
  * Summary: Plot a filled or outline circle in the current foreground
  *          colour, centred at (cx, cy) with the given radius, all in OS
  *          units -- mode-independent, unlike sprite plotting (see
@@ -688,6 +726,11 @@ static void fill_window_background(int x0, int y0, int x1, int y1)
  *          non-square pixel modes). Per the RISC
  *          OS 3 PRM's os_plot summary (~/riscos-dev/prm-mirror/vdu.html):
  *          "Move to centre. Plot circle to point on the circumference."
+ * Syntax:  static void fill_circle(int cx, int cy, int radius);
+ *          static void outline_circle(int cx, int cy, int radius);
+ * Input:   cx, cy - centre, in screen (OS unit) coordinates.
+ *          radius - circle radius, in OS units.
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void fill_circle(int cx, int cy, int radius)
 {
@@ -702,11 +745,17 @@ static void outline_circle(int cx, int cy, int radius)
 }
 
 /*
- * Function: fill_triangle
+ * Function: fill_triangle (internal)
  * Summary: Plot a filled triangle in the current foreground colour, given
  *          its three vertices in OS units. Per the RISC OS 3 PRM's
  *          os_plot summary: "Move to first vertex. Move to second
  *          vertex. Plot triangle to last vertex."
+ * Syntax:  static void fill_triangle(int x0, int y0, int x1, int y1,
+ *                                    int x2, int y2);
+ * Input:   x0, y0 - first vertex, in screen (OS unit) coordinates.
+ *          x1, y1 - second vertex.
+ *          x2, y2 - third vertex.
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2)
 {
@@ -716,19 +765,13 @@ static void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2)
 }
 
 /*
- * Function: refresh_status
- * Summary: Rebuild the player-name and action-status text from the
- *          current game state and ask the Wimp to redraw those icons.
- *          Split into two short lines (rather than one long sentence)
- *          both because it matches GEOS's own layout (see the reference
- *          screenshot) and because it keeps each line comfortably within
- *          PANEL_WIDTH at the system font's fixed 16-OS-units/character
- *          width.
- */
-/*
- * Function: player_display_name
+ * Function: player_display_name (internal)
  * Summary: A player's configured name (see game_view_configure_players()),
  *          falling back to their fixed colour name if none was set.
+ * Syntax:  static const char *player_display_name(int player);
+ * Input:   player - player index (0..LUDO_PLAYERS-1).
+ * Output:  pointer to a static/persistent name string -- caller must not
+ *          free() it.
  */
 static const char *player_display_name(int player)
 {
@@ -763,6 +806,20 @@ static void format_place_message(char *buf, size_t buf_size, int place)
 		snprintf(buf, buf_size, "%s ended %s", player_display_name(player), ordinal[place]);
 }
 
+/*
+ * Function: refresh_status (internal)
+ * Summary: Rebuild the player-name and action-status text from the
+ *          current game state and ask the Wimp to redraw those icons.
+ *          Split into two short lines (rather than one long sentence)
+ *          both because it matches GEOS's own layout (see the reference
+ *          screenshot) and because it keeps each line comfortably within
+ *          PANEL_WIDTH at the system font's fixed 16-OS-units/character
+ *          width.
+ * Syntax:  static void refresh_status(void);
+ * Input:   none. Reads the current game/step/win_shown_count state.
+ * Output:  none. Updates name_text/status_text/throw_text and their
+ *          window icons directly.
+ */
 static void refresh_status(void)
 {
 	/* "paused" means a player has finished and the user hasn't yet
@@ -877,11 +934,17 @@ void game_view_get_rules(ludo_rules *rules)
 }
 
 /*
- * Function: cell_centre
+ * Function: cell_centre (internal)
  * Summary: The centre point, in the current redraw's absolute screen
  *          coordinates, of a board grid cell -- shared by the cell-kind
  *          loop and plot_pawn() so marker circles and pawns line up
  *          exactly.
+ * Syntax:  static void cell_centre(int col, int row, int origin_x,
+ *                                  int origin_y, int *cx, int *cy);
+ * Input:   col, row             - board grid cell.
+ *          origin_x, origin_y   - the current redraw's window origin
+ *                                 (see game_view_redraw()).
+ * Output:  *cx, *cy - the cell's centre, in absolute screen coordinates.
  */
 static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, int *cy)
 {
@@ -908,6 +971,10 @@ static void cell_centre(int col, int row, int origin_x, int origin_y, int *cx, i
  *          instead would place every pawn icon at the wrong screen
  *          location entirely (off the visible window whenever the
  *          window wasn't at OS-unit position (0,0)).
+ * Syntax:  static void cell_centre_work(int col, int row, int *wx,
+ *                                       int *wy);
+ * Input:   col, row - board grid cell.
+ * Output:  *wx, *wy - the cell's centre, in work area coordinates.
  */
 static void cell_centre_work(int col, int row, int *wx, int *wy)
 {
@@ -915,31 +982,6 @@ static void cell_centre_work(int col, int row, int *wx, int *wy)
 	*wy = BOARD_ORIGIN_Y - row * CELL - CELL / 2;
 }
 
-/*
- * Function: plot_pawn
- * Summary: Draw one pawn -- home base, ring, home column, or finished --
- *          wherever board_pawn_cell() says it currently is. Plots the
- *          real pawn icon sprite (see load_pawn_sprites(),
- *          assets/generate_icon_sprites.py) via Wimp_PlotIcon when it
- *          loaded successfully; falls back to two overlapping filled
- *          circles (a wider "body" below a narrower "head") otherwise.
- *
- *          Real sprites are plotted via `Wimp_PlotIcon` rather than a
- *          direct `OS_SpriteOp 34` (xosspriteop_put_sprite_user_coords)
- *          call -- the PRM states outright that the latter is undefined
- *          for a sprite whose mode doesn't match the current screen
- *          mode, which `Wimp_PlotIcon` sidesteps entirely (confirmed
- *          against real, shipped example code,
- *          `github.com/marutan/ro-chess`'s `icon_update()`). Note that
- *          `Wimp_PlotIcon` does NOT scale a sprite to fit the icon's
- *          extent -- it plots at the sprite's own native size, centred
- *          within the extent; the extent's SIZE doesn't affect the
- *          sprite's own rendered size at all, only its position (see
- *          PAWN_SIZE's own doc comment). The `os_plot` fallback stays
- *          in place regardless, for whenever load_pawn_sprites() didn't
- *          find/load assets/PawnSprite, so the game stays playable
- *          either way.
- */
 /*
  * Function: stack_offset
  * Summary: Small positional nudge for a pawn that currently shares its
@@ -1006,6 +1048,8 @@ static void stack_offset(int player, int pawn_index, board_cell cell, int *dx, i
  *          (to interpolate its drawn position) and draw_board_region()
  *          (to decide whether a redraw range needs to include it).
  * Syntax:  static int capture_anim_index_for(int player, int pawn_index);
+ * Input:   player     - the pawn's owner.
+ *          pawn_index - which of that player's pawns.
  * Output:  index into the capture_anim_*[] arrays, or -1 if this pawn
  *          isn't currently animating.
  */
@@ -1022,6 +1066,37 @@ static int capture_anim_index_for(int player, int pawn_index)
 	return -1;
 }
 
+/*
+ * Function: plot_pawn (internal)
+ * Summary: Draw one pawn -- home base, ring, home column, or finished --
+ *          wherever board_pawn_cell() says it currently is. Plots the
+ *          real pawn icon sprite (see load_pawn_sprites(),
+ *          assets/generate_icon_sprites.py) via Wimp_PlotIcon when it
+ *          loaded successfully; falls back to two overlapping filled
+ *          circles (a wider "body" below a narrower "head") otherwise.
+ *
+ *          Real sprites are plotted via `Wimp_PlotIcon` rather than a
+ *          direct `OS_SpriteOp 34` (xosspriteop_put_sprite_user_coords)
+ *          call -- the PRM states outright that the latter is undefined
+ *          for a sprite whose mode doesn't match the current screen
+ *          mode, which `Wimp_PlotIcon` sidesteps entirely (confirmed
+ *          against real, shipped example code,
+ *          `github.com/marutan/ro-chess`'s `icon_update()`). Note that
+ *          `Wimp_PlotIcon` does NOT scale a sprite to fit the icon's
+ *          extent -- it plots at the sprite's own native size, centred
+ *          within the extent; the extent's SIZE doesn't affect the
+ *          sprite's own rendered size at all, only its position (see
+ *          PAWN_SIZE's own doc comment). The `os_plot` fallback stays
+ *          in place regardless, for whenever load_pawn_sprites() didn't
+ *          find/load assets/PawnSprite, so the game stays playable
+ *          either way.
+ * Syntax:  static void plot_pawn(int player, int pawn_index,
+ *                                int origin_x, int origin_y);
+ * Input:   player, pawn_index - which pawn to draw.
+ *          origin_x, origin_y - the current redraw's window origin (see
+ *                                game_view_redraw()).
+ * Output:  none. Plots directly to the current graphics window.
+ */
 static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 {
 	int wx, wy;  /* work-area coordinates -- see cell_centre_work(); the
@@ -1156,13 +1231,18 @@ static void plot_pawn(int player, int pawn_index, int origin_x, int origin_y)
 }
 
 /*
- * Function: plot_start_marker
+ * Function: plot_start_marker (internal)
  * Summary: Draw one player's board-entry marker at a CELL_RING_ENTRY
  *          cell: a filled circle in the player's colour (same size as an
  *          ordinary marker) with a white arrow pointing in that player's
  *          direction of travel. Drawn programmatically with `os_plot`
  *          primitives rather than a sprite, giving an exact,
  *          guaranteed-correct size and shape regardless of screen mode.
+ * Syntax:  static void plot_start_marker(int player, int cx, int cy);
+ * Input:   player - whose entry marker to draw.
+ *          cx, cy - the cell's centre, in absolute screen coordinates
+ *                    (see cell_centre()).
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void plot_start_marker(int player, int cx, int cy)
 {
@@ -1193,7 +1273,7 @@ static void plot_start_marker(int player, int cx, int cy)
 }
 
 /*
- * Function: plot_dice
+ * Function: plot_dice (internal)
  * Summary: Draw a die face for the current roll -- a white square with a
  *          thin black border and the standard pip layout -- in the panel
  *          gap between the status line and the Throw button. Draws
@@ -1201,6 +1281,12 @@ static void plot_start_marker(int player, int cx, int cy)
  *          0`). Drawn with `os_plot` primitives rather than a sprite,
  *          for the same mode-independence/reliability reason as
  *          plot_start_marker().
+ * Syntax:  static void plot_dice(int origin_x, int origin_y);
+ * Input:   origin_x, origin_y - the current redraw's window origin (see
+ *                                game_view_redraw()).
+ * Output:  none. Plots directly to the current graphics window; draws
+ *          dice_display_face (game.last_roll once settled, a cycling
+ *          cosmetic value while STEP_ROLLING).
  */
 static void plot_dice(int origin_x, int origin_y)
 {
@@ -1267,7 +1353,7 @@ static void plot_dice(int origin_x, int origin_y)
 }
 
 /*
- * Function: draw_board_region
+ * Function: draw_board_region (internal)
  * Summary: Draw cell markers and pawns restricted to a rectangular range
  *          of board grid cells (inclusive) -- shared by game_view_redraw()
  *          (called with the whole board) and update_move_animation_area()
@@ -1278,6 +1364,13 @@ static void plot_dice(int origin_x, int origin_y)
  *          -- on every single animation tick. Per explicit user report
  *          ("pawn movement also seems to do redraw every frame... only
  *          local redraw?").
+ * Syntax:  static void draw_board_region(int origin_x, int origin_y,
+ *                                        int col0, int row0,
+ *                                        int col1, int row1);
+ * Input:   origin_x, origin_y - the current redraw's window origin (see
+ *                                game_view_redraw()).
+ *          col0, row0, col1, row1 - inclusive grid cell range to draw.
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void draw_board_region(int origin_x, int origin_y, int col0, int row0, int col1, int row1)
 {
@@ -1413,7 +1506,7 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
  * repainted, not guaranteed untouched. */
 
 /*
- * Function: update_move_animation_area
+ * Function: update_move_animation_area (internal)
  * Summary: Synchronously redraw just the board cells a pawn-move
  *          animation's current frame can touch (every cell of its path
  *          -- see move_anim_path[] -- plus a one-cell margin so
@@ -1460,6 +1553,10 @@ static void cell_range_to_work_box(int col0, int row0, int col1, int row1,
  *          update_settle_diff_area() after the animation finishes -- an
  *          acceptable, deliberate limit (nothing asked for those to
  *          animate too, only the moving pawn itself).
+ * Syntax:  static void update_move_animation_area(void);
+ * Input:   none. Reads move_anim_path[]/move_anim_player/
+ *          move_anim_pawn_index.
+ * Output:  none. Redraws the affected board region via Wimp_UpdateWindow.
  */
 static void update_move_animation_area(void)
 {
@@ -1551,7 +1648,7 @@ static void update_move_animation_area(void)
 }
 
 /*
- * Function: update_capture_animation_area
+ * Function: update_capture_animation_area (internal)
  * Summary: Same Wimp_UpdateWindow-scoped-redraw pattern as
  *          update_move_animation_area(), for the STEP_CAPTURE_MOVING
  *          return-to-base animation instead -- covers the union of
@@ -1560,6 +1657,10 @@ static void update_move_animation_area(void)
  *          animating at once (see capture_anim_count's own doc
  *          comment) and they don't share a single path the way an
  *          ordinary move's segments do.
+ * Syntax:  static void update_capture_animation_area(void);
+ * Input:   none. Reads the capture_anim_*[] arrays.
+ * Output:  none. Redraws the affected board region via Wimp_UpdateWindow;
+ *          does nothing if capture_anim_count is 0.
  */
 static void update_capture_animation_area(void)
 {
@@ -1613,13 +1714,16 @@ static void update_capture_animation_area(void)
 }
 
 /*
- * Function: update_dice_area
+ * Function: update_dice_area (internal)
  * Summary: Synchronously redraw just the die face's box via
  *          Wimp_UpdateWindow -- used instead of a full redraw_now() on
  *          every STEP_ROLLING tick. See update_move_animation_area()'s
  *          doc comment for why Wimp_UpdateWindow (not Wimp_ForceRedraw,
  *          not a direct Wimp_RedrawWindow call) and exactly how it
  *          needs to be called.
+ * Syntax:  static void update_dice_area(void);
+ * Input:   none.
+ * Output:  none. Redraws the die's box via Wimp_UpdateWindow.
  */
 static void update_dice_area(void)
 {
@@ -1661,7 +1765,7 @@ static void update_dice_area(void)
 }
 
 /*
- * Function: draw_highlights
+ * Function: draw_highlights (internal)
  * Summary: Draw whichever highlight rings currently apply -- the
  *          movable-pawn rings (only meaningful while genuinely waiting
  *          for the human player to pick among more than one legal
@@ -1673,6 +1777,10 @@ static void update_dice_area(void)
  *          board) and update_highlight_area() (just the affected cells,
  *          on each flash toggle) so both stay in exact agreement about
  *          what "currently highlighted" means.
+ * Syntax:  static void draw_highlights(int origin_x, int origin_y);
+ * Input:   origin_x, origin_y - the current redraw's window origin (see
+ *                                game_view_redraw()).
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void draw_highlights(int origin_x, int origin_y)
 {
@@ -1712,7 +1820,7 @@ static void draw_highlights(int origin_x, int origin_y)
 }
 
 /*
- * Function: update_highlight_area
+ * Function: update_highlight_area (internal)
  * Summary: Synchronously redraw just the board cells any currently-shown
  *          highlight ring touches (every movable pawn's cell, plus the
  *          hover-destination cell if active, plus a one-cell margin) via
@@ -1724,6 +1832,11 @@ static void draw_highlights(int origin_x, int origin_y)
  *          erases the previous frame's ring when the flash switches off
  *          (see docs/ARCHITECTURE.md's redraw/animation architecture
  *          section for why Wimp_UpdateWindow is used this way at all).
+ * Syntax:  static void update_highlight_area(void);
+ * Input:   none. Reads the same movable-pawn/hover state as
+ *          draw_highlights().
+ * Output:  none. Redraws the affected board region via Wimp_UpdateWindow;
+ *          does nothing if the window isn't open.
  */
 static void update_highlight_area(void)
 {
@@ -1812,12 +1925,15 @@ static void update_highlight_area(void)
 }
 
 /*
- * Function: snapshot_pawn_positions
+ * Function: snapshot_pawn_positions (internal)
  * Summary: Record every pawn's current board cell and in_play flag into
  *          settle_prev_cell[]/settle_prev_in_play[] -- called immediately
  *          before a state-changing ludo_roll() or ludo_move_pawn() call
  *          so update_settle_diff_area() can later tell exactly which
  *          pawns (if any) that call displaced as a side effect.
+ * Syntax:  static void snapshot_pawn_positions(void);
+ * Input:   none. Reads the current game state.
+ * Output:  none. Fills settle_prev_cell[]/settle_prev_in_play[].
  */
 static void snapshot_pawn_positions(void)
 {
@@ -1832,7 +1948,7 @@ static void snapshot_pawn_positions(void)
 }
 
 /*
- * Function: update_settle_diff_area
+ * Function: update_settle_diff_area (internal)
  * Summary: Compare every pawn's current board cell/in_play state against
  *          the snapshot snapshot_pawn_positions() took just before the
  *          state-changing call, and redraw (via Wimp_UpdateWindow, scoped
@@ -1856,6 +1972,13 @@ static void snapshot_pawn_positions(void)
  *          whatsoever, avoiding a visibly flickering full-window redraw
  *          on every single turn transition, independent of whatever it
  *          was redrawing.
+ * Syntax:  static void update_settle_diff_area(int skip_player,
+ *                                              int skip_pawn);
+ * Input:   skip_player, skip_pawn - the one pawn to exclude from the
+ *                                    diff (its own move animation already
+ *                                    painted it), or -1/-1 for none.
+ * Output:  none. Redraws only the cells that actually changed, via
+ *          Wimp_UpdateWindow; does nothing if nothing changed.
  */
 static void update_settle_diff_area(int skip_player, int skip_pawn)
 {
@@ -1939,7 +2062,7 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
 }
 
 /*
- * Function: draw_full_window_content
+ * Function: draw_full_window_content (internal)
  * Summary: Draw the entire game window's content -- the whole board,
  *          highlight rings, the player-colour swatch, and the die --
  *          for one already-clipped redraw rectangle. Shared by
@@ -1947,6 +2070,10 @@ static void update_settle_diff_area(int skip_player, int skip_pawn)
  *          Wimp_RedrawWindow) and redraw_now() (a manually-triggered
  *          full update, via Wimp_UpdateWindow) so both stay in exact
  *          agreement about what the window's content actually is.
+ * Syntax:  static void draw_full_window_content(int origin_x,
+ *                                               int origin_y);
+ * Input:   origin_x, origin_y - the current redraw's window origin.
+ * Output:  none. Plots directly to the current graphics window.
  */
 static void draw_full_window_content(int origin_x, int origin_y)
 {
@@ -1985,7 +2112,7 @@ static void draw_full_window_content(int origin_x, int origin_y)
 }
 
 /*
- * Function: redraw_now
+ * Function: redraw_now (internal)
  * Summary: Redraw the whole game window immediately, synchronously --
  *          not via wimp_force_redraw(), which only *schedules* a
  *          Redraw_Window_Request for the next Wimp_Poll and so wouldn't
@@ -2014,6 +2141,10 @@ static void draw_full_window_content(int origin_x, int origin_y)
  *          wimp_REDRAW_WINDOW_REQUEST case -> game_view_redraw() ->
  *          Wimp_RedrawWindow, completely unchanged, where the auto-clear
  *          is exactly what's wanted.
+ * Syntax:  static void redraw_now(void);
+ * Input:   none.
+ * Output:  none. Redraws the whole window via Wimp_UpdateWindow; does
+ *          nothing if the window isn't open.
  */
 static void redraw_now(void)
 {
@@ -2066,12 +2197,16 @@ static void redraw_now(void)
 }
 
 /*
- * Function: single_movable_pawn
+ * Function: single_movable_pawn (internal)
  * Summary: If exactly one bit is set in a ludo_movable_pawns() mask,
  *          return that pawn's index; otherwise (none, or more than one)
  *          return -1. Used so the player is only ever asked to pick a
  *          pawn when there's an actual choice to make -- see
  *          resolve_roll().
+ * Syntax:  static int single_movable_pawn(unsigned mask);
+ * Input:   mask - a ludo_movable_pawns() bitmask.
+ * Output:  the sole set pawn index, or -1 if zero or more than one bit
+ *          is set.
  */
 static int single_movable_pawn(unsigned mask)
 {
@@ -2088,7 +2223,7 @@ static int single_movable_pawn(unsigned mask)
 }
 
 /*
- * Function: cell_for_steps
+ * Function: cell_for_steps (internal)
  * Summary: The board cell for an arbitrary, explicit "steps travelled"
  *          value -- a read-only variant of board_pawn_cell() that isn't
  *          tied to a pawn's own *current* steps, mirroring its ring/
@@ -2097,6 +2232,10 @@ static int single_movable_pawn(unsigned mask)
  *          move's whole cell-by-cell path (start_move_animation()) and
  *          to preview a single hypothetical destination
  *          (preview_destination()), without mutating any game state.
+ * Syntax:  static board_cell cell_for_steps(int player, int steps);
+ * Input:   player - whose home-column entry point to measure from.
+ *          steps  - hypothetical "steps travelled since release" value.
+ * Output:  the board cell that steps value corresponds to.
  */
 static board_cell cell_for_steps(int player, int steps)
 {
@@ -2114,12 +2253,16 @@ static board_cell cell_for_steps(int player, int steps)
 }
 
 /*
- * Function: preview_destination
+ * Function: preview_destination (internal)
  * Summary: Where a pawn would land if moved right now with the current
  *          roll -- a read-only preview (no state change), used for the
  *          hover highlight (see game_view_poll_idle()). Safe to call for
  *          any pawn ludo_movable_pawns() reports movable: that already
  *          guarantees game.last_roll doesn't overshoot the home column.
+ * Syntax:  static board_cell preview_destination(int player,
+ *                                                int pawn_index);
+ * Input:   player, pawn_index - which pawn to preview.
+ * Output:  the board cell that pawn would land on this turn.
  */
 static board_cell preview_destination(int player, int pawn_index)
 {
@@ -2129,7 +2272,7 @@ static board_cell preview_destination(int player, int pawn_index)
 }
 
 /*
- * Function: after_settle
+ * Function: after_settle (internal)
  * Summary: Decide the turn_step to leave things in once a roll or a move
  *          has fully resolved (no animation, no pending auto-move) --
  *          shared by resolve_roll() and resolve_move() so "whose turn is
@@ -2152,6 +2295,11 @@ static board_cell preview_destination(int player, int pawn_index)
  *          NEXT player finishes. Since a paused game blocks all further
  *          rolls/moves, at most one place is ever pending unacknowledged
  *          at a time.
+ * Syntax:  static void after_settle(void);
+ * Input:   none. Reads the current game/finish_order/win_shown_count
+ *          state.
+ * Output:  none. Sets `step`, refreshes status text, and opens the win
+ *          dialogue if a fresh finish is pending.
  */
 static void after_settle(void)
 {
@@ -2180,7 +2328,7 @@ static void after_settle(void)
 }
 
 /*
- * Function: start_move_animation
+ * Function: start_move_animation (internal)
  * Summary: Apply a pawn's move immediately (the rules/board state change
  *          instantly, exactly as before) but hold its on-screen position
  *          at the old cell and animate it sliding along the real board
@@ -2190,6 +2338,16 @@ static void after_settle(void)
  *          board in one jump -- per explicit user request ("is it
  *          possible to follow the valid spaces track?"). Used for both a
  *          human's clicked/auto-moved pawn and an AI's chosen pawn.
+ * Syntax:  static void start_move_animation(int player, int pawn_index);
+ * Input:   player, pawn_index - the pawn to move, per
+ *                                ludo_movable_pawns(). Passing a pawn
+ *                                that isn't currently movable is a
+ *                                caller error (same contract as
+ *                                ludo_move_pawn()).
+ * Output:  none. Calls ludo_move_pawn() (mutating game state
+ *          immediately), plays the appropriate SFX, and either starts a
+ *          STEP_MOVING animation or, for a zero-distance release,
+ *          settles the turn directly via after_settle().
  */
 static void start_move_animation(int player, int pawn_index)
 {
@@ -2332,6 +2490,9 @@ static void start_move_animation(int player, int pawn_index)
  *          main move animation.
  * Syntax:  static int start_capture_animation_if_needed(int skip_player,
  *              int skip_pawn);
+ * Input:   skip_player, skip_pawn - the just-animated mover to exclude
+ *                                    from the diff (same convention as
+ *                                    update_settle_diff_area()).
  * Output:  1 if an animation was started (caller must NOT call
  *          after_settle() itself -- resolve_capture_move() will), 0 if
  *          nothing was displaced (caller should proceed as before).
@@ -2380,7 +2541,7 @@ static int start_capture_animation_if_needed(int skip_player, int skip_pawn)
 }
 
 /*
- * Function: resolve_move
+ * Function: resolve_move (internal)
  * Summary: Called once a pawn-move animation has finished -- the board
  *          state is already correct (start_move_animation() applied it
  *          up front). If the move also displaced any other pawn (a
@@ -2389,6 +2550,10 @@ static int start_capture_animation_if_needed(int skip_player, int skip_pawn)
  *          defers settling the next turn_step until that finishes too
  *          (see resolve_capture_move()); otherwise settles immediately,
  *          same as before.
+ * Syntax:  static void resolve_move(void);
+ * Input:   none. Reads move_anim_player/move_anim_pawn_index.
+ * Output:  none. Either starts a STEP_CAPTURE_MOVING animation or calls
+ *          after_settle() directly.
  */
 static void resolve_move(void)
 {
@@ -2398,7 +2563,7 @@ static void resolve_move(void)
 }
 
 /*
- * Function: resolve_capture_move
+ * Function: resolve_capture_move (internal)
  * Summary: Called once the STEP_CAPTURE_MOVING return-to-base animation
  *          (started by resolve_move() via
  *          start_capture_animation_if_needed()) has finished -- the
@@ -2406,6 +2571,9 @@ static void resolve_move(void)
  *          position was catching up), so this just settles the next
  *          turn_step, same as resolve_move() itself does when nothing
  *          needed animating.
+ * Syntax:  static void resolve_capture_move(void);
+ * Input:   none.
+ * Output:  none. Clears capture_anim_count and calls after_settle().
  */
 static void resolve_capture_move(void)
 {
@@ -2414,7 +2582,7 @@ static void resolve_capture_move(void)
 }
 
 /*
- * Function: resolve_roll
+ * Function: resolve_roll (internal)
  * Summary: Called once a die-roll animation has finished and the real
  *          result is showing -- runs the same "what happens after this
  *          roll" logic for both human and AI turns: a mandatory six-
@@ -2446,6 +2614,11 @@ static void resolve_capture_move(void)
  *          current player no longer match, nothing was actually rolled
  *          for whoever it is now -- settle straight into their own
  *          fresh "click Throw"/"click Continue" state instead.
+ * Syntax:  static void resolve_roll(void);
+ * Input:   none. Reads roll_anim_player and the current game state.
+ * Output:  none. Either auto-moves a pawn (start_move_animation()),
+ *          settles the turn (after_settle()), or leaves STEP_IDLE with
+ *          movable-pawn highlights running for a human to pick from.
  */
 static void resolve_roll(void)
 {
@@ -2519,7 +2692,7 @@ static void resolve_roll(void)
 }
 
 /*
- * Function: start_roll_animation
+ * Function: start_roll_animation (internal)
  * Summary: Roll the die immediately (the real result is determined right
  *          away, exactly as before) but hold the displayed face on a
  *          cycling cosmetic animation for ROLL_ANIM_TICKS redraws (see
@@ -2527,6 +2700,10 @@ static void resolve_roll(void)
  *          resolve_roll() -- per explicit user request ("AI play does
  *          not have any dice throw animation"). Used for both a human's
  *          Throw click and an AI's Continue-triggered roll.
+ * Syntax:  static void start_roll_animation(void);
+ * Input:   none. Rolls for game.current_player.
+ * Output:  none. Calls ludo_roll() (mutating game state immediately),
+ *          plays the dice SFX, and starts a STEP_ROLLING animation.
  */
 static void start_roll_animation(void)
 {
@@ -3175,9 +3352,13 @@ void game_view_redraw(wimp_draw *redraw)
 }
 
 /*
- * Function: try_move_pawn
+ * Function: try_move_pawn (internal)
  * Summary: If (col, row) matches one of the current player's currently
  *          movable pawns, move it and refresh the display.
+ * Syntax:  static void try_move_pawn(int col, int row);
+ * Input:   col, row - the clicked board grid cell.
+ * Output:  none. Starts a move animation (start_move_animation()) if
+ *          the click matched a movable pawn; does nothing otherwise.
  */
 static void try_move_pawn(int col, int row)
 {
@@ -3213,7 +3394,7 @@ static void try_move_pawn(int col, int row)
 }
 
 /*
- * Function: flash_throw_button
+ * Function: flash_throw_button (internal)
  * Summary: Briefly switch the Throw icon's border from R1 ("slab out", a
  *          raised button look, its resting state) to R2 ("slab in",
  *          sunken/pressed) and back, giving genuine RISC OS click
@@ -3228,6 +3409,10 @@ static void try_move_pawn(int col, int row)
  *          separate down/up event to synchronise against in this
  *          project's plain Mouse_Click handling, so this is timed rather
  *          than tied to the physical button release.
+ * Syntax:  static void flash_throw_button(void);
+ * Input:   none.
+ * Output:  none. Redraws the Throw icon twice, with a short busy-wait
+ *          between (~0.1s total).
  */
 static void flash_throw_button(void)
 {

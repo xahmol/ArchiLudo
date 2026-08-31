@@ -82,6 +82,11 @@ static char button_validation[4] = "R1";
  *          `<ArchiLudo$Dir>.Slot1` .. `.Slot5`. Every slot always has
  *          exactly one possible path; there is no user-chosen pathname
  *          anywhere in this module.
+ * Syntax:  static void build_slot_path(int slot, char *out, size_t out_size);
+ * Input:   slot     - 0-based save-slot index, 0..4.
+ *          out      - buffer to receive the pathname.
+ *          out_size - size of `out` in bytes.
+ * Output:  none. `out` holds the null-terminated pathname on return.
  */
 static void build_slot_path(int slot, char *out, size_t out_size)
 {
@@ -93,6 +98,16 @@ static void build_slot_path(int slot, char *out, size_t out_size)
 		snprintf(out, out_size, "Slot%d", slot + 1);
 }
 
+/*
+ * Function: open_window (internal)
+ * Summary: Open window `w` at the top of the window stack, keeping its
+ *          existing position/size -- shared by save_view_open() and
+ *          load_view_open() so both dialogues open the same way.
+ * Syntax:  static void open_window(wimp_w w);
+ * Input:   w - window handle to open, or (wimp_w) -1 to do nothing (a
+ *              window that hasn't been created yet).
+ * Output:  none. The window is opened as a side effect.
+ */
 static void open_window(wimp_w w)
 {
 	wimp_window_state state;
@@ -114,6 +129,13 @@ static void open_window(wimp_w w)
  *          src/rules_view.c already established for this project (see
  *          riscos_wimp_reference.md's Icons section). Used to grey out
  *          (and disable clicking on) an empty slot's Load button.
+ * Syntax:  static void set_icon_shaded(wimp_w w, int icon, int shaded);
+ * Input:   w      - window the icon belongs to.
+ *          icon   - icon handle within that window.
+ *          shaded - non-zero to shade (grey out/disable) the icon, 0 to
+ *                   unshade it.
+ * Output:  none. The icon's SHADED flag is updated (via a
+ *          Wimp_SetIconState only if it actually needs to change).
  */
 static void set_icon_shaded(wimp_w w, int icon, int shaded)
 {
@@ -367,6 +389,17 @@ wimp_w load_view_window_handle(void)
 	return load_window_handle;
 }
 
+/*
+ * Function: redraw_plain (internal)
+ * Summary: Standard "no custom drawing" Wimp_RedrawWindow loop -- shared
+ *          by save_view_redraw() and load_view_redraw() since neither
+ *          window draws anything beyond its own icons.
+ * Syntax:  static void redraw_plain(wimp_draw *redraw);
+ * Input:   redraw - the redraw block from the triggering
+ *                   Redraw_Window_Request event.
+ * Output:  none. Redraws the window's icons via the standard
+ *          Wimp_RedrawWindow/Wimp_GetRectangle loop.
+ */
 static void redraw_plain(wimp_draw *redraw)
 {
 	osbool more;

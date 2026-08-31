@@ -27,6 +27,15 @@
  * extraction writeup.
  */
 
+/*
+ * Function: splash_view_initialise
+ * Summary: Create (but do not open) the splash/About window. Call once
+ *          during application startup.
+ * Syntax:  void splash_view_initialise(void);
+ * Input:   none.
+ * Output:  none. The window exists (closed) and is ready for
+ *          splash_view_open().
+ */
 void splash_view_initialise(void);
 
 /*
@@ -49,8 +58,39 @@ void splash_view_initialise(void);
  */
 void splash_view_open(int go_to_new_game_on_dismiss);
 
+/*
+ * Function: splash_view_window_handle
+ * Summary: The splash/About window's handle, for src/main.c's
+ *          Wimp_Poll dispatch to compare against.
+ * Syntax:  wimp_w splash_view_window_handle(void);
+ * Input:   none.
+ * Output:  the window handle created by splash_view_initialise().
+ */
 wimp_w splash_view_window_handle(void);
+
+/*
+ * Function: splash_view_redraw
+ * Summary: Handle a Redraw_Window_Request for this window: fills the
+ *          background and plots the `logo_rects[]` PETSCII logo, one
+ *          filled os_plot rectangle per redraw-list entry.
+ * Syntax:  void splash_view_redraw(wimp_draw *redraw);
+ * Input:   redraw - the Redraw_Window_Request event block, already
+ *                   Wimp_RedrawWindow-filled by the caller.
+ * Output:  none.
+ */
 void splash_view_redraw(wimp_draw *redraw);
+
+/*
+ * Function: splash_view_click
+ * Summary: Handle a Mouse_Click reported for this window -- clicking
+ *          anywhere in it (OK icon, background, or logo) dismisses it.
+ *          If this was the automatic launch splash
+ *          (splash_view_open()'s go_to_new_game_on_dismiss was 1), also
+ *          opens the New Game dialogue.
+ * Syntax:  void splash_view_click(wimp_pointer *pointer);
+ * Input:   pointer - the Mouse_Click event block.
+ * Output:  none.
+ */
 void splash_view_click(wimp_pointer *pointer);
 
 #endif

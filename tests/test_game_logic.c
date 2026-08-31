@@ -40,7 +40,15 @@ static int checks_failed = 0;
 	test_fn(); \
 } while (0)
 
-/* A freshly initialised game has every pawn at home and player 0 to move. */
+/*
+ * Function: test_new_game_starts_correctly
+ * Summary: A freshly initialised game has every pawn at home and player
+ *          0 to move.
+ * Syntax:  static void test_new_game_starts_correctly(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_new_game_starts_correctly(void)
 {
 	ludo_game g;
@@ -61,8 +69,15 @@ static void test_new_game_starts_correctly(void)
 	}
 }
 
-/* With every pawn at home, a non-six roll has no legal move and costs one
- * of the three attempts, without ending the turn yet. */
+/*
+ * Function: test_stuck_all_home_decrements_tries
+ * Summary: With every pawn at home, a non-six roll has no legal move and
+ *          costs one of the three attempts, without ending the turn yet.
+ * Syntax:  static void test_stuck_all_home_decrements_tries(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_stuck_all_home_decrements_tries(void)
 {
 	ludo_game g;
@@ -76,8 +91,15 @@ static void test_stuck_all_home_decrements_tries(void)
 	CHECK(g.current_player == 0);
 }
 
-/* Three non-six rolls in a row while stuck at home exhausts all three
- * attempts and passes the turn to the next player. */
+/*
+ * Function: test_three_failed_tries_passes_turn
+ * Summary: Three non-six rolls in a row while stuck at home exhausts all
+ *          three attempts and passes the turn to the next player.
+ * Syntax:  static void test_three_failed_tries_passes_turn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_three_failed_tries_passes_turn(void)
 {
 	ludo_game g;
@@ -91,9 +113,17 @@ static void test_three_failed_tries_passes_turn(void)
 	CHECK(g.tries_remaining == 3); /* reset for the new player */
 }
 
-/* Rolling a six with a pawn still at home mandatorily releases it (this
- * variant's house rule) -- and that release *is* the move for this roll,
- * so nothing is reported movable until the next roll. */
+/*
+ * Function: test_six_releases_home_pawn
+ * Summary: Rolling a six with a pawn still at home mandatorily releases
+ *          it (this variant's house rule) -- and that release *is* the
+ *          move for this roll, so nothing is reported movable until the
+ *          next roll.
+ * Syntax:  static void test_six_releases_home_pawn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_six_releases_home_pawn(void)
 {
 	ludo_game g;
@@ -107,8 +137,16 @@ static void test_six_releases_home_pawn(void)
 	CHECK(g.current_player == 0); /* six always grants another roll */
 }
 
-/* The pawn released by a six must be the one moved on the very next
- * roll, even if another already-released pawn could otherwise move too. */
+/*
+ * Function: test_forced_pawn_next_roll
+ * Summary: The pawn released by a six must be the one moved on the very
+ *          next roll, even if another already-released pawn could
+ *          otherwise move too.
+ * Syntax:  static void test_forced_pawn_next_roll(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_forced_pawn_next_roll(void)
 {
 	ludo_game g;
@@ -132,7 +170,15 @@ static void test_forced_pawn_next_roll(void)
 	CHECK(g.current_player == 1); /* roll of 3 was not a six: turn ends */
 }
 
-/* Landing exactly on an opponent's pawn sends it back to their home base. */
+/*
+ * Function: test_capture_sends_pawn_home
+ * Summary: Landing exactly on an opponent's pawn sends it back to their
+ *          home base.
+ * Syntax:  static void test_capture_sends_pawn_home(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_capture_sends_pawn_home(void)
 {
 	ludo_game g;
@@ -152,11 +198,19 @@ static void test_capture_sends_pawn_home(void)
 	CHECK(g.players[1].pawns[0].steps == 0);
 }
 
-/* Landing on a square already occupied by one of the SAME player's own
- * pawns (on the shared ring, not the home column) sends that earlier
- * pawn home rather than letting both stack on one square -- this
- * project's house rule, distinct from the home column's own blocking
- * rule below (which prevents landing there at all rather than bumping). */
+/*
+ * Function: test_own_pawn_sent_home_on_ring_collision
+ * Summary: Landing on a square already occupied by one of the SAME
+ *          player's own pawns (on the shared ring, not the home column)
+ *          sends that earlier pawn home rather than letting both stack
+ *          on one square -- this project's house rule, distinct from the
+ *          home column's own blocking rule below (which prevents landing
+ *          there at all rather than bumping).
+ * Syntax:  static void test_own_pawn_sent_home_on_ring_collision(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_own_pawn_sent_home_on_ring_collision(void)
 {
 	ludo_game g;
@@ -178,8 +232,15 @@ static void test_own_pawn_sent_home_on_ring_collision(void)
 	CHECK(g.players[0].pawns[1].steps == 5);
 }
 
-/* A pawn cannot pass, or land on, one of its own player's pawns that is
- * already further along in the home column. */
+/*
+ * Function: test_home_column_blocking
+ * Summary: A pawn cannot pass, or land on, one of its own player's pawns
+ *          that is already further along in the home column.
+ * Syntax:  static void test_home_column_blocking(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_home_column_blocking(void)
 {
 	ludo_game g;
@@ -197,8 +258,15 @@ static void test_home_column_blocking(void)
 	CHECK((ludo_movable_pawns(&g) & (1u << 1)) == 0);
 }
 
-/* A pawn must reach the very end of the home column on an exact roll --
- * overshooting past it is not a legal move. */
+/*
+ * Function: test_overshoot_not_movable
+ * Summary: A pawn must reach the very end of the home column on an exact
+ *          roll -- overshooting past it is not a legal move.
+ * Syntax:  static void test_overshoot_not_movable(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_overshoot_not_movable(void)
 {
 	ludo_game g;
@@ -214,7 +282,14 @@ static void test_overshoot_not_movable(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) != 0);
 }
 
-/* Moving a pawn the exact remaining distance finishes it. */
+/*
+ * Function: test_pawn_finishes_exactly
+ * Summary: Moving a pawn the exact remaining distance finishes it.
+ * Syntax:  static void test_pawn_finishes_exactly(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_pawn_finishes_exactly(void)
 {
 	ludo_game g;
@@ -230,12 +305,19 @@ static void test_pawn_finishes_exactly(void)
 	CHECK(g.players[0].pawns[0].finished == 1);
 }
 
-/* Once one pawn has finished (permanently occupying LUDO_TOTAL_STEPS),
- * a second pawn of the same player must NOT be able to stack on that
- * same square -- its
- * own effective end becomes one square short (LUDO_TOTAL_STEPS - 1),
- * blocked from the true end exactly like ordinary home-column blocking,
- * and *that* square is what finishes it. */
+/*
+ * Function: test_second_finishing_pawn_lands_one_square_short
+ * Summary: Once one pawn has finished (permanently occupying
+ *          LUDO_TOTAL_STEPS), a second pawn of the same player must NOT
+ *          be able to stack on that same square -- its own effective end
+ *          becomes one square short (LUDO_TOTAL_STEPS - 1), blocked from
+ *          the true end exactly like ordinary home-column blocking, and
+ *          *that* square is what finishes it.
+ * Syntax:  static void test_second_finishing_pawn_lands_one_square_short(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_second_finishing_pawn_lands_one_square_short(void)
 {
 	ludo_game g;
@@ -261,7 +343,15 @@ static void test_second_finishing_pawn_lands_one_square_short(void)
 	CHECK(g.players[0].pawns[0].steps != g.players[0].pawns[1].steps);
 }
 
-/* The player who finishes all four pawns first is recorded as the winner. */
+/*
+ * Function: test_winner_detected_when_all_pawns_finish
+ * Summary: The player who finishes all four pawns first is recorded as
+ *          the winner.
+ * Syntax:  static void test_winner_detected_when_all_pawns_finish(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_winner_detected_when_all_pawns_finish(void)
 {
 	ludo_game g;
@@ -293,10 +383,18 @@ static void test_winner_detected_when_all_pawns_finish(void)
 	CHECK(g.finish_order[1] == -1);
 }
 
-/* finish_order records every player as they finish, not just the first
- * (winner) -- game_view.c's win dialogue shows a distinct message per
- * place (1st through 4th), so all four need to be tracked, in the order
- * they actually finish, not player index order. */
+/*
+ * Function: test_finish_order_tracks_all_four_places
+ * Summary: finish_order records every player as they finish, not just
+ *          the first (winner) -- game_view.c's win dialogue shows a
+ *          distinct message per place (1st through 4th), so all four
+ *          need to be tracked, in the order they actually finish, not
+ *          player index order.
+ * Syntax:  static void test_finish_order_tracks_all_four_places(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_finish_order_tracks_all_four_places(void)
 {
 	static const int order[LUDO_PLAYERS] = { 2, 0, 3, 1 }; /* finish order */
@@ -337,8 +435,16 @@ static void test_finish_order_tracks_all_four_places(void)
 	CHECK(g.finish_order[3] == order[3]);
 }
 
-/* A six rolled for a pawn move (not a home release) grants another roll
- * for the same player, without creating a forced-pawn obligation. */
+/*
+ * Function: test_extra_roll_on_six_keeps_same_player
+ * Summary: A six rolled for a pawn move (not a home release) grants
+ *          another roll for the same player, without creating a
+ *          forced-pawn obligation.
+ * Syntax:  static void test_extra_roll_on_six_keeps_same_player(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_extra_roll_on_six_keeps_same_player(void)
 {
 	ludo_game g;
@@ -358,13 +464,19 @@ static void test_extra_roll_on_six_keeps_same_player(void)
 }
 
 /*
- * Once ANY player has won (g.winner != -1), every OTHER player who
- * hasn't finished yet must still keep their own normal six-goes-again
- * bonus -- per this project's "continue playing after the first winner"
- * house-rule mode (see docs/RULES.md). The turn-advance logic must check
- * this specific player's own all_pawns_finished(), not the global
- * g.winner == -1, or every remaining player would permanently lose their
- * bonus turn for the rest of the game the moment anyone won.
+ * Function: test_six_bonus_survives_another_players_win
+ * Summary: Once ANY player has won (g.winner != -1), every OTHER player
+ *          who hasn't finished yet must still keep their own normal
+ *          six-goes-again bonus -- per this project's "continue playing
+ *          after the first winner" house-rule mode (see docs/RULES.md).
+ *          The turn-advance logic must check this specific player's own
+ *          all_pawns_finished(), not the global g.winner == -1, or every
+ *          remaining player would permanently lose their bonus turn for
+ *          the rest of the game the moment anyone won.
+ * Syntax:  static void test_six_bonus_survives_another_players_win(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_six_bonus_survives_another_players_win(void)
 {
@@ -392,7 +504,14 @@ static void test_six_bonus_survives_another_players_win(void)
 	CHECK(g.forced_pawn == -1);
 }
 
-/* A non-six move ends the turn and advances to the next player. */
+/*
+ * Function: test_non_six_move_ends_turn
+ * Summary: A non-six move ends the turn and advances to the next player.
+ * Syntax:  static void test_non_six_move_ends_turn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_non_six_move_ends_turn(void)
 {
 	ludo_game g;
@@ -407,11 +526,18 @@ static void test_non_six_move_ends_turn(void)
 	CHECK(g.current_player == 1);
 }
 
-/* A pawn one step short of finishing (needs exactly 1) must never be
- * reported movable, or moved at all, on a roll of 2.
- * test_overshoot_not_movable() above already covers "2 short, roll 3" --
- * this is the "1 short" off-by-one neighbour, worth its own explicit
- * check. */
+/*
+ * Function: test_one_short_overshoot_not_movable
+ * Summary: A pawn one step short of finishing (needs exactly 1) must
+ *          never be reported movable, or moved at all, on a roll of 2.
+ *          test_overshoot_not_movable() above already covers "2 short,
+ *          roll 3" -- this is the "1 short" off-by-one neighbour, worth
+ *          its own explicit check.
+ * Syntax:  static void test_one_short_overshoot_not_movable(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_one_short_overshoot_not_movable(void)
 {
 	ludo_game g;
@@ -438,10 +564,17 @@ static void test_one_short_overshoot_not_movable(void)
  * MEJN-default tests above instead of being masked here.
  */
 
-/* own_pawn_capture off: landing on one of your own pawns shares the
- * square instead of sending it home (contrast with
- * test_own_pawn_sent_home_on_ring_collision() above, the MEJN-default
- * behaviour this is the opposite of). */
+/*
+ * Function: test_own_pawn_capture_off_shares_square
+ * Summary: own_pawn_capture off: landing on one of your own pawns shares
+ *          the square instead of sending it home (contrast with
+ *          test_own_pawn_sent_home_on_ring_collision() above, the
+ *          MEJN-default behaviour this is the opposite of).
+ * Syntax:  static void test_own_pawn_capture_off_shares_square(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_own_pawn_capture_off_shares_square(void)
 {
 	ludo_game g;
@@ -466,13 +599,21 @@ static void test_own_pawn_capture_off_shares_square(void)
 	CHECK(g.players[0].pawns[1].steps == 5); /* sharing the square */
 }
 
-/* mandatory_six_release off: a six no longer auto-releases a home pawn
- * via ludo_roll() -- instead, releasing that pawn becomes one of the
- * choices ludo_movable_pawns() reports, alongside any other legal move,
- * and picking it via ludo_move_pawn() performs the release (with the
- * usual six-grants-a-bonus-roll behaviour, but no "must move this pawn
- * next" obligation, since the player chose it rather than having it
- * forced on them). */
+/*
+ * Function: test_optional_six_release_offers_choice
+ * Summary: mandatory_six_release off: a six no longer auto-releases a
+ *          home pawn via ludo_roll() -- instead, releasing that pawn
+ *          becomes one of the choices ludo_movable_pawns() reports,
+ *          alongside any other legal move, and picking it via
+ *          ludo_move_pawn() performs the release (with the usual
+ *          six-grants-a-bonus-roll behaviour, but no "must move this
+ *          pawn next" obligation, since the player chose it rather than
+ *          having it forced on them).
+ * Syntax:  static void test_optional_six_release_offers_choice(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_optional_six_release_offers_choice(void)
 {
 	ludo_game g;
@@ -503,8 +644,16 @@ static void test_optional_six_release_offers_choice(void)
 	CHECK(g.last_roll == 0); /* bonus roll pending, same as any other six */
 }
 
-/* overshoot_bounce on: a roll that would carry a pawn past the very end
- * of its home column instead bounces it backward by the remainder. */
+/*
+ * Function: test_overshoot_bounce_moves_backward
+ * Summary: overshoot_bounce on: a roll that would carry a pawn past the
+ *          very end of its home column instead bounces it backward by
+ *          the remainder.
+ * Syntax:  static void test_overshoot_bounce_moves_backward(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_overshoot_bounce_moves_backward(void)
 {
 	ludo_game g;
@@ -526,12 +675,20 @@ static void test_overshoot_bounce_moves_backward(void)
 	CHECK(g.players[0].pawns[0].finished == 0);
 }
 
-/* overshoot_bounce on, extreme case: a bounce large enough to overshoot
- * back past the home column's own entrance is clamped there rather than
- * continuing onto the shared ring (see resolve_move_destination()'s own
- * doc comment in game_logic.c for why -- this project's 4-square home
- * column is shorter than a die's max value, unlike classic Ludo's
- * 6-square stretch which never hits this case). */
+/*
+ * Function: test_overshoot_bounce_clamped_at_home_column_entrance
+ * Summary: overshoot_bounce on, extreme case: a bounce large enough to
+ *          overshoot back past the home column's own entrance is clamped
+ *          there rather than continuing onto the shared ring (see
+ *          resolve_move_destination()'s own doc comment in game_logic.c
+ *          for why -- this project's 4-square home column is shorter
+ *          than a die's max value, unlike classic Ludo's 6-square
+ *          stretch which never hits this case).
+ * Syntax:  static void test_overshoot_bounce_clamped_at_home_column_entrance(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_overshoot_bounce_clamped_at_home_column_entrance(void)
 {
 	ludo_game g;
@@ -562,10 +719,17 @@ static void test_overshoot_bounce_clamped_at_home_column_entrance(void)
 	CHECK(g.players[0].pawns[0].steps == LUDO_RING_LENGTH); /* clamped, not onto the ring */
 }
 
-/* no_six_needed_last_pawn on: a player's own LAST pawn still at home may
- * be released on any roll, not just a six -- but only once it really is
- * the last one (with others still home, only a six qualifies, same as
- * ever). */
+/*
+ * Function: test_no_six_needed_for_last_home_pawn
+ * Summary: no_six_needed_last_pawn on: a player's own LAST pawn still at
+ *          home may be released on any roll, not just a six -- but only
+ *          once it really is the last one (with others still home, only
+ *          a six qualifies, same as ever).
+ * Syntax:  static void test_no_six_needed_for_last_home_pawn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_no_six_needed_for_last_home_pawn(void)
 {
 	ludo_game g;
@@ -590,9 +754,17 @@ static void test_no_six_needed_for_last_home_pawn(void)
 	CHECK(g.current_player == 1); /* non-six release ends the turn normally */
 }
 
-/* free_home_column on: a player's own pawns may pass or land on each
- * other in the home column (contrast with test_home_column_blocking()
- * above, the off-by-default behaviour this is the opposite of). */
+/*
+ * Function: test_free_home_column_allows_passing
+ * Summary: free_home_column on: a player's own pawns may pass or land on
+ *          each other in the home column (contrast with
+ *          test_home_column_blocking() above, the off-by-default
+ *          behaviour this is the opposite of).
+ * Syntax:  static void test_free_home_column_allows_passing(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_free_home_column_allows_passing(void)
 {
 	ludo_game g;
@@ -616,10 +788,18 @@ static void test_free_home_column_allows_passing(void)
 	CHECK(g.players[0].pawns[1].steps == 42);
 }
 
-/* blockade on: 2+ of one player's pawns stacked on a ring square block
- * every other player from landing on OR passing through that square
- * (only reachable in the first place with own_pawn_capture off, since
- * capture would otherwise prevent the stack from forming). */
+/*
+ * Function: test_blockade_blocks_landing_and_passing_through
+ * Summary: blockade on: 2+ of one player's pawns stacked on a ring
+ *          square block every other player from landing on OR passing
+ *          through that square (only reachable in the first place with
+ *          own_pawn_capture off, since capture would otherwise prevent
+ *          the stack from forming).
+ * Syntax:  static void test_blockade_blocks_landing_and_passing_through(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_blockade_blocks_landing_and_passing_through(void)
 {
 	ludo_game g;
@@ -658,10 +838,18 @@ static void test_blockade_blocks_landing_and_passing_through(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
 }
 
-/* The same stacked-pawns setup with blockade explicitly off (the Ludo
- * preset's own default is ON, so this test forces it off rather than
- * relying on any preset -- see the CHECK below): landing on or passing
- * through the square is fine when the rule genuinely isn't active. */
+/*
+ * Function: test_blockade_off_allows_landing_and_passing
+ * Summary: The same stacked-pawns setup with blockade explicitly off
+ *          (the Ludo preset's own default is ON, so this test forces it
+ *          off rather than relying on any preset -- see the CHECK
+ *          below): landing on or passing through the square is fine
+ *          when the rule genuinely isn't active.
+ * Syntax:  static void test_blockade_off_allows_landing_and_passing(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_blockade_off_allows_landing_and_passing(void)
 {
 	ludo_game g;
@@ -688,11 +876,18 @@ static void test_blockade_off_allows_landing_and_passing(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) != 0);
 }
 
-/* blockade on: a barricade sitting on a player's own start square also
- * refuses releasing a new pawn there -- both under mandatory six-release
- * (falls through to the "no legal action" bookkeeping, using up one of
- * the three tries) and under optional release (simply not offered as a
- * movable choice). */
+/*
+ * Function: test_blockade_blocks_release_at_own_start_square
+ * Summary: blockade on: a barricade sitting on a player's own start
+ *          square also refuses releasing a new pawn there -- both under
+ *          mandatory six-release (falls through to the "no legal action"
+ *          bookkeeping, using up one of the three tries) and under
+ *          optional release (simply not offered as a movable choice).
+ * Syntax:  static void test_blockade_blocks_release_at_own_start_square(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_blockade_blocks_release_at_own_start_square(void)
 {
 	ludo_game g;
@@ -732,8 +927,16 @@ static void test_blockade_blocks_release_at_own_start_square(void)
 	CHECK((ludo_movable_pawns(&g) & 1u) == 0);
 }
 
-/* backward_movement on: a pawn already on the ring may move backward by
- * the current roll as an alternative to its ordinary forward move. */
+/*
+ * Function: test_backward_movement_moves_pawn_back
+ * Summary: backward_movement on: a pawn already on the ring may move
+ *          backward by the current roll as an alternative to its
+ *          ordinary forward move.
+ * Syntax:  static void test_backward_movement_moves_pawn_back(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_backward_movement_moves_pawn_back(void)
 {
 	ludo_game g;
@@ -754,8 +957,15 @@ static void test_backward_movement_moves_pawn_back(void)
 	CHECK(g.players[0].pawns[0].steps == 6);
 }
 
-/* backward_movement on: a pawn cannot move backward past its own start
- * square (it can't "un-release" itself off the ring). */
+/*
+ * Function: test_backward_movement_cannot_pass_start
+ * Summary: backward_movement on: a pawn cannot move backward past its
+ *          own start square (it can't "un-release" itself off the ring).
+ * Syntax:  static void test_backward_movement_cannot_pass_start(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_backward_movement_cannot_pass_start(void)
 {
 	ludo_game g;
@@ -773,8 +983,16 @@ static void test_backward_movement_cannot_pass_start(void)
 	CHECK((ludo_movable_pawns_backward(&g) & 1u) == 0);
 }
 
-/* backward_movement + blockade both on: a backward move is blocked by a
- * barricade on its path exactly like a forward one. */
+/*
+ * Function: test_backward_movement_blocked_by_blockade
+ * Summary: backward_movement + blockade both on: a backward move is
+ *          blocked by a barricade on its path exactly like a forward
+ *          one.
+ * Syntax:  static void test_backward_movement_blocked_by_blockade(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_backward_movement_blocked_by_blockade(void)
 {
 	ludo_game g;
@@ -801,13 +1019,21 @@ static void test_backward_movement_blocked_by_blockade(void)
 	CHECK((ludo_movable_pawns_backward(&g) & 1u) != 0);
 }
 
-/* three_sixes_forfeit_turn: a player's first two sixes in a row grant the
- * usual bonus roll (current_player unchanged); the THIRD forfeits the
- * whole turn immediately, inside ludo_roll() itself, before any release
- * or move -- current_player moves on right away, with no move needed in
- * between to observe it (nothing except ludo_end_turn() ever changes
- * current_player, and this rule is the only thing that can call it from
- * inside ludo_roll() itself for an otherwise ordinary roll). */
+/*
+ * Function: test_three_sixes_forfeit_turn
+ * Summary: three_sixes_forfeit_turn: a player's first two sixes in a row
+ *          grant the usual bonus roll (current_player unchanged); the
+ *          THIRD forfeits the whole turn immediately, inside ludo_roll()
+ *          itself, before any release or move -- current_player moves on
+ *          right away, with no move needed in between to observe it
+ *          (nothing except ludo_end_turn() ever changes current_player,
+ *          and this rule is the only thing that can call it from inside
+ *          ludo_roll() itself for an otherwise ordinary roll).
+ * Syntax:  static void test_three_sixes_forfeit_turn(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_three_sixes_forfeit_turn(void)
 {
 	ludo_game g;
@@ -830,10 +1056,18 @@ static void test_three_sixes_forfeit_turn(void)
 	CHECK(g.current_player == 1); /* 3rd six -- forfeited, turn passed */
 }
 
-/* Same three-sixes-in-a-row sequence and setup as
- * test_three_sixes_forfeit_turn() above, but with the rule explicitly
- * OFF (this project's original, traditional behaviour) -- sixes keep
- * chaining indefinitely with no forfeit. */
+/*
+ * Function: test_three_sixes_no_forfeit_when_rule_off
+ * Summary: Same three-sixes-in-a-row sequence and setup as
+ *          test_three_sixes_forfeit_turn() above, but with the rule
+ *          explicitly OFF (this project's original, traditional
+ *          behaviour) -- sixes keep chaining indefinitely with no
+ *          forfeit.
+ * Syntax:  static void test_three_sixes_no_forfeit_when_rule_off(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_three_sixes_no_forfeit_when_rule_off(void)
 {
 	ludo_game g;
@@ -851,6 +1085,37 @@ static void test_three_sixes_no_forfeit_when_rule_off(void)
 	ludo_roll(&g, 6);
 	ludo_roll(&g, 6);
 	CHECK(g.current_player == 0); /* still the same player -- no cap */
+}
+
+/*
+ * Function: expected_finish_threshold (internal test helper)
+ * Summary: Test-side mirror of game_logic.c's internal, non-exported
+ *          finish_threshold_for() -- the steps value a specific pawn
+ *          must reach to be finished right now, which is LUDO_TOTAL_STEPS
+ *          minus however many of that player's *other* pawns have
+ *          already finished (see include/game_logic.h's own note on
+ *          this near LUDO_TOTAL_STEPS for the full reasoning).
+ *          Deliberately reimplemented here rather than
+ *          exposed from game_logic.c, since it's purely an internal
+ *          rule detail -- callers only ever need ludo_movable_pawns()/
+ *          ludo_move_pawn(), never this threshold directly.
+ * Syntax:  static int expected_finish_threshold(const ludo_game *g,
+ *                                                int player, int pawn_index);
+ * Input:   g          - the game in progress.
+ *          player     - which player's pawn to check.
+ *          pawn_index - index (0..LUDO_PAWNS-1) of the pawn to check.
+ * Output:  the steps value that pawn must reach to count as finished
+ *          right now.
+ */
+static int expected_finish_threshold(const ludo_game *g, int player, int pawn_index)
+{
+	int i, finished_ahead = 0;
+
+	for (i = 0; i < LUDO_PAWNS; i++) {
+		if (i != pawn_index && g->players[player].pawns[i].finished)
+			finished_ahead++;
+	}
+	return LUDO_TOTAL_STEPS - finished_ahead;
 }
 
 /*
@@ -877,36 +1142,15 @@ static void test_three_sixes_no_forfeit_when_rule_off(void)
  *          "finished iff steps == LUDO_TOTAL_STEPS" is not a valid
  *          invariant, since each pawn has its own dynamic finish
  *          threshold (game_logic.c's finish_threshold_for()) -- see
- *          expected_finish_threshold() below, a test-side
+ *          expected_finish_threshold() above, a test-side
  *          reimplementation of that same logic against only the public
  *          ludo_pawn/ludo_game fields, used to keep asserting the
  *          equivalent per-pawn invariant.
+ * Syntax:  static void test_headless_full_games_invariants(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
-
-/*
- * Function: expected_finish_threshold (test helper)
- * Summary: Test-side mirror of game_logic.c's internal, non-exported
- *          finish_threshold_for() -- the steps value a specific pawn
- *          must reach to be finished right now, which is LUDO_TOTAL_STEPS
- *          minus however many of that player's *other* pawns have
- *          already finished (see include/game_logic.h's own note on
- *          this near LUDO_TOTAL_STEPS for the full reasoning).
- *          Deliberately reimplemented here rather than
- *          exposed from game_logic.c, since it's purely an internal
- *          rule detail -- callers only ever need ludo_movable_pawns()/
- *          ludo_move_pawn(), never this threshold directly.
- */
-static int expected_finish_threshold(const ludo_game *g, int player, int pawn_index)
-{
-	int i, finished_ahead = 0;
-
-	for (i = 0; i < LUDO_PAWNS; i++) {
-		if (i != pawn_index && g->players[player].pawns[i].finished)
-			finished_ahead++;
-	}
-	return LUDO_TOTAL_STEPS - finished_ahead;
-}
-
 static void test_headless_full_games_invariants(void)
 {
 	int game_num;
@@ -1067,6 +1311,10 @@ static void test_headless_full_games_invariants(void)
  *          out-of-range value) from the combination of rules working
  *          together -- not to pin down each toggle's exact behaviour,
  *          which the focused per-toggle tests above already do.
+ * Syntax:  static void test_headless_full_games_pachisi_variant_invariants(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_headless_full_games_pachisi_variant_invariants(void)
 {
@@ -1192,6 +1440,10 @@ static void test_headless_full_games_pachisi_variant_invariants(void)
  *          combination of toggles working together, not pinning down
  *          each one's exact behaviour (the focused per-toggle tests
  *          earlier in this file already do that).
+ * Syntax:  static void test_headless_all_rule_combinations(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
  */
 static void test_headless_all_rule_combinations(void)
 {
@@ -1288,6 +1540,19 @@ static void test_headless_all_rule_combinations(void)
 	}
 }
 
+/*
+ * Function: main
+ * Summary: Test-runner entry point -- RUN()s every test function in this
+ *          file in turn (each RUN() prints the test's name and calls it,
+ *          incrementing tests_run), then prints a
+ *          "passed/total checks (N tests)" summary line.
+ * Syntax:  int main(void);
+ * Input:   none.
+ * Output:  process exit code -- 0 if every CHECK() across every test
+ *          passed (checks_failed == 0), 1 if any failed. See the `test`
+ *          Makefile target, which relies on this as a CI-able pass/fail
+ *          gate.
+ */
 int main(void)
 {
 	RUN(test_new_game_starts_correctly);

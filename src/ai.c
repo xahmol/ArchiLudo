@@ -183,6 +183,8 @@ static int ring_square(int player, int steps)
  *          LUDO_RING_LENGTH). Used to ask "could a pawn sitting at
  *          from_square reach to_square with one throw?".
  * Syntax:  static int ring_distance_behind(int from_square, int to_square);
+ * Input:   from_square - the square a pawn might be throwing from.
+ *          to_square   - the square being checked as reachable.
  * Output:  1..LUDO_RING_LENGTH (never 0 -- same square isn't "behind").
  */
 static int ring_distance_behind(int from_square, int to_square)
@@ -199,6 +201,9 @@ static int ring_distance_behind(int from_square, int to_square)
  *          releasing a new pawn there can capture whoever's sitting on
  *          it (see game_logic.c's ludo_roll(), the six-release path,
  *          and capture_at()).
+ * Syntax:  static int is_entry_square(int square);
+ * Input:   square - absolute ring square, 0..LUDO_RING_LENGTH-1.
+ * Output:  1 if it's one of the four entry squares, 0 otherwise.
  */
 static int is_entry_square(int square)
 {
@@ -216,6 +221,12 @@ static int is_entry_square(int square)
  *          scored.
  * Syntax:  static int score_landing_at(const ludo_game *g, int player,
  *                                      int pawn_index, int square);
+ * Input:   g          - the game in progress.
+ *          player     - owner of the pawn being scored.
+ *          pawn_index - which of that player's pawns is being scored
+ *                       (excluded from the opponent-occupant scan so it
+ *                       never scores a collision against itself).
+ *          square     - the absolute ring square being landed on.
  * Output:  the total capture/collision/blockade score contribution for
  *          landing there (may be 0, negative, or positive).
  */
@@ -281,6 +292,12 @@ static int score_landing_at(const ludo_game *g, int player, int pawn_index, int 
  *          ludo_roll()/ludo_move_pawn() both call capture_at() right
  *          after releasing).
  * Syntax:  static int score_release(const ludo_game *g, int player, int pawn_index);
+ * Input:   g          - the game in progress.
+ *          player     - the player releasing a pawn.
+ *          pawn_index - which of that player's home pawns is being
+ *                       considered for release.
+ * Output:  the score for this release (may be negative, e.g. under heavy
+ *          danger on the entry square).
  */
 static int score_release(const ludo_game *g, int player, int pawn_index)
 {
@@ -334,6 +351,16 @@ static int score_release(const ludo_game *g, int player, int pawn_index)
  *          move -- delegated entirely to score_release(), since none of
  *          the ring-position-based scoring below applies to a pawn
  *          that isn't on the board yet.
+ * Syntax:  static int score_move(const ludo_game *g, int player, int pawn_index);
+ * Input:   g          - the game in progress; g->last_roll is the roll
+ *                        being scored.
+ *          player     - the player whose pawn is being scored (normally
+ *                        g->current_player).
+ *          pawn_index - which of that player's pawns, must already be
+ *                       one ludo_movable_pawns() reported as movable.
+ * Output:  the move's score -- WEIGHT_WIN/WEIGHT_FINISH for a winning or
+ *          finishing move, otherwise the sum of the applicable
+ *          capture/danger/progress weights (may be negative).
  */
 static int score_move(const ludo_game *g, int player, int pawn_index)
 {
@@ -440,6 +467,14 @@ static int score_move(const ludo_game *g, int player, int pawn_index)
  *          penalty alone.
  * Syntax:  static int release_would_self_capture(const ludo_game *g,
  *              int player, int pawn_index, int square);
+ * Input:   g          - the game in progress.
+ *          player     - the player releasing a pawn.
+ *          pawn_index - which of that player's pawns is being released
+ *                       (excluded from the scan so it never matches
+ *                       itself).
+ *          square     - the entry square the release would land on.
+ * Output:  1 if another of the player's own pawns is sitting on `square`,
+ *          0 otherwise.
  */
 static int release_would_self_capture(const ludo_game *g, int player, int pawn_index, int square)
 {
@@ -482,6 +517,14 @@ static int release_would_self_capture(const ludo_game *g, int player, int pawn_i
  *          whenever it was the player's sole other pawn still racing
  *          (a real non-terminating game found by
  *          tests/test_ai.c's test_headless_ai_all_rule_combinations()).
+ * Syntax:  static int score_release_easy(const ludo_game *g, int player,
+ *                                        int pawn_index);
+ * Input:   g          - the game in progress.
+ *          player     - the player releasing a pawn.
+ *          pawn_index - which of that player's home pawns is being
+ *                       considered for release.
+ * Output:  the score for this release (heavily penalised if it would
+ *          self-capture).
  */
 static int score_release_easy(const ludo_game *g, int player, int pawn_index)
 {
@@ -518,6 +561,16 @@ static int score_release_easy(const ludo_game *g, int player, int pawn_index)
  *          makes it beatable by a player who understands positioning,
  *          rather than by making moves a reasonable player would call
  *          outright mistakes.
+ * Syntax:  static int score_move_easy(const ludo_game *g, int player,
+ *                                     int pawn_index);
+ * Input:   g          - the game in progress; g->last_roll is the roll
+ *                        being scored.
+ *          player     - the player whose pawn is being scored.
+ *          pawn_index - which of that player's pawns, must already be
+ *                       one ludo_movable_pawns() reported as movable.
+ * Output:  the move's score -- WEIGHT_WIN/WEIGHT_FINISH for a winning or
+ *          finishing move, otherwise the sum of the applicable
+ *          capture/progress weights.
  */
 static int score_move_easy(const ludo_game *g, int player, int pawn_index)
 {
@@ -575,6 +628,14 @@ static int score_move_easy(const ludo_game *g, int player, int pawn_index)
  * Syntax:  static int choose_best_pawn(const ludo_game *g, int player,
  *              unsigned movable, int (*score_fn)(const ludo_game *,
  *              int, int));
+ * Input:   g        - the game (or position) to score against.
+ *          player   - whose pawns are being scored.
+ *          movable  - bitmask of pawns eligible for selection; must be
+ *                     non-zero.
+ *          score_fn - scoring function to apply to each candidate pawn
+ *                     (e.g. score_move(), score_move_easy()).
+ * Output:  index (0..LUDO_PAWNS-1) of the highest-scoring pawn in
+ *          `movable`.
  */
 static int choose_best_pawn(const ludo_game *g, int player, unsigned movable,
                              int (*score_fn)(const ludo_game *, int, int))
@@ -613,6 +674,11 @@ static int choose_best_pawn(const ludo_game *g, int player, unsigned movable,
  *          would actually play out.
  * Syntax:  static int score_lookahead_penalty(const ludo_game *g,
  *              int player, int pawn_index);
+ * Input:   g          - the game in progress, before the candidate move.
+ *          player     - the player considering the move (normally
+ *                        g->current_player).
+ *          pawn_index - which of that player's pawns is the candidate
+ *                       move, already confirmed movable by the caller.
  * Output:  a score adjustment (0 or negative) to add to score_move()'s
  *          own result for this candidate move.
  */
@@ -722,6 +788,14 @@ int ludo_ai_choose_pawn(const ludo_game *g, unsigned movable, ludo_ai_difficulty
  *          is always the strategically correct choice.
  * Syntax:  static int score_move_backward(const ludo_game *g, int player,
  *                                         int pawn_index);
+ * Input:   g          - the game in progress; g->last_roll is the roll
+ *                        being scored.
+ *          player     - the player whose pawn is being scored.
+ *          pawn_index - which of that player's pawns, must already be
+ *                       one ludo_movable_pawns_backward() reported as
+ *                       backward-movable.
+ * Output:  the move's score (capture bonus minus a small penalty scaled
+ *          by how far the pawn retreats).
  */
 static int score_move_backward(const ludo_game *g, int player, int pawn_index)
 {

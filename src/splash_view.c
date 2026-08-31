@@ -184,6 +184,10 @@ static char ok_validation[4] = "R1";
  *          from plain RGB values (0..255 each) -- same helper as
  *          src/game_view.c's, duplicated here rather than shared since
  *          the two windows have no other reason to depend on each other.
+ * Syntax:  static void set_gcol(int r, int g, int b);
+ * Input:   r, g, b - colour components, 0..255 each.
+ * Output:  none. Sets the current graphics foreground colour as a side
+ *          effect.
  */
 static void set_gcol(int r, int g, int b)
 {
@@ -192,6 +196,16 @@ static void set_gcol(int r, int g, int b)
 	colourtrans_set_gcol(colour, colourtrans_SET_FG_GCOL, os_ACTION_OVERWRITE, 0);
 }
 
+/*
+ * Function: fill_rect (internal)
+ * Summary: Plot a filled rectangle in the current graphics foreground
+ *          colour (see set_gcol()) -- used to draw the logo's flat-colour
+ *          blocks (see this file's own top-of-file comment).
+ * Syntax:  static void fill_rect(int x0, int y0, int x1, int y1);
+ * Input:   x0, y0 - one corner of the rectangle, in OS units.
+ *          x1, y1 - the opposite corner, in OS units.
+ * Output:  none. Plots the rectangle as a side effect.
+ */
 static void fill_rect(int x0, int y0, int x1, int y1)
 {
 	os_plot(os_MOVE_TO, x0, y0);

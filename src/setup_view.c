@@ -113,6 +113,11 @@ static wimp_w window_handle = (wimp_w) -1;
  *          ICON_DIFFICULTY(player) -- but always tracked regardless, so
  *          a player's difficulty choice survives toggling Human/AI back
  *          and forth.
+ * Syntax:  static void set_difficulty(int player, ludo_ai_difficulty difficulty);
+ * Input:   player     - player index, 0..LUDO_PLAYERS-1.
+ *          difficulty - the AI difficulty to set for that player.
+ * Output:  none. Updates player_difficulty[]/difficulty_text[] and
+ *          redraws the icon if the window is open.
  */
 static void set_difficulty(int player, ludo_ai_difficulty difficulty)
 {
@@ -130,6 +135,11 @@ static void set_difficulty(int player, ludo_ai_difficulty difficulty)
  *          ask the Wimp to redraw that one icon. Also shades
  *          ICON_DIFFICULTY(player) while the player is Human -- the
  *          difficulty choice only matters for an AI-controlled seat.
+ * Syntax:  static void set_type(int player, int is_ai);
+ * Input:   player - player index, 0..LUDO_PLAYERS-1.
+ *          is_ai  - non-zero for AI-controlled, 0 for human.
+ * Output:  none. Updates type_is_ai[]/type_text[], redraws the icon,
+ *          and shades/unshades that player's difficulty icon.
  */
 static void set_type(int player, int is_ai)
 {

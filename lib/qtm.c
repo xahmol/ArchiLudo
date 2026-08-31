@@ -147,6 +147,12 @@ static const unsigned char sfx_channel[QTM_SFX_COUNT] = {
  *          its own arguments) unless built with `make DEBUG_LOG=1` --
  *          see the Makefile's own ARCHILUDO_DEBUG_LOG comment and
  *          game_view.c's own debug_log() doc comment.
+ * Syntax:  static void debug_log(const char *fmt, ...);
+ * Input:   fmt - printf-style format string, followed by its matching
+ *                arguments.
+ * Output:  none. Appends one line to the log file (or is silently
+ *          skipped if it can't be opened); does nothing at all in a
+ *          non-DEBUG_LOG build.
  */
 #ifdef ARCHILUDO_DEBUG_LOG
 static void debug_log(const char *fmt, ...)
@@ -180,6 +186,12 @@ static void debug_log(const char *fmt, ...)
  *          module itself is loaded via app/!Run, not this) lives flat in
  *          the app directory, same convention src/save_view.c's
  *          build_slot_path() already established.
+ * Syntax:  static void build_asset_path(const char *leaf, char *out,
+ *                                       size_t out_size);
+ * Input:   leaf     - the asset's own leafname (e.g. "Music1").
+ *          out      - buffer to receive the full path.
+ *          out_size - size of `out` in bytes.
+ * Output:  none. `out` holds the full, nul-terminated path.
  */
 static void build_asset_path(const char *leaf, char *out, size_t out_size)
 {
@@ -195,6 +207,12 @@ static void build_asset_path(const char *leaf, char *out, size_t out_size)
  * Function: build_music_path (internal)
  * Summary: `<ArchiLudo$Dir>.Music1` .. `.Music<QTM_MUSIC_TRACK_COUNT>` for
  *          track 0..QTM_MUSIC_TRACK_COUNT-1.
+ * Syntax:  static void build_music_path(int track, char *out,
+ *                                       size_t out_size);
+ * Input:   track    - 0..QTM_MUSIC_TRACK_COUNT-1.
+ *          out      - buffer to receive the full path.
+ *          out_size - size of `out` in bytes.
+ * Output:  none. `out` holds the full, nul-terminated path.
  */
 static void build_music_path(int track, char *out, size_t out_size)
 {
@@ -214,6 +232,9 @@ static void build_music_path(int track, char *out, size_t out_size)
  *          pi-star/phlamethrower documentation but their exact SWI
  *          numbers weren't confirmed against a working example, unlike
  *          this one -- see docs/QTM.md.
+ * Syntax:  static void qtm_clear(void);
+ * Input:   none.
+ * Output:  none.
  */
 static void qtm_clear(void)
 {
@@ -232,6 +253,9 @@ static void qtm_clear(void)
  * Function: start_track (internal)
  * Summary: QTM_Load the given track's file, then QTM_Start it. Does
  *          nothing if QTM isn't available.
+ * Syntax:  static void start_track(int track);
+ * Input:   track - 0..QTM_MUSIC_TRACK_COUNT-1.
+ * Output:  none.
  */
 static void start_track(int track)
 {
@@ -263,6 +287,9 @@ static void start_track(int track)
  *          reverted per direct user feedback ("really annoying") in
  *          favour of boosting the embedded sample data's own loudness
  *          instead (see tools/mod_embed_sfx.py's pcm16_to_pcm8()).
+ * Syntax:  static void apply_music_volume(void);
+ * Input:   none. Reads the current `music_enabled` flag.
+ * Output:  none.
  */
 static void apply_music_volume(void)
 {

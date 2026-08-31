@@ -29,17 +29,34 @@ static int checks_failed = 0;
 	test_fn(); \
 } while (0)
 
+/*
+ * Function: cells_equal (internal)
+ * Summary: Whether two board_cell grid coordinates refer to the same
+ *          cell -- used throughout this file instead of comparing
+ *          board_cell structs directly with ==.
+ * Syntax:  static int cells_equal(board_cell a, board_cell b);
+ * Input:   a, b - the two cells to compare.
+ * Output:  1 if both cells' col and row match, 0 otherwise.
+ */
 static int cells_equal(board_cell a, board_cell b)
 {
 	return a.col == b.col && a.row == b.row;
 }
 
-/* Every cell used anywhere on the board (ring, all 4 home columns, all 4
- * home bases) must be within the grid and must not collide with any
- * other cell used for a different purpose -- otherwise two different
- * board positions would draw on top of each other. There is no separate
- * "centre" cell -- a finished pawn resolves to its home column's own
- * last cell, already covered by the home column loop below. */
+/*
+ * Function: test_all_used_cells_are_in_range_and_distinct
+ * Summary: Every cell used anywhere on the board (ring, all 4 home
+ *          columns, all 4 home bases) must be within the grid and must
+ *          not collide with any other cell used for a different
+ *          purpose -- otherwise two different board positions would
+ *          draw on top of each other. There is no separate "centre"
+ *          cell -- a finished pawn resolves to its home column's own
+ *          last cell, already covered by the home column loop below.
+ * Syntax:  static void test_all_used_cells_are_in_range_and_distinct(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_all_used_cells_are_in_range_and_distinct(void)
 {
 	board_cell cells[LUDO_RING_LENGTH + LUDO_PLAYERS * LUDO_HOME_COLUMN_LENGTH
@@ -68,11 +85,18 @@ static void test_all_used_cells_are_in_range_and_distinct(void)
 	CHECK(duplicates == 0);
 }
 
-/* Each player's ring entry square (game_logic.c's player*10 convention)
- * should be a distinct point on the cross, and every player's home
- * column should connect to the ring cell immediately before their own
- * entry point -- the classic "peel off just before lapping your own
- * start" shape. */
+/*
+ * Function: test_player_entry_and_home_column_connectivity
+ * Summary: Each player's ring entry square (game_logic.c's player*10
+ *          convention) should be a distinct point on the cross, and
+ *          every player's home column should connect to the ring cell
+ *          immediately before their own entry point -- the classic
+ *          "peel off just before lapping your own start" shape.
+ * Syntax:  static void test_player_entry_and_home_column_connectivity(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_player_entry_and_home_column_connectivity(void)
 {
 	int player;
@@ -101,7 +125,16 @@ static void test_player_entry_and_home_column_connectivity(void)
 	}
 }
 
-/* board_pawn_cell() must dispatch to the right helper for each pawn state. */
+/*
+ * Function: test_pawn_cell_dispatch
+ * Summary: board_pawn_cell() must dispatch to the right helper for each
+ *          pawn state (home base, on the ring, in the home column,
+ *          finished).
+ * Syntax:  static void test_pawn_cell_dispatch(void);
+ * Input:   none.
+ * Output:  none -- failures are recorded via CHECK() into the shared
+ *          checks_run/checks_failed counters (see the top of this file).
+ */
 static void test_pawn_cell_dispatch(void)
 {
 	ludo_game g;
@@ -131,6 +164,17 @@ static void test_pawn_cell_dispatch(void)
 	                   board_home_column_cell(3, LUDO_HOME_COLUMN_LENGTH - 1)));
 }
 
+/*
+ * Function: main
+ * Summary: Test-runner entry point: runs every test in this file via
+ *          RUN() (which prints the test's name and calls it), prints a
+ *          final "<passed>/<total> checks passed (<n> tests)" summary
+ *          line, and reports success/failure to the calling shell.
+ * Syntax:  int main(void);
+ * Input:   none.
+ * Output:  process exit code -- 0 if every CHECK() across every test
+ *          passed (checks_failed == 0), 1 if at least one failed.
+ */
 int main(void)
 {
 	RUN(test_all_used_cells_are_in_range_and_distinct);

@@ -39,6 +39,12 @@ static int all_pawns_finished(const ludo_game *g, int player)
  *          backward compatibility with existing callers that only care
  *          about the first winner.
  * Syntax:  static void record_finish_order(ludo_game *g, int player);
+ * Input:   g      - the game in progress.
+ *          player - the player whose pawn just finished (index
+ *                   0..LUDO_PLAYERS-1); may or may not have actually
+ *                   finished all four pawns yet.
+ * Output:  none. g->finish_order and g->winner are updated in place if
+ *          `player` has just finished and wasn't already recorded.
  */
 static void record_finish_order(ludo_game *g, int player)
 {

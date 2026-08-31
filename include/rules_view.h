@@ -33,6 +33,10 @@
  * Summary: Create (but do not open) the Rule Options window. Call once
  *          during application startup, after game_logic.h's types are
  *          available (no other module dependency).
+ * Syntax:  void rules_view_initialise(void);
+ * Input:   none.
+ * Output:  none. The window exists (closed) and is ready for
+ *          rules_view_open().
  */
 void rules_view_initialise(void);
 
@@ -56,6 +60,9 @@ void rules_view_open(const ludo_rules *rules);
  * Function: rules_view_window_handle
  * Summary: The Rule Options window's handle, for src/main.c's
  *          Wimp_Poll dispatch to compare against.
+ * Syntax:  wimp_w rules_view_window_handle(void);
+ * Input:   none.
+ * Output:  the window handle created by rules_view_initialise().
  */
 wimp_w rules_view_window_handle(void);
 
@@ -64,6 +71,10 @@ wimp_w rules_view_window_handle(void);
  * Summary: Handle a Redraw_Window_Request for this window. Plain Wimp
  *          icons only, no custom-plotted content -- same trivial
  *          redraw-loop shape as every other dialogue module.
+ * Syntax:  void rules_view_redraw(wimp_draw *redraw);
+ * Input:   redraw - the Redraw_Window_Request event block, already
+ *                   Wimp_RedrawWindow-filled by the caller.
+ * Output:  none.
  */
 void rules_view_redraw(wimp_draw *redraw);
 
@@ -74,6 +85,10 @@ void rules_view_redraw(wimp_draw *redraw);
  *          project's own established pattern, relies on the Wimp's own
  *          ESG mechanism to visually deselect its sibling), the variant
  *          display icon (opens the variant pop-up menu), or OK/Cancel.
+ * Syntax:  void rules_view_click(wimp_pointer *pointer);
+ * Input:   pointer - the Mouse_Click event block.
+ * Output:  none. OK/Cancel close the window; OK also hands the
+ *          assembled rules back to setup_view.c.
  */
 void rules_view_click(wimp_pointer *pointer);
 
@@ -87,6 +102,7 @@ void rules_view_click(wimp_pointer *pointer);
  *          and a Menu_Selection event doesn't itself say which menu it
  *          belongs to).
  * Syntax:  int rules_view_menu_open(void);
+ * Input:   none.
  * Output:  1 if this module's variant menu is the one currently open,
  *          0 otherwise.
  */
