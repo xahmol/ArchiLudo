@@ -126,7 +126,7 @@ launch `code .` from a shell where you've already exported it).
 | `make assets` | regenerate the pawn sprites and app icon from their Python generators |
 | `make export-sprites` / `make import-sprites` | round-trip shipped sprites to hand-editable PNGs and back |
 | `make docs` | regenerate `README.pdf` via pandoc |
-| `make asm` | emit generated ARM assembly for the current sources |
+| `make asm` | emit generated ARM assembly for the current sources into `build/` |
 
 See the ["Installation"](#installation) section above for the
 10-character filename limit on real classic-Econet hardware --

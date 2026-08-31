@@ -195,8 +195,23 @@ $(APPDIR): | build
 
 -include $(DEPFILES)
 
-asm: $(SRCFILES)
-	$(ARCHIECC) $(CFLAGS) -S $(SRCFILES)
+# One .s per source, mirroring the build/%.o pattern rules above --
+# NOT a single `$(ARCHIECC) -S $(SRCFILES)` invocation with no -o: GCC's
+# compile-only modes (-c/-S) drop the source's own directory and write
+# output (plus the -MMD/-MP .d file) into the CURRENT WORKING DIRECTORY
+# when no -o is given, not next to the source and not into build/ --
+# litters the repo root with untracked (though .d is gitignored, .s
+# is not) files instead. Found live: `make asm` from the repo root
+# left 11 stray .s/.d files sitting there.
+ASMFILES = $(patsubst src/%.c,build/%.s,$(patsubst lib/%.c,build/%.s,$(SRCFILES)))
+
+asm: $(ASMFILES)
+
+build/%.s: src/%.c | build
+	$(ARCHIECC) $(CFLAGS) -S $< -o $@
+
+build/%.s: lib/%.c | build
+	$(ARCHIECC) $(CFLAGS) -S $< -o $@
 
 clean:
 	$(RMDIR) build 2>$(NULLDEV) ; true
