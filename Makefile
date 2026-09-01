@@ -59,8 +59,8 @@ HOSTCC ?= cc
 APPNAME = ArchiLudo
 
 # Build versioning
-VERSION_MAJOR     = 0
-VERSION_MINOR     = 1
+VERSION_MAJOR     = 1
+VERSION_MINOR     = 0
 VERSION_PATCH     = 0
 # := (immediate expansion), not = -- with plain =, $(shell date)
 # re-runs on every reference to VERSION_TIMESTAMP, so two recipe lines (or
