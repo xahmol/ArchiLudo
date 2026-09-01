@@ -604,6 +604,9 @@ static unsigned compute_movable_pawns_backward(const ludo_game *g)
  *          faithful reimplementation of traditional Pachisi's own board
  *          shape or cowrie-shell dice mechanic -- see the multi-rule-set
  *          planning notes and docs/GAME_LOGIC.md for the full caveat.
+ * Syntax:  ludo_rules ludo_default_rules(ludo_variant variant);
+ * Input:   variant - which preset to build.
+ * Output:  a fully populated ludo_rules value for that variant.
  */
 ludo_rules ludo_default_rules(ludo_variant variant)
 {

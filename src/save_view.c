@@ -320,18 +320,6 @@ void save_view_initialise(void)
 	load_window_handle = wimp_create_window((wimp_window *) &load_def);
 }
 
-/*
- * Function: save_view_open
- * Summary: Refresh all 5 slot rows from whatever is actually on disc
- *          right now (occupied slots show their real saved name,
- *          otherwise "Slot N"), then open the window. Always re-reads
- *          on every open -- see the module's own note on the
- *          one accepted edge case this causes (an in-progress, unsaved
- *          rename gets discarded if the dialogue is somehow reopened
- *          without being closed first; not reachable through this
- *          project's own menu, which only ever opens this dialogue via a
- *          single iconbar/window-menu entry).
- */
 void save_view_open(void)
 {
 	int i;
@@ -352,12 +340,6 @@ void save_view_open(void)
 	open_window(save_window_handle);
 }
 
-/*
- * Function: load_view_open
- * Summary: Refresh all 5 slot rows from disc (real name if occupied,
- *          "(empty)" and a shaded Load button otherwise), then open the
- *          window.
- */
 void load_view_open(void)
 {
 	int i;

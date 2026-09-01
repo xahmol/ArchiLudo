@@ -2734,6 +2734,9 @@ static void start_roll_animation(void)
  *          destination highlight (see preview_destination()) at a
  *          coarser interval, since that's cheap but pointless to redo on
  *          literally every idle poll.
+ * Syntax:  void game_view_poll_idle(void);
+ * Input:   none.
+ * Output:  none.
  */
 void game_view_poll_idle(void)
 {

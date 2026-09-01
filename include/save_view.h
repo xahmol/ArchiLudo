@@ -57,7 +57,16 @@ void save_view_initialise(void);
  *          actually on disc right now (game_view_peek_slot_name() for
  *          each of the 5 fixed slot paths) -- so the list is never stale
  *          even if a slot was written by an earlier Save since this
- *          dialogue last opened.
+ *          dialogue last opened. An occupied slot shows its real saved
+ *          name; in the Load dialogue specifically, an empty slot shows
+ *          "(empty)" with its Load button shaded (see
+ *          load_view_click()). This always re-reads on every open, so
+ *          an in-progress, unsaved rename in a writable slot-name field
+ *          gets silently discarded if the dialogue is somehow reopened
+ *          without being closed first -- accepted as unreachable through
+ *          this project's own menu, which only ever opens each dialogue
+ *          via a single iconbar/window-menu entry (never while it's
+ *          already open).
  * Syntax:  void save_view_open(void); void load_view_open(void);
  * Input:   none.
  * Output:  none.

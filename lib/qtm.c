@@ -454,18 +454,6 @@ int qtm_sfx_enabled(void)
 	return sfx_enabled;
 }
 
-/*
- * Function: qtm_shutdown
- * Summary: Actually stop/release QTM (unlike qtm_set_music_enabled(0),
- *          which only mutes -- see its own doc comment for why those
- *          are different). Call once at application quit, so background
- *          music doesn't keep playing after ArchiLudo itself has
- *          closed (QTM is a relocatable module independent of this
- *          task). A silent no-op if QTM isn't available.
- * Syntax:  void qtm_shutdown(void);
- * Input:   none.
- * Output:  none.
- */
 void qtm_shutdown(void)
 {
 	if (!qtm_ok)
