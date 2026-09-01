@@ -235,7 +235,7 @@ launch `code .` from a shell where you've already exported it).
 | `make deploy` | copy `build/!ArchiLudo` to the Arculator hostfs folder |
 | `make deploy-pibridge` | deploy to a real PiEconetBridge over SSH (password auth) |
 | `make zip` | versioned release archive (`build/ArchiLudo-vX.Y.Z-<timestamp>.zip`), RISC OS filetypes preserved |
-| `make disk` | ADFS "D" format (800KB) disc image containing the release zip, correctly filetyped |
+| `make disk` | ADFS "D" format (800KB) disc image -- the app and a plain-text README only (not `README.pdf`, too big to fit once it embeds every screenshot), correctly filetyped |
 | `make assets` | regenerate the pawn sprites and app icon from their Python generators |
 | `make export-sprites` / `make import-sprites` | round-trip shipped sprites to hand-editable PNGs and back |
 | `make docs` | regenerate `README.pdf` via pandoc |

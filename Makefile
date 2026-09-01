@@ -340,22 +340,34 @@ zip: $(APPFILES) build/README.pdf,adf build/ReadMe,fff
 
 DISKFILE = build/$(APPNAME)-$(VERSION).adf
 
-# An ADFS "D" format (800KB) disc image containing just the
-# release zip -- fits comfortably (the zip is ~654KB; ADFS "L", the
-# other common DD floppy format, only has 640KB, too small). Filetype
-# &A91 is RISC OS's real Zip filetype (confirmed against RISC OS Open's
-# own Zipper module docs) -- SparkFS is commonly registered to open
-# &A91 too, alongside its own native archives, so double-clicking the
-# file from the Filer still works. No third-party disc-image tool is
-# used -- tools/build_adfs_disk.py is a from-scratch writer, ground-
-# truthed against DiscImageManager's own source and independently
-# verified (structural checksums recomputed by a separately-written
-# reader, payload checked byte-for-byte via SHA-256) -- see that
-# script's own doc comment.
+# An ADFS "D" format (800KB) disc image. Deliberately built from a
+# LEANER zip than make zip's own $(ZIPFILE) -- that one now bundles
+# README.pdf, which embeds every screenshot in the README's "Interface
+# manual" section and is several MB, far beyond any floppy's physical
+# capacity regardless of compression. The disc image only ever needs
+# to get the app itself onto real hardware, so it re-zips just
+# $(APPDIR) plus the plain-text ReadMe,fff -- RISC OS 3.10 has no PDF
+# viewer to read README.pdf with anyway, so that's a PC-side
+# convenience the floppy path never needed. Filetype &A91 is RISC OS's
+# real Zip filetype (confirmed against RISC OS Open's own Zipper
+# module docs) -- SparkFS is commonly registered to open &A91 too,
+# alongside its own native archives, so double-clicking the file from
+# the Filer still works. No third-party disc-image tool is used --
+# tools/build_adfs_disk.py is a from-scratch writer, ground-truthed
+# against DiscImageManager's own source and independently verified
+# (structural checksums recomputed by a separately-written reader,
+# payload checked byte-for-byte via SHA-256) -- see that script's own
+# doc comment.
 disk: $(DISKFILE)
 
-$(DISKFILE): zip tools/build_adfs_disk.py
-	python3 tools/build_adfs_disk.py "$(ZIPFILE)" "$(DISKFILE)" "$(APPNAME)" "$(APPNAME)" a91
+DISKZIPFILE     = build/$(APPNAME)-disk-stage.zip
+DISKZIPFILE_ABS = $(abspath $(DISKZIPFILE))
+
+$(DISKFILE): $(APPFILES) build/ReadMe,fff tools/build_adfs_disk.py
+	rm -f "$(DISKZIPFILE_ABS)"
+	cd build && $(ARCHIEZIP) -r -, "$(DISKZIPFILE_ABS)" "!$(APPNAME)"
+	$(ARCHIEZIP) -j -, "$(DISKZIPFILE_ABS)" "build/ReadMe,fff"
+	python3 tools/build_adfs_disk.py "$(DISKZIPFILE)" "$(DISKFILE)" "$(APPNAME)" "$(APPNAME)" a91
 
 # Plain-text conversion of README.md for reading directly on RISC OS
 # (see the zip target's comment above for why this exists alongside
