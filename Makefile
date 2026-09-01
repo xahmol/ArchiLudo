@@ -404,9 +404,21 @@ build/test_ai: tests/test_ai.c src/ai.c src/game_logic.c include/ai.h include/ga
 
 docs: README.pdf
 
-README.pdf: README.md
+# --lua-filter/-H: without these, a long unbreakable inline-code token
+# (a git-clone one-liner, a Windows hostfs path) in the "Building from
+# source" tables overflows the page margin instead of wrapping -- see
+# tools/pandoc_wrap_code.lua's own top-of-file comment and
+# docs/BUILDCHAIN.md's "PDF generation" note. Needs the seqsplit LaTeX
+# package (apt: texlive-latex-extra, not texlive-xetex).
+# -f markdown-implicit_figures: without this, pandoc auto-wraps every
+# standalone screenshot in a floating LaTeX figure, free to drift onto
+# a later page away from the paragraph describing it -- disabling it
+# keeps each screenshot exactly where the "Interface manual" section
+# put it, at the cost of the auto-numbered "Figure N:" caption (not
+# needed here; the surrounding prose already describes each one).
+README.pdf: README.md tools/pandoc_wrap_code.lua tools/pandoc_header.tex $(wildcard screenshots/*.png)
 	@if which pandoc >$(NULLDEV) 2>&1; then \
-		pandoc README.md -o README.pdf; \
+		pandoc README.md -f markdown-implicit_figures --lua-filter=tools/pandoc_wrap_code.lua -H tools/pandoc_header.tex -o README.pdf; \
 	else \
 		echo "WARNING: pandoc not found -- README.pdf not updated"; \
 	fi

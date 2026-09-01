@@ -170,8 +170,49 @@ no cross-compiler, no emulator. This is the whole point of keeping
 | `make asm` | emits generated ARM assembly (`arm-archie-gcc -S`) for inspection, one `build/<name>.s` per source file |
 | `make assets` | regenerates `assets/PawnSprite` and `assets/!Sprites`/`!Sprites22` (the app icon) via `assets/generate_icon_sprites.py`/`generate_app_icon.py` -- see [TOOLS.md](TOOLS.md) and "Application directory" below |
 | `make export-sprites` / `make import-sprites` | hand pixel-editing round-trip for the shipped sprites -- see [TOOLS.md](TOOLS.md)'s "Editing sprites by hand" section |
-| `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) |
+| `make docs` | regenerates `README.pdf` via `pandoc` (warns and skips if pandoc isn't installed, never fails the build) -- see "PDF generation" below |
 | `make clean` | removes `build/` entirely |
+
+### PDF generation
+
+`make docs` passes three extra pandoc flags beyond a plain `pandoc
+README.md -o README.pdf`: `-f markdown-implicit_figures`,
+`--lua-filter=tools/pandoc_wrap_code.lua`, and `-H
+tools/pandoc_header.tex`. Without them, a long unbreakable
+inline-code token in a table cell (a git-clone one-liner, a Windows
+hostfs path, the kind of thing the "Building from source" tables have
+plenty of) overflows the page margin instead of wrapping -- pandoc's
+LaTeX writer renders inline code as `\texttt{...}`, and `\texttt` never
+hyphenates by default, so a single space-less token wider than its
+column just runs off the page. The filter wraps exactly that case in
+`\seqsplit{}` (a break-at-any-character package, needs the `-H` file's
+`\usepackage{seqsplit}`) while leaving ordinary multi-word code spans
+alone (they already wrap fine at their own spaces, and `seqsplit`
+itself would swallow those spaces if applied there too). See
+`tools/pandoc_wrap_code.lua`'s own top-of-file comment for the full
+writeup, including why `\texttt{\seqsplit{...}}` is the only nesting
+order that keeps the monospace font (the reverse order silently drops
+it). Needs the `texlive-latex-extra` apt package for `seqsplit.sty`
+(confirmed via `dpkg -S seqsplit.sty` -- NOT provided by
+`texlive-xetex`, this project's other pandoc prerequisite).
+
+`-f markdown-implicit_figures` is a separate, unrelated fix for the
+["Interface manual"](../README.md#interface-manual) section's
+screenshots: pandoc's markdown reader normally auto-wraps any
+paragraph containing just one image into a numbered, CAPTIONED,
+FLOATING LaTeX figure -- floats are free to drift onto a later page,
+away from the paragraph actually describing that screenshot, which
+reads badly in a walkthrough manual where the image and its
+explanation need to stay together. Disabling the extension makes each
+image a plain, non-floating `\includegraphics` exactly where it
+appears in the source, at the cost of losing the auto-numbered "Figure
+N:" caption (not missed here -- the surrounding prose already
+describes each screenshot). Image sizing itself needs no extra
+handling: pandoc's default LaTeX template already caps any image
+wider or taller than the page at `\linewidth`/`\textheight` (confirmed
+by inspecting its generated preamble for the `\maxwidth`/`\maxheight`
+macros), so even the largest screenshot here (a full 1920x1080 desktop
+capture) renders safely bounded with no manual `{width=...}` needed.
 
 ### Automatic dependency tracking
 

@@ -1,11 +1,14 @@
 # ArchiLudo
 
+![ArchiLudo's main game window, mid-game on real Acorn Archimedes hardware](screenshots/main-interface.png)
+
 A Ludo ("Mens Erger Je Niet") game for the Acorn Archimedes, targeting
 genuine 26-bit RISC OS 3.10. By Xander Mol (idreamtin8bits.com).
 
 ## Contents
 
 - [Playing ArchiLudo](#playing-archiludo)
+- [Interface manual](#interface-manual)
 - [Installation](#installation)
 - [Building from source](#building-from-source)
 - [Changelog](#changelog)
@@ -53,6 +56,116 @@ one limitation).
 Niet, Ludo, Pachisi-style) and 8 individually-adjustable house-rule
 toggles. See [RULES.md](docs/RULES.md) for the complete rules manual.
 
+## Interface manual
+
+All screenshots below are from a real Acorn A305 (ARM3, 4MB) over a
+PiEconetBridge, not an emulator -- disc name `PIBRIDGE-00` in the
+iconbar is the giveaway. This section walks every screen and dialogue
+in the order a player actually meets them; see ["Playing
+ArchiLudo"](#playing-archiludo) above for the accompanying prose
+manual.
+
+### Splash screen
+
+![The startup splash screen, in its real desktop context alongside other RISC OS applications](screenshots/splash-screen-in-desktop.png)
+
+![The splash screen close up](screenshots/splash-screen.png)
+
+Shown once automatically on startup (and reachable again afterwards
+from the iconbar/window menu's **About** entry). Click **OK**, or
+anywhere on the window, to dismiss it -- the very first time, this
+leads straight into the **New Game** dialogue below.
+
+### New Game dialogue
+
+![The New Game dialogue, default state -- one Human player and three AI opponents at their default difficulties](screenshots/new-game-dialogue.png)
+
+Set each of the 4 players' colour-coded name field and whether
+they're **Human** or **AI** (click to toggle). An AI-controlled player
+also gets a difficulty picker cycling **Low**/**Medium**/**High**
+(shaded out for a Human player, as GREEN's is here) -- see
+[AI.md](docs/AI.md) for what each tier actually does.
+
+![The New Game dialogue with a player name typed in, about to click Start](screenshots/new-game-name-entered.png)
+
+Any name field is freely editable (GREEN renamed to "Xander" here).
+**Rules...** opens the Rule Setup dialogue below; **Load** jumps
+straight to the Load Game dialogue instead of starting fresh; **Start**
+begins play with the configured players and whatever rules are
+currently selected.
+
+### Rule Setup dialogue
+
+![The Rule Setup dialogue, Variant selector open over the three presets](screenshots/rules-dialogue.png)
+
+Reached via **Rules...** on the New Game dialogue. The **Variant**
+selector picks one of the 3 curated presets (Mens Erger Je Niet, Ludo,
+Pachisi-style) and fills in every toggle below to match it; any toggle
+can then be adjusted individually, which is what actually happens
+under the hood -- a variant is just a starting point, not a locked
+mode. See [RULES.md](docs/RULES.md) for exactly what each toggle
+changes about play.
+
+### The game window
+
+![The main game window mid-turn, showing the board, player panel, and Throw button](screenshots/main-interface.png)
+
+The board (also shown at the top of this README) fills most of the
+window: the shared 40-square ring, each player's 4-pawn home base in a
+corner, and their short home column running in from the ring to the
+centre. The panel on the right shows the current player's name and
+what to do next (**Click Throw**, or a prompt to pick a pawn), plus a
+solid colour swatch marking whose turn it is. Click **Throw** to roll;
+click one of your own pawns on the board to move it, if more than one
+legally can (a single legal pawn moves automatically without a click).
+
+### Menus
+
+![The iconbar/window menu: New Game, Save Game, Load Game, Music, About, Quit](screenshots/window-menu.png)
+
+Opened from either the iconbar icon or a click on the game window
+itself (both show the same menu). **New Game** and **About** reopen
+the dialogues covered above; **Quit** closes ArchiLudo.
+
+![The Music submenu: On and SFX ticked, Track as a further submenu](screenshots/music-menu.png)
+
+**On** and **SFX** are independent ticked toggles -- music can play
+with effects muted, or vice versa. **Track** opens a further submenu
+(below) to pick which of the 3 bundled tracks plays.
+
+![The Track submenu, "lk's doskpop" about to be picked over the current selection "digital innovation1"](screenshots/track-menu.png)
+
+A tick marks the currently-playing track; clicking another switches to
+it immediately. See [QTM.md](docs/QTM.md) for what each track and
+sound effect is, and Track 3's one limitation.
+
+### Saving and loading
+
+![The Save Game dialogue: 5 renamable slots, one already used ("Default")](screenshots/save-game-dialogue.png)
+
+5 fixed slots, each independently renamable by editing its text field
+before clicking its own **Save** button -- saving never prompts to
+overwrite, since all 5 slots are equally "yours" (no distinction
+between a fresh slot and one already in use).
+
+![The Load Game dialogue: one occupied slot named "Default", the other 4 empty and their Load buttons shaded](screenshots/load-game-dialogue.png)
+
+An empty slot shows `(empty)` with its **Load** button shaded, exactly
+mirroring the Save dialogue's 5 slots. Reachable both from the
+iconbar/window menu and directly from the New Game dialogue's **Load**
+button.
+
+### Winning
+
+![The "Game Won" dialogue after RED finishes first: Continue, New Game, and Quit Game](screenshots/win-dialogue.png)
+
+A win screen (with fanfare) appears the moment any player finishes all
+4 pawns, showing "\<name\> WINS!" for the first player home and
+"\<name\> ended 2nd/3rd/4th" for each place after that. **Continue**
+(offered for every place except the last) lets the remaining players
+keep going to decide the rest of the finishing order; every win screen
+also offers **New Game** and **Quit Game**.
+
 ## Installation
 
 **Requires a real or emulated Acorn Archimedes running RISC OS 3.10 or
@@ -87,7 +200,7 @@ directories, not registry entries or system-wide installs.
 |---|---|---|
 | [ArchieSDK](https://gitlab.com/_targz/archiesdk) | ARM2-targeting cross-compiler (GCC 8.5.0), bundled OSLib | `git clone https://gitlab.com/_targz/archiesdk.git ~/riscos-dev/archiesdk && cd ~/riscos-dev/archiesdk && ./build.sh` |
 | [Arculator](https://arculator.hep.org.uk/) | Acorn Archimedes emulator, for testing | install anywhere; point `ARCULATOR_HOSTFS` in `.env` at its `hostfs` folder (e.g. `D:\Retro\Acorn\Arculator_V2.2_Windows\hostfs` on Windows) |
-| pandoc | optional: README.md -> README.pdf | `sudo apt install pandoc texlive-xetex` |
+| pandoc | optional: README.md -> README.pdf | `sudo apt install pandoc texlive-xetex texlive-latex-extra` |
 | Python 3 + Pillow | `tools/riscos_sprite.py`, the PNG->Sprite converter | `pip install Pillow` |
 | sshpass | optional: `make deploy-pibridge` (real-hardware deploy) | `sudo apt install sshpass` |
 
