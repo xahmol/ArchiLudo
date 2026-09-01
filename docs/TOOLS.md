@@ -289,6 +289,32 @@ in it. Raises if any filename (excluding the `,xxx` suffix) exceeds 10
 characters -- PiFS's default filename limit -- rather than silently
 producing something that would fail to open on the real fileserver.
 
+## `tools/gen_social_preview.py` -- GitHub social preview image generator
+
+Composites `screenshots/social-preview.png` (1280x640): a bordered
+game screenshot on the left, the idi8b logo, project name, version,
+short description and repo URL on the right. Matches the layout
+established across the author's other recent projects
+(locifilemanager-v2, OricScreenEditorLOCI, oricdemo2026,
+heartbeat-demo, vdcmaniac) -- the logo is reused directly from
+locifilemanager-v2's own generated preview rather than redrawn.
+
+```
+python3 tools/gen_social_preview.py
+```
+
+Requires Python 3 + Pillow (same dependency as `tools/riscos_sprite.py`
+-- see its own entry above) and, hardcoded in the script, a local
+checkout of `locifilemanager-v2` at
+`/home/xahmol/git/locifilemanager-v2` (logo source) plus the Ubuntu
+Mono variable font at
+`/usr/share/fonts/truetype/ubuntu/UbuntuMono[wght].ttf` -- this is a
+one-off authoring tool for the maintainer's own machine, not part of
+the build pipeline, so neither path is parameterised. Output is
+committed directly (`screenshots/social-preview.png`); GitHub's own
+Settings -> Social preview has no API, so uploading the generated
+image there is always a manual step.
+
 ## Experimental / not part of the pipeline
 
 `assets/experiments/gradient_preview.py` is a one-off, exploratory
