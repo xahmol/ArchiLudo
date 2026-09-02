@@ -691,7 +691,28 @@ void ludo_init(ludo_game *g)
 
 int ludo_roll(ludo_game *g, int forced_roll)
 {
-	int roll = (forced_roll >= 1 && forced_roll <= 6) ? forced_roll : (rand() % 6) + 1;
+	/* ArchieSDK's rand() (SDK/src/libc/stdlib/rand.c) is a classic LCG
+	 * (seed = 1103515245*seed + 12345, then abs()) with an odd
+	 * multiplier and odd increment -- its low bit toggles on EVERY
+	 * call, deterministically. Taking `% 6` directly on that (as this
+	 * line used to) inherits that parity: verified on the host (a
+	 * throwaway 600000-roll simulation of the exact same LCG formula)
+	 * that raw `rand() % 6` alternates even/odd 100.00% of the time,
+	 * i.e. every second dice roll's parity is fully predictable, even
+	 * though the 1-6 distribution itself still looks uniform. Shifting
+	 * away the weak low-order bits before the modulo (same fix works
+	 * for a healthy PRNG too, so this is harmless under the host
+	 * compiler's own rand() in `make test`) brings parity alternation
+	 * back down to the ~50% a real 50/50 split should show. See
+	 * docs/GAME_LOGIC.md and archiludo_initialise()'s own doc comment
+	 * for the matching srand() seeding fix.
+	 */
+	int roll;
+
+	if (forced_roll >= 1 && forced_roll <= 6)
+		roll = forced_roll;
+	else
+		roll = (int) (((unsigned int) rand() >> 16) % 6) + 1;
 
 	g->last_roll = roll;
 	g->just_released = 0;

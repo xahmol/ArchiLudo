@@ -123,6 +123,34 @@ and `ludo_move_pawn_backward(&g, pawn_index)` are checked alongside the
 ordinary forward pair -- always empty when the rule is off, so existing
 callers that never check it see no change in behaviour.
 
+## Dice randomness and seeding
+
+`ludo_roll()` calls the C library's `rand()` directly for an unforced
+roll -- this module has no OSLib dependency, so it cannot seed it
+itself (seeding needs a time source, which is a platform call). The
+WIMP shell seeds it once, via `src/main.c`'s `seed_random()`, called
+right at the start of `archiludo_initialise()` -- before any dice can
+possibly be rolled. A caller embedding this module elsewhere (the host
+test suite included) is responsible for calling `srand()` itself if it
+wants a seed that varies between runs; without one, ArchieSDK's
+`rand()` (a plain LCG, `SDK/src/libc/stdlib/rand.c`) starts from a
+hardcoded seed of 0 every time, and a host libc's `rand()` typically
+defaults to a seed of 1 -- either way, every run would roll the exact
+same dice sequence.
+
+`ludo_roll()` also does not take ArchieSDK's `rand()` output on faith:
+that LCG's low-order bits are weak (odd multiplier, odd increment --
+the low bit toggles on every single call, deterministically), so a
+naive `rand() % 6` produces dice whose *parity* strictly alternates
+every roll even though the 1-6 distribution looks uniform in
+aggregate. `ludo_roll()` shifts the raw value right by 16 bits before
+the modulo to use the healthier high-order bits instead -- verified on
+the host (a throwaway simulation of the exact same LCG formula) to
+bring parity alternation from 100% down to the ~50% real randomness
+should show, without changing the roll distribution. This shift is
+harmless under a healthy host-compiler `rand()` too (`make test` uses
+it unconditionally), so no platform-specific branch was needed.
+
 ## What's *not* in this module
 
 Board/dice/pawn rendering, dialogue boxes, menus, and save/load are all

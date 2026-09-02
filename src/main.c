@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "oslib/wimp.h"
 #include "archiludo.h"
@@ -292,10 +294,44 @@ static void refresh_track_menu_ticks(void)
 	}
 }
 
+/*
+ * Function: seed_random (internal)
+ * Summary: Seed the C library's rand() (used for dice rolls, see
+ *          game_logic.c's ludo_roll()) with a value that actually
+ *          varies from run to run. Without this, ArchieSDK's rand()
+ *          (SDK/src/libc/stdlib/rand.c, a plain LCG) starts from a
+ *          hardcoded seed of 0 every single launch, so every game
+ *          would roll the exact same dice sequence -- confirmed by
+ *          reading that source directly, not assumed.
+ *
+ *          Combines two independent OSLib-only time sources, XORed
+ *          together, rather than relying on either alone: time(NULL)
+ *          (RISC OS's real-time clock via OS_Word 14, wrapped by
+ *          ArchieSDK's own time.c) changes every second but reads a
+ *          fixed default on real hardware whose CMOS battery has died
+ *          or whose clock was never set -- a real risk on genuine
+ *          30+-year-old Archimedes machines, not a hypothetical one.
+ *          os_read_monotonic_time() (centisecond ticks since the
+ *          machine was last reset) has no such failure mode and is
+ *          already used elsewhere in this project (game_view.c's
+ *          animation timers), but alone would seed identically every
+ *          time if the machine were rebooted and the game launched at
+ *          exactly the same point in a scripted/emulated boot
+ *          sequence. Together, either source varying is enough.
+ * Syntax:  static void seed_random(void);
+ * Input:   none.
+ * Output:  none. Calls srand() once.
+ */
+static void seed_random(void)
+{
+	srand((unsigned int) time(NULL) ^ (unsigned int) os_read_monotonic_time());
+}
+
 void archiludo_initialise(const char *argv0)
 {
 	wimp_version_no version_out;
 
+	seed_random();
 	task_handle = wimp_initialise(wimp_VERSION_RO30, APP_NAME, NULL, &version_out);
 	create_iconbar_icon();
 	build_track_menu();

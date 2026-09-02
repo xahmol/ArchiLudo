@@ -399,7 +399,11 @@ void ludo_set_rules(ludo_game *g, const ludo_rules *rules);
  * Input:   g           - the game in progress.
  *          forced_roll - 1..6 to inject a specific value (used by the test
  *                        suite and by an AI player that pre-computes a
- *                        move), or 0 to roll randomly via rand().
+ *                        move), or 0 to roll randomly via rand() -- see
+ *                        docs/GAME_LOGIC.md's "Dice randomness and
+ *                        seeding" section for how/where this gets
+ *                        seeded, and why the raw rand() value isn't
+ *                        used as-is.
  * Output:  the die value rolled (1..6). If this roll leaves the current
  *          player with no legal move at all (see ludo_no_move_possible()),
  *          one of the player's three attempts is consumed, and once all
