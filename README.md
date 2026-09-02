@@ -255,8 +255,39 @@ for its structure).
 
 ## Changelog
 
-ArchiLudo hasn't cut discrete numbered releases yet -- this is a
-milestone-level history of what's been built, newest first.
+Release notes, newest first. See the
+[GitHub releases page](https://github.com/xahmol/ArchiLudo/releases)
+for downloads of any version.
+
+### v1.0.1
+
+- **Dice-roll fix**: `srand()` was never called anywhere -- ArchieSDK's
+  `rand()` (a plain LCG, `SDK/src/libc/stdlib/rand.c`) starts from a
+  hardcoded seed of 0 every launch, so every single game rolled the
+  exact same dice sequence. Now seeded at startup and again when the
+  New Game dialogue's Start button is clicked, from `rand()`'s own
+  current state mixed with `time(NULL)` and `os_read_monotonic_time()`
+  -- the second seeding point matters more in practice, since the time
+  between launch and a player actually clicking Start is driven by
+  human reaction time and differs every session, unlike the fairly
+  fixed OS-boot-to-launch duration the startup seed alone captures.
+- **Dice-parity fix**: that same LCG's low-order bits are weak (an odd
+  multiplier and odd increment make the low bit toggle on literally
+  every call), so a plain `rand() % 6` made successive rolls' parity
+  alternate 100% of the time even though the 1-6 distribution looked
+  uniform -- verified by simulating the exact formula on the host over
+  600,000 rolls. Fixed by using the healthier high-order bits instead.
+  See [GAME_LOGIC.md](docs/GAME_LOGIC.md)'s "Dice randomness and
+  seeding" section for the full writeup.
+- **GitHub social preview image**: a new `tools/gen_social_preview.py`
+  composites a screenshot, the idi8b logo, and version/description
+  text into the repo's social preview banner.
+
+### v1.0.0
+
+First formal release -- feature-complete, confirmed working both in
+Arculator and on a real, upgraded Acorn A305 (ARM3, 4MB) over a
+PiEconetBridge.
 
 - **Documentation restructuring**: a new [`TOOLS.md`](docs/TOOLS.md)
   manual now covers every standalone `tools/`/`assets/*.py` script
