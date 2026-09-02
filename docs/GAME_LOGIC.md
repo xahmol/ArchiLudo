@@ -128,9 +128,18 @@ callers that never check it see no change in behaviour.
 `ludo_roll()` calls the C library's `rand()` directly for an unforced
 roll -- this module has no OSLib dependency, so it cannot seed it
 itself (seeding needs a time source, which is a platform call). The
-WIMP shell seeds it once, via `src/main.c`'s `seed_random()`, called
-right at the start of `archiludo_initialise()` -- before any dice can
-possibly be rolled. A caller embedding this module elsewhere (the host
+WIMP shell seeds it via `archiludo_reseed_random()` (declared in
+`include/archiludo.h`, defined in `src/main.c`), called once right at
+the start of `archiludo_initialise()` -- before any dice can possibly
+be rolled -- and again every time the New Game dialogue's Start button
+is clicked (`src/setup_view.c`), each call mixing in fresh entropy on
+top of whatever the previous call already added rather than replacing
+it. The second call site is the more valuable one in practice: the
+time between application launch and a player clicking Start (reading
+the splash screen, typing names, picking difficulties) is driven by
+human reaction time and differs every session, unlike the mostly-fixed
+OS-boot-to-launch duration the startup call alone would capture. A
+caller embedding this module elsewhere (the host
 test suite included) is responsible for calling `srand()` itself if it
 wants a seed that varies between runs; without one, ArchieSDK's
 `rand()` (a plain LCG, `SDK/src/libc/stdlib/rand.c`) starts from a

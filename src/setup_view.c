@@ -9,6 +9,7 @@
 #include "oslib/wimpspriteop.h" /* wimpspriteop_AREA, for def.sprite_area only --
                                   * this window plots no sprites either */
 
+#include "archiludo.h"
 #include "setup_view.h"
 #include "game_view.h"
 #include "game_logic.h"
@@ -470,6 +471,13 @@ void setup_view_click(wimp_pointer *pointer)
 
 	if (pointer->i == ICON_START) {
 		char names[LUDO_PLAYERS][GAME_VIEW_NAME_LEN];
+
+		/* Mixes in fresh entropy from however long the player actually
+		 * took to reach this click (splash screen, typing names,
+		 * picking difficulties) -- see archiludo_reseed_random()'s own
+		 * doc comment for why this matters beyond the one seed already
+		 * done at startup. */
+		archiludo_reseed_random();
 
 		for (player = 0; player < LUDO_PLAYERS; player++) {
 			strncpy(names[player], name_buffer[player], GAME_VIEW_NAME_LEN - 1);
