@@ -259,6 +259,21 @@ Release notes, newest first. See the
 [GitHub releases page](https://github.com/xahmol/ArchiLudo/releases)
 for downloads of any version.
 
+### v1.0.2
+
+- **Sprite Pool crash fixed**: `tools/riscos_sprite.py`'s `cmd_pack()` wrote `0` as the "offset
+  to next sprite" field for the LAST sprite in `!Sprites`/`!Sprites22`, as an end-of-area marker.
+  Harmless when such a file is only ever read on its own -- but merging a *second* application's
+  icon sprites into an already-populated Wimp Sprite Pool (via Filer's own directory-listing icon
+  lookup, or another app's own `!Run`'s `IconSprites` command) then corrupts the pool's own
+  internal walk, throwing `Internal error: address exception` inside a ROM-resident
+  sprite-pool-enumeration routine -- confirmed live in Arculator, reproducible in both merge
+  orders and with more than one app pair, and confirmed via several real, professionally-authored
+  sprite files (checked against genuine 1990s Acorn apps) that the correct convention instead
+  points that field at the sprite area's own true end, even for the last sprite. Fixed, and
+  `!Sprites`/`!Sprites22` regenerated -- ArchiLudo now launches fine alongside another application
+  in the same session, which it previously could not reliably do.
+
 ### v1.0.1
 
 - **Dice-roll fix**: `srand()` was never called anywhere -- ArchieSDK's

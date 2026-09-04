@@ -106,7 +106,7 @@ canvas.paste(logo_scaled, (logo_x, logo_y))
 
 # --- Text ---
 draw.text((TEXT_X, TITLE_Y),  "ArchiLudo",             font=font_title, fill=C_CYAN)
-draw.text((TEXT_X, VERS_Y),   "v1.0.1",                font=font_vers,  fill=C_YELLOW)
+draw.text((TEXT_X, VERS_Y),   "v1.0.2",                font=font_vers,  fill=C_YELLOW)
 draw.text((TEXT_X, DESC_Y),        "Ludo / Mens Erger Je",     font=font_desc, fill=C_WHITE)
 draw.text((TEXT_X, DESC_Y + 34),   "Niet for the Acorn",       font=font_desc, fill=C_WHITE)
 draw.text((TEXT_X, DESC_Y + 68),   "Archimedes (RISC OS)",     font=font_desc, fill=C_WHITE)
